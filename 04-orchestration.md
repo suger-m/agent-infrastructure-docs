@@ -130,7 +130,7 @@ Human-in-the-loop 指工作流在某个步骤需要人的输入或决定。本�
 
 ## Pi 案例：把委派接入父 Agent 的工具循环
 
-以下实现主要位于 `packages/durable`；[README](../pi/packages/durable/README.md#L1-L7) 标明了它的 Experimental 状态，子任务、取消与 task graph 的说明见 [packages/durable/README.md L508-L596](../pi/packages/durable/README.md#L508-L596)。稳定 coding-agent 的 subagent 扩展与实验 durable TUI 各有入口。阅读时需确认所在路径，不能把实验任务的恢复行为视为默认 CLI 的能力。
+以下实现主要位于 `packages/durable`；[README](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/README.md#L1-L7) 标明了它的 Experimental 状态，子任务、取消与 task graph 的说明见 [packages/durable/README.md L508-L596](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/README.md#L508-L596)。稳定 coding-agent 的 subagent 扩展与实验 durable TUI 各有入口。阅读时需确认所在路径，不能把实验任务的恢复行为视为默认 CLI 的能力。
 
 ### 前台委派如何返回结果
 
@@ -142,7 +142,7 @@ Human-in-the-loop 指工作流在某个步骤需要人的输入或决定。本�
 4. 工具等待这次提交结束，从子会话的 answer entry 读取文本。
 5. 工具把文本作为工具结果返回。父模型收到结果后，继续自己的模型与工具流程。
 
-父模型看见的是一次工具调用及其结果。子 Agent 内部可以经历多轮模型请求和工具调用。若子工作尚未完成，前台工具就仍在等待；这很适合需要答案才能继续的步骤。仓库中的前台例子见 [packages/durable/test/examples/22-subagent-foreground.ts L38-L79](../pi/packages/durable/test/examples/22-subagent-foreground.ts#L38-L79)。
+父模型看见的是一次工具调用及其结果。子 Agent 内部可以经历多轮模型请求和工具调用。若子工作尚未完成，前台工具就仍在等待；这很适合需要答案才能继续的步骤。仓库中的前台例子见 [packages/durable/test/examples/22-subagent-foreground.ts L38-L79](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/test/examples/22-subagent-foreground.ts#L38-L79)。
 
 工具执行可能因重启而重放，所以它不能每次都盲目创建新会话或重复提交。示例先用 `ownerTaskId` 查找已创建的 child，再用 `subagent:<taskId>` 作为 `requestId` 提交输入。恢复后再次执行时，这些标识让工具找到原来的 conversation 和 submission，最后仍从对应的 answer entry 取回文本。子会话的历史独立保存；继承的是父会话的 agent 配置，不是父会话全部对话，因此参数需要携带子 Agent 完成任务所需的信息。
 
@@ -158,13 +158,13 @@ Pi 的 Task 保存工作进度和结果，Conversation 保存对话与输入。�
 
 子任务收到取消请求后，可能还要关闭连接、结束进程或清理临时文件。因此“已经请求取消”不等于“已经结束”。父任务若立即返回终态，调用者会以为资源已经收好。Pi 会把取消意图记为 abort mark，等正在运行的 invocation 退出，再执行 abort handler 并完成结算。
 
-失败提前通知和最终收尾的区别，可以用结账任务看得更清楚。Checkout 创建 Payment A 与 Payment B，同时保存自己的下一阶段和等待集合。两个支付任务运行时，Checkout 的处理函数已经退出。若 B 失败，`failFast` 会给仍活跃的 A 写取消标记；A 执行清理并结算。等两个 Payment 都进入终态，Checkout 才恢复，从 `runtime.outcomes()` 读取结果并决定订单结果。即使决定失败，只要它拥有的普通工作尚未结束，最终结果也先进入 `completing`；所有工作收尾后才成为 `terminal`，`waitForTask(checkout)` 此时才返回。完整例子在 [packages/durable/test/examples/24-child-tasks.ts L59-L105](../pi/packages/durable/test/examples/24-child-tasks.ts#L59-L105)。
+失败提前通知和最终收尾的区别，可以用结账任务看得更清楚。Checkout 创建 Payment A 与 Payment B，同时保存自己的下一阶段和等待集合。两个支付任务运行时，Checkout 的处理函数已经退出。若 B 失败，`failFast` 会给仍活跃的 A 写取消标记；A 执行清理并结算。等两个 Payment 都进入终态，Checkout 才恢复，从 `runtime.outcomes()` 读取结果并决定订单结果。即使决定失败，只要它拥有的普通工作尚未结束，最终结果也先进入 `completing`；所有工作收尾后才成为 `terminal`，`waitForTask(checkout)` 此时才返回。完整例子在 [packages/durable/test/examples/24-child-tasks.ts L59-L105](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/test/examples/24-child-tasks.ts#L59-L105)。
 
-普通等待要等 `on` 集合里的成员全部 terminal，才会再次调度父任务；调度器检查仍活跃成员的逻辑见 [packages/durable/src/harness/scheduler.ts L1197-L1207](../pi/packages/durable/src/harness/scheduler.ts#L1197-L1207)。failFast 在某成员出现非 completed outcome 后提前给其他活跃成员写 abort marks，但仍等它们结算才进入下一 phase，见 [packages/durable/src/harness/scheduler.ts L609-L619](../pi/packages/durable/src/harness/scheduler.ts#L609-L619)。业务层仍由 Checkout 判断付款结果。
+普通等待要等 `on` 集合里的成员全部 terminal，才会再次调度父任务；调度器检查仍活跃成员的逻辑见 [packages/durable/src/harness/scheduler.ts L1197-L1207](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/harness/scheduler.ts#L1197-L1207)。failFast 在某成员出现非 completed outcome 后提前给其他活跃成员写 abort marks，但仍等它们结算才进入下一 phase，见 [packages/durable/src/harness/scheduler.ts L609-L619](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/harness/scheduler.ts#L609-L619)。业务层仍由 Checkout 判断付款结果。
 
-父任务自己决定结束时，调度器检查它拥有的普通工作；若还有活跃工作，先保存为 `completing`，见 [packages/durable/src/harness/scheduler.ts L1448-L1470](../pi/packages/durable/src/harness/scheduler.ts#L1448-L1470)。后续结算逐轮推进已无活跃 child 的 owner，child 结束也可能让更上层的 owner 达到结束条件，见 [packages/durable/src/harness/scheduler.ts L639-L674](../pi/packages/durable/src/harness/scheduler.ts#L639-L674)。主动取消则先写入 abort mark，再等当前 run invocation 退出，之后向下处理取消、撤回排队输入并推进结算，见 [packages/durable/src/harness/scheduler.ts L339-L366](../pi/packages/durable/src/harness/scheduler.ts#L339-L366) 和 [packages/durable/src/harness/scheduler.ts L573-L628](../pi/packages/durable/src/harness/scheduler.ts#L573-L628)。由于取消意图已持久保存，重启后还能接着处理；每个任务的 abort handler 负责清理它自己的效果。
+父任务自己决定结束时，调度器检查它拥有的普通工作；若还有活跃工作，先保存为 `completing`，见 [packages/durable/src/harness/scheduler.ts L1448-L1470](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/harness/scheduler.ts#L1448-L1470)。后续结算逐轮推进已无活跃 child 的 owner，child 结束也可能让更上层的 owner 达到结束条件，见 [packages/durable/src/harness/scheduler.ts L639-L674](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/harness/scheduler.ts#L639-L674)。主动取消则先写入 abort mark，再等当前 run invocation 退出，之后向下处理取消、撤回排队输入并推进结算，见 [packages/durable/src/harness/scheduler.ts L339-L366](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/harness/scheduler.ts#L339-L366) 和 [packages/durable/src/harness/scheduler.ts L573-L628](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/harness/scheduler.ts#L573-L628)。由于取消意图已持久保存，重启后还能接着处理；每个任务的 abort handler 负责清理它自己的效果。
 
-后台工作会改变取消边界。普通空闲检查和取消遍历会在 background 边界停止；若 conversation abort 要连后台工作也取消，必须指定 `background: true`，见 [packages/durable/src/harness/scheduler.ts L391-L414](../pi/packages/durable/src/harness/scheduler.ts#L391-L414)。因此后台子 Agent 能在父会话暂时空闲后继续运行。
+后台工作会改变取消边界。普通空闲检查和取消遍历会在 background 边界停止；若 conversation abort 要连后台工作也取消，必须指定 `background: true`，见 [packages/durable/src/harness/scheduler.ts L391-L414](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/harness/scheduler.ts#L391-L414)。因此后台子 Agent 能在父会话暂时空闲后继续运行。
 
 下面两张图只描述 Pi 实验实现及其 Checkout 示例。第一张跟踪 Payment B 失败后的收尾顺序；第二张区分所有权实线与等待虚线。支付场景在这里用于观察任务状态，无需把它当作多 Agent 工作流的业务模板。
 
@@ -172,17 +172,17 @@ Pi 的 Task 保存工作进度和结果，Conversation 保存对话与输入。�
 
 ![Root conversation、Checkout、Payment、子会话与后台任务的所有权关系和显式等待边](figures/04-task-ownership.svg)
 
-等待关系也有局部校验：[packages/durable/src/harness/scheduler.ts L1472-L1498](../pi/packages/durable/src/harness/scheduler.ts#L1472-L1498) 会检查成员存在，拒绝等待自己或祖先 owner，要求 failFast 成员是直接 owned tasks，并禁止 abort handler 再转入 waiting。这些规则覆盖特定无法完成的依赖；它们不是对整张等待图的环检查，完整边界见后文“从这些构件到完整工作流，还缺什么”。
+等待关系也有局部校验：[packages/durable/src/harness/scheduler.ts L1472-L1498](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/harness/scheduler.ts#L1472-L1498) 会检查成员存在，拒绝等待自己或祖先 owner，要求 failFast 成员是直接 owned tasks，并禁止 abort handler 再转入 waiting。这些规则覆盖特定无法完成的依赖；它们不是对整张等待图的环检查，完整边界见后文“从这些构件到完整工作流，还缺什么”。
 
 ### 后台结果由报告任务送回
 
 前台路径让工具一直等答案，适用于答案是父模型继续工作所需的下一项输入。若父会话可以先处理别的事情，或用户不想被一次长任务阻塞，就可以采用后台投递。此时需要把“拥有子工作的角色”和“把答案送回父会话的角色”分别安排。
 
-后台示例 [packages/durable/test/examples/23-subagent-background.ts L56-L126](../pi/packages/durable/test/examples/23-subagent-background.ts#L56-L126) 用 background anchor 拥有 child，另由 background reporter 等待答案并发送父会话 follow-up。reporter 分为 `deliver` 与 `report` 两个 phase：child request ID、parent report request ID 分别去重，答复 entry ID 也会记录，以免多条输入共用一份回答时重复报告。anchor 很快可以结束；它与 child 的关系仍保存在 `ConversationRecord.owner` 中，所以 anchor 从 live task graph 消失不表示 child conversation 被删除。
+后台示例 [packages/durable/test/examples/23-subagent-background.ts L56-L126](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/test/examples/23-subagent-background.ts#L56-L126) 用 background anchor 拥有 child，另由 background reporter 等待答案并发送父会话 follow-up。reporter 分为 `deliver` 与 `report` 两个 phase：child request ID、parent report request ID 分别去重，答复 entry ID 也会记录，以免多条输入共用一份回答时重复报告。anchor 很快可以结束；它与 child 的关系仍保存在 `ConversationRecord.owner` 中，所以 anchor 从 live task graph 消失不表示 child conversation 被删除。
 
-这个示例的所有权和 reporter 结构可单独参考，返回字段需要留意：[packages/durable/test/examples/23-subagent-background.ts L149-L153](../pi/packages/durable/test/examples/23-subagent-background.ts#L149-L153) 的 `reply()` 和实验 durable subagent 返回 `content`；当前 tool runtime 读取 `output`，见 [packages/durable/src/harness/tool.ts L500-L508](../pi/packages/durable/src/harness/tool.ts#L500-L508)。这一处接口出入会影响示例的完整输出行为。
+这个示例的所有权和 reporter 结构可单独参考，返回字段需要留意：[packages/durable/test/examples/23-subagent-background.ts L149-L153](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/test/examples/23-subagent-background.ts#L149-L153) 的 `reply()` 和实验 durable subagent 返回 `content`；当前 tool runtime 读取 `output`，见 [packages/durable/src/harness/tool.ts L500-L508](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/harness/tool.ts#L500-L508)。这一处接口出入会影响示例的完整输出行为。
 
-稳定 coding-agent 的 subagent 扩展示范了另一种、保留在单次调用内存中的编排。[packages/coding-agent/examples/extensions/subagent/index.ts L550-L601](../pi/packages/coding-agent/examples/extensions/subagent/index.ts#L550-L601) 的 chain 把 `{previous}` 替换为上一步文本，顺序运行并在失败时停止；[packages/coding-agent/examples/extensions/subagent/index.ts L604-L685](../pi/packages/coding-agent/examples/extensions/subagent/index.ts#L604-L685) 的 parallel 用本地并发函数收集结果。它以数组顺序和本次调用状态组织任务，子进程使用 `--no-session`。这适合了解顺序链和本地扇出；这条扩展路径没有保存可供重启恢复的任务进度，也没有跨主机调度。
+稳定 coding-agent 的 subagent 扩展示范了另一种、保留在单次调用内存中的编排。[packages/coding-agent/examples/extensions/subagent/index.ts L550-L601](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/examples/extensions/subagent/index.ts#L550-L601) 的 chain 把 `{previous}` 替换为上一步文本，顺序运行并在失败时停止；[packages/coding-agent/examples/extensions/subagent/index.ts L604-L685](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/examples/extensions/subagent/index.ts#L604-L685) 的 parallel 用本地并发函数收集结果。它以数组顺序和本次调用状态组织任务，子进程使用 `--no-session`。这适合了解顺序链和本地扇出；这条扩展路径没有保存可供重启恢复的任务进度，也没有跨主机调度。
 
 ## Pi 案例：审阅循环、上下文交接与人工继续
 
@@ -190,11 +190,11 @@ Pi 的 Task 保存工作进度和结果，Conversation 保存对话与输入。�
 
 钩子（hook）是在运行过程的指定位置调用的扩展逻辑。对于审阅，合适的位置是模型准备结束一轮时：扩展检查是否满足退出条件，必要时补充输入，让审阅继续。它解决的是循环控制；审阅对象、版本和质量标准还需要调用者提供。
 
-durable 示例 [packages/durable/test/examples/28-reviewer.ts L31-L44](../pi/packages/durable/test/examples/28-reviewer.ts#L31-L44) 安装审阅角色的 section，用 `GenerationTask.onYield` 检查回答是否包含终止短语。没有该短语时，钩子追加“再看一遍”的输入，让同一 run 继续；它没有验证发现是否全部解决。创建与提交逻辑见 [packages/durable/test/examples/28-reviewer.ts L77-L100](../pi/packages/durable/test/examples/28-reviewer.ts#L77-L100)：它创建没有 owner 的审阅会话，选择另一模型，只提供只读工具和独立工作目录。示例第一轮读取后提交发现，第二轮带结束短语，输入记录才完成。这是审阅循环的独立用途，不是前台 subagent 必经的一步。
+durable 示例 [packages/durable/test/examples/28-reviewer.ts L31-L44](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/test/examples/28-reviewer.ts#L31-L44) 安装审阅角色的 section，用 `GenerationTask.onYield` 检查回答是否包含终止短语。没有该短语时，钩子追加“再看一遍”的输入，让同一 run 继续；它没有验证发现是否全部解决。创建与提交逻辑见 [packages/durable/test/examples/28-reviewer.ts L77-L100](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/test/examples/28-reviewer.ts#L77-L100)：它创建没有 owner 的审阅会话，选择另一模型，只提供只读工具和独立工作目录。示例第一轮读取后提交发现，第二轮带结束短语，输入记录才完成。这是审阅循环的独立用途，不是前台 subagent 必经的一步。
 
 ### 以 reset 保存上下文交接点
 
-durable Harness 的 `root.reset(handoff)` 会写一条 `head: "self"` 的 `pi.reset`，把交接说明作为新上下文的 user message，旧 entries 仍保存在存储中，见 [packages/durable/src/harness/harness.ts L113-L120](../pi/packages/durable/src/harness/harness.ts#L113-L120)。工具也能返回 `control.handoff`；工具轮结束时，`finishToolRound()` 选调用顺序里最后一份说明，写 reset 并结束当前 run，然后处理排队的后续输入，见 [packages/durable/src/harness/generation.ts L627-L656](../pi/packages/durable/src/harness/generation.ts#L627-L656)。
+durable Harness 的 `root.reset(handoff)` 会写一条 `head: "self"` 的 `pi.reset`，把交接说明作为新上下文的 user message，旧 entries 仍保存在存储中，见 [packages/durable/src/harness/harness.ts L113-L120](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/harness/harness.ts#L113-L120)。工具也能返回 `control.handoff`；工具轮结束时，`finishToolRound()` 选调用顺序里最后一份说明，写 reset 并结束当前 run，然后处理排队的后续输入，见 [packages/durable/src/harness/generation.ts L627-L656](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/harness/generation.ts#L627-L656)。
 
 Handoff 提供后续请求的起点，工作由新的上下文接着处理。它不会把 Session 搬到另一台机器或另一个 agent 进程；这是上下文交接，不是远端迁移。
 
@@ -202,23 +202,23 @@ Handoff 提供后续请求的起点，工作由新的上下文接着处理。它
 
 Pi 的计划示例对应前文的人工决策基本过程：先让执行者只能调研，保存一份待查看的计划，然后停止当前轮。恢复由主机显式触发，适合观察人在两个执行片段之间怎样插入决定。
 
-durable plan 示例 [packages/durable/test/examples/27-plan-mode.ts L28-L62](../pi/packages/durable/test/examples/27-plan-mode.ts#L28-L62) 先把工具限制为 read 和 `submit_plan`，将计划存入可回看历史值的 `PlanDoc`，再用 `terminate` 停止当前轮。用户审阅后，主机调用 `configure(leavePlanMode)` 并提交“Go ahead.”，见 [packages/durable/test/examples/27-plan-mode.ts L93-L100](../pi/packages/durable/test/examples/27-plan-mode.ts#L93-L100)，然后恢复工具与执行。
+durable plan 示例 [packages/durable/test/examples/27-plan-mode.ts L28-L62](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/test/examples/27-plan-mode.ts#L28-L62) 先把工具限制为 read 和 `submit_plan`，将计划存入可回看历史值的 `PlanDoc`，再用 `terminate` 停止当前轮。用户审阅后，主机调用 `configure(leavePlanMode)` 并提交“Go ahead.”，见 [packages/durable/test/examples/27-plan-mode.ts L93-L100](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/test/examples/27-plan-mode.ts#L93-L100)，然后恢复工具与执行。
 
-稳定 coding-agent 的 plan-mode 扩展给出具体界面：[packages/coding-agent/examples/extensions/plan-mode/index.ts L301-L336](../pi/packages/coding-agent/examples/extensions/plan-mode/index.ts#L301-L336) 让用户选择 Execute、Stay 或 Refine。Execute 恢复工具并排入 follow-up；Refine 先读取用户补充，再投递消息。这个 UI 是扩展提供的交互方式。plan 示例没有通用审批记录或审批队列，也没有授权身份、批准版本、过期规则和审批崩溃恢复协议。危险工具阻断与可信项目确认见[权限与 Secrets](10-permissions-secrets.md)。
+稳定 coding-agent 的 plan-mode 扩展给出具体界面：[packages/coding-agent/examples/extensions/plan-mode/index.ts L301-L336](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/examples/extensions/plan-mode/index.ts#L301-L336) 让用户选择 Execute、Stay 或 Refine。Execute 恢复工具并排入 follow-up；Refine 先读取用户补充，再投递消息。这个 UI 是扩展提供的交互方式。plan 示例没有通用审批记录或审批队列，也没有授权身份、批准版本、过期规则和审批崩溃恢复协议。危险工具阻断与可信项目确认见[权限与 Secrets](10-permissions-secrets.md)。
 
 ## 源码补充：任务的定义、创建与关系检查
 
-任务（Task）保存一项工作的阶段和结果，会话（Conversation）保存 Agent 的对话与输入。一个任务可以拥有子任务或会话；子 Agent 常在独立会话中执行工作。任务定义提供 `initial` 起点、各个 `phases` 处理函数、`abort` 取消处理、`migrate` 旧版本转换，以及 join policy。定义在 [packages/durable/src/types.ts L242-L277](../pi/packages/durable/src/types.ts#L242-L277)；每个 phase 要提交新的 checkpoint 或终态，见 [packages/durable/src/types.ts L142-L155](../pi/packages/durable/src/types.ts#L142-L155)。checkpoint 保存恢复时要运行的阶段及其数据。
+任务（Task）保存一项工作的阶段和结果，会话（Conversation）保存 Agent 的对话与输入。一个任务可以拥有子任务或会话；子 Agent 常在独立会话中执行工作。任务定义提供 `initial` 起点、各个 `phases` 处理函数、`abort` 取消处理、`migrate` 旧版本转换，以及 join policy。定义在 [packages/durable/src/types.ts L242-L277](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/types.ts#L242-L277)；每个 phase 要提交新的 checkpoint 或终态，见 [packages/durable/src/types.ts L142-L155](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/types.ts#L142-L155)。checkpoint 保存恢复时要运行的阶段及其数据。
 
-`defineTask()` 将 definition 包装成任务对象，见 [packages/durable/src/tasks.ts L1-L8](../pi/packages/durable/src/tasks.ts#L1-L8)。主机还需安装包含该定义的 extension，调度器才有对应处理函数。创建记录发生在 [packages/durable/src/session/transaction.ts L383-L427](../pi/packages/durable/src/session/transaction.ts#L383-L427) 的 `createTask()`：它解析 owner 和 conversation，运行 `initial`，生成 `pending` 记录。后台边界也依赖这类归属记录：子任务不能直接设 `background: true`；后台标记设在由会话拥有的任务上。任务也可以拥有另一个会话，把那份会话里的工作纳入自己的生命周期。
+`defineTask()` 将 definition 包装成任务对象，见 [packages/durable/src/tasks.ts L1-L8](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/tasks.ts#L1-L8)。主机还需安装包含该定义的 extension，调度器才有对应处理函数。创建记录发生在 [packages/durable/src/session/transaction.ts L383-L427](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/session/transaction.ts#L383-L427) 的 `createTask()`：它解析 owner 和 conversation，运行 `initial`，生成 `pending` 记录。后台边界也依赖这类归属记录：子任务不能直接设 `background: true`；后台标记设在由会话拥有的任务上。任务也可以拥有另一个会话，把那份会话里的工作纳入自己的生命周期。
 
-提交时还有一条约束：owner 若已是 `terminal`、正在 `completing`，或带有 abort mark，就不能再接收新工作。[packages/durable/src/session/transaction.ts L852-L874](../pi/packages/durable/src/session/transaction.ts#L852-L874) 在组装提交时检查这一点。因而创建 child 并把父任务设为 waiting 可以在同一次提交中完成；若同一提交又结束 owner，则会被拒绝。父任务发出结束请求后等待的，是已经归属自己的工作。
+提交时还有一条约束：owner 若已是 `terminal`、正在 `completing`，或带有 abort mark，就不能再接收新工作。[packages/durable/src/session/transaction.ts L852-L874](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/session/transaction.ts#L852-L874) 在组装提交时检查这一点。因而创建 child 并把父任务设为 waiting 可以在同一次提交中完成；若同一提交又结束 owner，则会被拒绝。父任务发出结束请求后等待的，是已经归属自己的工作。
 
 ### 在运行时查看任务关系
 
 前面的概念依赖图用于设计工作流；Pi 的 live task graph 用于观察当前工作。它把归属和等待放在同一视图里，读图时仍需区分两种关系。
 
-运行时可用 `Harness.taskGraph()` 查看仍在进行的任务。[packages/durable/src/harness/task-graph.ts L18-L43](../pi/packages/durable/src/harness/task-graph.ts#L18-L43) 的节点包含 live status、phase、owner、background、abortRequested、waiting.on/policy，以及任务拥有的 conversations。初始图由 [packages/durable/src/harness/task-graph.ts L107-L148](../pi/packages/durable/src/harness/task-graph.ts#L107-L148) 在 Session line 上原子构造，之后随 commit publication 更新，见 [packages/durable/src/harness/task-graph.ts L155-L207](../pi/packages/durable/src/harness/task-graph.ts#L155-L207)；terminal 节点会离开 live graph。
+运行时可用 `Harness.taskGraph()` 查看仍在进行的任务。[packages/durable/src/harness/task-graph.ts L18-L43](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/harness/task-graph.ts#L18-L43) 的节点包含 live status、phase、owner、background、abortRequested、waiting.on/policy，以及任务拥有的 conversations。初始图由 [packages/durable/src/harness/task-graph.ts L107-L148](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/harness/task-graph.ts#L107-L148) 在 Session line 上原子构造，之后随 commit publication 更新，见 [packages/durable/src/harness/task-graph.ts L155-L207](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/harness/task-graph.ts#L155-L207)；terminal 节点会离开 live graph。
 
 这个视图只保留 live records，完整历史以及 checkpoint/outcome 的大载荷要从其他入口读取。它也不说明 pending 为何 blocked；排查时可用 `harness.inspect()`，见[可观测性与调试](11-observability-debugging.md)。
 
@@ -230,7 +230,7 @@ Pi 的等待校验没有遍历全图找环。两个独立任务通过 `allSettle
 
 稳定 coding-agent subagent 扩展示例把执行状态留在一次调用的内存中。重启恢复需另外保存 checkpoint；这条路径也没有共享 broker 或跨主机调度。Reviewer 示例在临时目录和 MemoryStorage 中运行，没有创建真实 git worktree，也没有演示跨进程保存；其中角色和配置可以随 Harness 存储，跨进程保留仍取决于后端。Reviewer 不会自动把发现转成补丁或合并闸门，示例也没有设循环最大轮数。
 
-`TaskScheduler` 只在一个 Harness 实例内调度，目前没有跨机器编排服务或 worker lease。实验 services 也只暴露 root conversation；[packages/coding-agent/src/experimental/services/README.md L38-L45](../pi/packages/coding-agent/src/experimental/services/README.md#L38-L45) 将 keyed subagent services 列为后续工作。因此前后台示例中的 conversation 关系尚未全部成为远端服务接口。
+`TaskScheduler` 只在一个 Harness 实例内调度，目前没有跨机器编排服务或 worker lease。实验 services 也只暴露 root conversation；[packages/coding-agent/src/experimental/services/README.md L38-L45](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/experimental/services/README.md#L38-L45) 将 keyed subagent services 列为后续工作。因此前后台示例中的 conversation 关系尚未全部成为远端服务接口。
 
 ## 源码位置与术语速查
 
@@ -268,8 +268,8 @@ Pi 的等待校验没有遍历全图找环。两个独立任务通过 `allSettle
 
 | 阅读位置 | 可跟踪的过程 |
 | --- | --- |
-| [packages/durable/test/harness-task-graph.test.ts L84-L166](../pi/packages/durable/test/harness-task-graph.test.ts#L84-L166) | waiting、completing、owner conversations，以及 terminal 节点删除 |
-| [packages/durable/test/harness-task-graph.test.ts L168-L238](../pi/packages/durable/test/harness-task-graph.test.ts#L168-L238) | 重开后变为 pending，重放 graph operations |
-| [packages/durable/test/harness-tasks-recovery.test.ts L176-L245](../pi/packages/durable/test/harness-tasks-recovery.test.ts#L176-L245) | 取消 mark、abort handler 和 terminal 各阶段的恢复 |
+| [packages/durable/test/harness-task-graph.test.ts L84-L166](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/test/harness-task-graph.test.ts#L84-L166) | waiting、completing、owner conversations，以及 terminal 节点删除 |
+| [packages/durable/test/harness-task-graph.test.ts L168-L238](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/test/harness-task-graph.test.ts#L168-L238) | 重开后变为 pending，重放 graph operations |
+| [packages/durable/test/harness-tasks-recovery.test.ts L176-L245](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/test/harness-tasks-recovery.test.ts#L176-L245) | 取消 mark、abort handler 和 terminal 各阶段的恢复 |
 
 若自行验证，从 `packages/durable` 运行 `node ../../node_modules/vitest/dist/cli.js --run test/harness-task-graph.test.ts`，无需真实模型。支付示例使用内存假银行，其中的退款行为没有给真实外部系统增加事务保证。

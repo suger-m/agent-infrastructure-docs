@@ -199,9 +199,9 @@ Pi 的压缩过程依次完成预算判断、选择切点、生成摘要、保�
 
 ### 摘要承担工作交接，文件清单保留路径线索
 
-默认摘要提示词要求记录目标、约束、已完成与进行中的工作、阻塞、决策、下一步和必要背景，并保留精确路径、函数名及错误信息。已有摘要与新增消息一起参与更新，见[摘要提示词与更新规则](../pi/packages/coding-agent/src/core/compaction/compaction.ts#L515-L578)。
+默认摘要提示词要求记录目标、约束、已完成与进行中的工作、阻塞、决策、下一步和必要背景，并保留精确路径、函数名及错误信息。已有摘要与新增消息一起参与更新，见[摘要提示词与更新规则](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/core/compaction/compaction.ts#L515-L578)。
 
-配置任务中，“保留原模型；已读配置；新模型已写入但尚未验证”比“讨论了配置”更能支持下一次调用，但这段摘要仍由模型生成，可能遗漏细节。源码另从识别出的 `read/write/edit` 调用参数提取路径，包括工具结果记录的嵌套调用，将读取和修改清单附在摘要后。路径清单不能验证修改成功，也不覆盖任意 Shell 或外部工具，见[文件操作提取和清单生成](../pi/packages/coding-agent/src/core/compaction/utils.ts#L30-L89)。
+配置任务中，“保留原模型；已读配置；新模型已写入但尚未验证”比“讨论了配置”更能支持下一次调用，但这段摘要仍由模型生成，可能遗漏细节。源码另从识别出的 `read/write/edit` 调用参数提取路径，包括工具结果记录的嵌套调用，将读取和修改清单附在摘要后。路径清单不能验证修改成功，也不覆盖任意 Shell 或外部工具，见[文件操作提取和清单生成](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/core/compaction/utils.ts#L30-L89)。
 
 ### 完整结果保存后，再刷新下一次请求
 
@@ -255,16 +255,16 @@ durable 的模型上下文仍从条目推导：head 标记确定活动范围，�
 
 | 机制 | 源码入口 |
 | --- | --- |
-| 历史条目与投影类型 | [条目定义](../pi/packages/coding-agent/src/core/session-manager.ts#L57-L180)、[投影定义](../pi/packages/coding-agent/src/core/session-manager.ts#L209-L227) |
-| 从分支计算模型上下文 | [模型设置恢复](../pi/packages/coding-agent/src/core/session-manager.ts#L390-L433)、[投影完整链路](../pi/packages/coding-agent/src/core/session-manager.ts#L468-L583)、[A 到 G 示例对应逻辑](../pi/packages/coding-agent/src/core/session-manager.ts#L476-L573) |
-| 条目与消息转换 | [扩展条目类型](../pi/packages/coding-agent/src/core/session-manager.ts#L118-L165)、[转换为模型消息](../pi/packages/coding-agent/src/core/messages.ts#L148-L196) |
-| 运行消息与请求刷新 | [公开运行状态](../pi/packages/agent/src/agent.ts#L82-L110)、[循环数组快照](../pi/packages/agent/src/agent.ts#L460-L465)、[请求投影](../pi/packages/coding-agent/src/core/agent-session.ts#L787-L814) |
-| 压缩预算与 Token 估算 | [默认值](../pi/packages/coding-agent/src/core/compaction/compaction.ts#L120-L142)、[上下文估算与阈值](../pi/packages/coding-agent/src/core/compaction/compaction.ts#L192-L270)、[消息大小估算](../pi/packages/coding-agent/src/core/compaction/compaction.ts#L294-L349) |
-| 切点、摘要与提交 | [压缩准备](../pi/packages/coding-agent/src/core/compaction/compaction.ts#L802-L936)、[摘要生成与合并](../pi/packages/coding-agent/src/core/compaction/compaction.ts#L965-L1071)、[拒绝不完整摘要](../pi/packages/coding-agent/src/core/compaction/compaction.ts#L581-L593)、[保存检查点](../pi/packages/coding-agent/src/core/session-manager.ts#L1260-L1287)、[刷新上下文](../pi/packages/coding-agent/src/core/agent-session.ts#L2843-L2850) |
-| 压缩入口与扩展 | [手动入口](../pi/packages/coding-agent/src/core/agent-session.ts#L2749-L2767)、[自动处理分类](../pi/packages/coding-agent/src/core/agent-session.ts#L2926-L2945)、[自定义压缩返回值](../pi/packages/coding-agent/examples/extensions/custom-compaction.ts#L100-L109) |
-| JSONL 写入、加载与分支 | [文件追加](../pi/packages/coding-agent/src/core/session-manager.ts#L1160-L1214)、[文件加载](../pi/packages/coding-agent/src/core/session-manager.ts#L616-L670)、[索引重建](../pi/packages/coding-agent/src/core/session-manager.ts#L1085-L1134)、[恢复叶节点](../pi/packages/coding-agent/src/core/session-manager.ts#L1103-L1122)、[分支导航](../pi/packages/coding-agent/src/core/session-manager.ts#L1573-L1593) |
-| durable 上下文 | [条目筛选](../pi/packages/durable/src/harness/context.ts#L8-L16)、[编辑与范围推导](../pi/packages/durable/src/harness/context.ts#L117-L189)、[工具结果整理](../pi/packages/durable/src/harness/context.ts#L255-L293) |
-| durable 应用文档 | [作用域定义](../pi/packages/durable/src/documents.ts#L38-L80)、[地址、语义与版本检查](../pi/packages/durable/src/documents.ts#L108-L190) |
+| 历史条目与投影类型 | [条目定义](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/core/session-manager.ts#L57-L180)、[投影定义](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/core/session-manager.ts#L209-L227) |
+| 从分支计算模型上下文 | [模型设置恢复](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/core/session-manager.ts#L390-L433)、[投影完整链路](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/core/session-manager.ts#L468-L583)、[A 到 G 示例对应逻辑](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/core/session-manager.ts#L476-L573) |
+| 条目与消息转换 | [扩展条目类型](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/core/session-manager.ts#L118-L165)、[转换为模型消息](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/core/messages.ts#L148-L196) |
+| 运行消息与请求刷新 | [公开运行状态](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/agent/src/agent.ts#L82-L110)、[循环数组快照](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/agent/src/agent.ts#L460-L465)、[请求投影](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/core/agent-session.ts#L787-L814) |
+| 压缩预算与 Token 估算 | [默认值](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/core/compaction/compaction.ts#L120-L142)、[上下文估算与阈值](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/core/compaction/compaction.ts#L192-L270)、[消息大小估算](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/core/compaction/compaction.ts#L294-L349) |
+| 切点、摘要与提交 | [压缩准备](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/core/compaction/compaction.ts#L802-L936)、[摘要生成与合并](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/core/compaction/compaction.ts#L965-L1071)、[拒绝不完整摘要](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/core/compaction/compaction.ts#L581-L593)、[保存检查点](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/core/session-manager.ts#L1260-L1287)、[刷新上下文](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/core/agent-session.ts#L2843-L2850) |
+| 压缩入口与扩展 | [手动入口](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/core/agent-session.ts#L2749-L2767)、[自动处理分类](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/core/agent-session.ts#L2926-L2945)、[自定义压缩返回值](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/examples/extensions/custom-compaction.ts#L100-L109) |
+| JSONL 写入、加载与分支 | [文件追加](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/core/session-manager.ts#L1160-L1214)、[文件加载](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/core/session-manager.ts#L616-L670)、[索引重建](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/core/session-manager.ts#L1085-L1134)、[恢复叶节点](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/core/session-manager.ts#L1103-L1122)、[分支导航](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/core/session-manager.ts#L1573-L1593) |
+| durable 上下文 | [条目筛选](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/harness/context.ts#L8-L16)、[编辑与范围推导](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/harness/context.ts#L117-L189)、[工具结果整理](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/harness/context.ts#L255-L293) |
+| durable 应用文档 | [作用域定义](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/documents.ts#L38-L80)、[地址、语义与版本检查](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/documents.ts#L108-L190) |
 
 ### 术语速查
 
@@ -281,14 +281,14 @@ durable 的模型上下文仍从条目推导：head 标记确定活动范围，�
 
 ## 测试与练习
 
-用 `SessionManager.inMemory()` 追加两个 user 消息，再省略第一条，比较 `getEntries()` 与 `buildSessionProjection()`。原始条目仍在，模型消息已经变化。把叶节点分支回第一条 user，可以确认省略编辑不会影响新分支；再手动追加固定摘要，观察 `firstKeptEntryId=null` 如何把保留起点指向摘要自身，让全部旧消息退出上下文。整个练习无需生成摘要或调用模型，现有例子见[内存会话用例](../pi/packages/coding-agent/test/session-context-edit.test.ts#L129-L193)。
+用 `SessionManager.inMemory()` 追加两个 user 消息，再省略第一条，比较 `getEntries()` 与 `buildSessionProjection()`。原始条目仍在，模型消息已经变化。把叶节点分支回第一条 user，可以确认省略编辑不会影响新分支；再手动追加固定摘要，观察 `firstKeptEntryId=null` 如何把保留起点指向摘要自身，让全部旧消息退出上下文。整个练习无需生成摘要或调用模型，现有例子见[内存会话用例](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/test/session-context-edit.test.ts#L129-L193)。
 
 | 验证问题 | 对应已有测试 |
 | --- | --- |
-| 摘要是否在保留尾段之前，模型设置是否沿完整路径恢复 | [上下文构建](../pi/packages/coding-agent/test/session-manager/build-context.test.ts#L126-L208) |
-| 同一历史树切换叶节点后，上下文如何变化 | [分支投影](../pi/packages/coding-agent/test/session-manager/build-context.test.ts#L211-L285) |
-| 省略、替换怎样只影响所在分支 | [上下文编辑](../pi/packages/coding-agent/test/session-context-edit.test.ts#L36-L127) |
-| 旧 usage 为什么在编辑、压缩后失效 | [Token 估算](../pi/packages/coding-agent/test/session-context-edit.test.ts#L195-L265) |
-| 压缩是否使用已编辑的模型内容 | [压缩输入](../pi/packages/coding-agent/test/session-context-edit.test.ts#L348-L363) |
+| 摘要是否在保留尾段之前，模型设置是否沿完整路径恢复 | [上下文构建](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/test/session-manager/build-context.test.ts#L126-L208) |
+| 同一历史树切换叶节点后，上下文如何变化 | [分支投影](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/test/session-manager/build-context.test.ts#L211-L285) |
+| 省略、替换怎样只影响所在分支 | [上下文编辑](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/test/session-context-edit.test.ts#L36-L127) |
+| 旧 usage 为什么在编辑、压缩后失效 | [Token 估算](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/test/session-context-edit.test.ts#L195-L265) |
+| 压缩是否使用已编辑的模型内容 | [压缩输入](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/test/session-context-edit.test.ts#L348-L363) |
 
 在 `packages/coding-agent` 下可运行 `node ../../node_modules/vitest/dist/cli.js --run test/session-context-edit.test.ts test/session-manager/build-context.test.ts`。这两份测试只使用内存消息和会话，无需配置真实 API。

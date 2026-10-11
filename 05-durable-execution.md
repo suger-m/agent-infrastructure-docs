@@ -121,7 +121,7 @@ Replay（重放）需要说明重放的对象。一个常见用法是重新调�
 
 ## Pi 对照：一个自定义任务怎样跨重开继续
 
-`packages/durable` 提供存储提交、文档版本、任务 checkpoint、工具意图与重开调度。[packages/durable/README.md L1-L7](../pi/packages/durable/README.md#L1-L7) 将它标为实验库，API 会变化。以下对照基于提交 `96abe9a5ad45005cae34ed1c52d42f71fc88bedc`，稳定 coding-agent 的普通 session 没有自动采用这套持久任务引擎。
+`packages/durable` 提供存储提交、文档版本、任务 checkpoint、工具意图与重开调度。[packages/durable/README.md L1-L7](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/README.md#L1-L7) 将它标为实验库，API 会变化。以下对照基于提交 `96abe9a5ad45005cae34ed1c52d42f71fc88bedc`，稳定 coding-agent 的普通 session 没有自动采用这套持久任务引擎。
 
 恢复测试用假转账服务隔离外部副作用。服务记录调用次数，并按业务 key 保存应用结果，用于验证重复调用和业务去重的关系。
 
@@ -140,7 +140,7 @@ Replay（重放）需要说明重放的对象。一个常见用法是重新调�
 
 服务前与服务后、结果前的两个窗口，在本地数据库里留下相同的 apply 记录。数据库不能仅凭这条记录判断是否转过账。稳定 key 必须交给支持幂等的服务，或者由业务方查询外部 receipt 后核对。这样可以让处理函数重复运行而不重复产生业务效果；如果外部服务既不支持幂等，也无法查询结果，本地记录不能提供 exactly-once 效果保证。
 
-测试用假服务验证了这一区别：[packages/durable/test/harness-tasks-recovery.test.ts L47-L90](../pi/packages/durable/test/harness-tasks-recovery.test.ts#L47-L90) 定义服务，[packages/durable/test/harness-tasks-recovery.test.ts L112-L145](../pi/packages/durable/test/harness-tasks-recovery.test.ts#L112-L145) 覆盖恢复。恢复后 apply 调用次数可以大于一，而 `service.applied` 中的实际效果仍只有一次。
+测试用假服务验证了这一区别：[packages/durable/test/harness-tasks-recovery.test.ts L47-L90](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/test/harness-tasks-recovery.test.ts#L47-L90) 定义服务，[packages/durable/test/harness-tasks-recovery.test.ts L112-L145](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/test/harness-tasks-recovery.test.ts#L112-L145) 覆盖恢复。恢复后 apply 调用次数可以大于一，而 `service.applied` 中的实际效果仍只有一次。
 
 图展示的是工具任务在各个崩溃点保存了什么，以及自定义转账如何按 checkpoint 重进 apply。时间线里的提交指数据库状态提交，外部操作发生在提交之间；图示不提供 exactly-once 保证。
 
@@ -154,9 +154,9 @@ Replay（重放）需要说明重放的对象。一个常见用法是重新调�
 
 阶段名称只有结合任务定义才有意义。数据库保存任务类型、版本、checkpoint 和输入；宿主注册表提供对应版本的阶段处理代码。恢复不会从数据库加载可执行的旧函数。
 
-打开时，[packages/durable/src/harness/scheduler.ts L288-L315](../pi/packages/durable/src/harness/scheduler.ts#L288-L315) 扫描 pending、running、waiting、completing 任务，把遗留的 running 改回 pending，同时保留 checkpoint、input 和 abort mark。之后，[packages/durable/src/harness/scheduler.ts L1317-L1383](../pi/packages/durable/src/harness/scheduler.ts#L1317-L1383) 根据 `checkpoint.phase` 选择处理函数。函数返回时必须留下持久进展，否则调度器会把任务判为故障，避免原地反复运行。
+打开时，[packages/durable/src/harness/scheduler.ts L288-L315](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/harness/scheduler.ts#L288-L315) 扫描 pending、running、waiting、completing 任务，把遗留的 running 改回 pending，同时保留 checkpoint、input 和 abort mark。之后，[packages/durable/src/harness/scheduler.ts L1317-L1383](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/harness/scheduler.ts#L1317-L1383) 根据 `checkpoint.phase` 选择处理函数。函数返回时必须留下持久进展，否则调度器会把任务判为故障，避免原地反复运行。
 
-前面讨论的状态迁移在这里由任务定义提供。调度器在 [packages/durable/src/harness/scheduler.ts L1209-L1236](../pi/packages/durable/src/harness/scheduler.ts#L1209-L1236) 按 kind/version 查找定义和 migration；缺少定义、当前版本过旧或迁移失败都会阻塞任务，并报告原因。
+前面讨论的状态迁移在这里由任务定义提供。调度器在 [packages/durable/src/harness/scheduler.ts L1209-L1236](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/harness/scheduler.ts#L1209-L1236) 按 kind/version 查找定义和 migration；缺少定义、当前版本过旧或迁移失败都会阻塞任务，并报告原因。
 
 执行中的 `runtime.sleep(until)` 只是当前 invocation 的等待。若重开后仍需等到某个时间，应把绝对时间 `until` 写进 checkpoint，再由新 invocation 比较当前时间。内建 generation 的 retry 与 poll 阶段也采用这种方式。其他恢复所需数据应进入 checkpoint、memo、document 或 entry。缺少定义的普通任务仍算活跃，会影响空闲等待；主动取消时可按条件结算为 orphaned。设置 `abandonOnRestart` 的任务在重启取消时会等定义可用，以便执行清理。
 
@@ -164,7 +164,7 @@ Replay（重放）需要说明重放的对象。一个常见用法是重新调�
 
 生成过程中已经显示的文字、后台生成的身份和原 HTTP 连接，是三种不同的状态。Pi 可以保存部分输出供历史查看，也可以在 provider 支持时保存后台响应的查询 handle；原进程正在消费的 HTTP 流不会随任务记录恢复。普通流式生成与后台生成因此走不同的恢复路径。
 
-内建 `GenerationTask` 有 `prepare/request/retry/poll/tools` 五类 phase，定义见 [packages/durable/src/harness/generation.ts L51-L90](../pi/packages/durable/src/harness/generation.ts#L51-L90)。`request` 保存模型引用、thinking level、流式请求选项和上下文截止位置 `cutoff`；`retry` 保存尝试次数和绝对等待时间 `until`；`poll` 保存 provider 返回的 deferred handle 与 `pollAt`。
+内建 `GenerationTask` 有 `prepare/request/retry/poll/tools` 五类 phase，定义见 [packages/durable/src/harness/generation.ts L51-L90](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/harness/generation.ts#L51-L90)。`request` 保存模型引用、thinking level、流式请求选项和上下文截止位置 `cutoff`；`retry` 保存尝试次数和绝对等待时间 `until`；`poll` 保存 provider 返回的 deferred handle 与 `pollAt`。
 
 流式请求的恢复轨迹是：
 
@@ -176,7 +176,7 @@ prepare → 提交 request checkpoint
 → 按原 cutoff 重新发起请求 → 保存最终响应
 ```
 
-重开的 `request` 会建立新模型请求，旧 HTTP 流不会续上。已提交 partial 转成 aborted 历史 entry，供历史和 UI 查看；它不会作为未完成前缀接着补写。[packages/durable/src/harness/generation.ts L166-L233](../pi/packages/durable/src/harness/generation.ts#L166-L233) 中的 `request` phase 会跳过 prepare，但重新运行 `beforeRequest` hooks。hook 可能再次执行，而它当次修改的请求没有完整进入 checkpoint，所以新请求不保证逐字节相同。
+重开的 `request` 会建立新模型请求，旧 HTTP 流不会续上。已提交 partial 转成 aborted 历史 entry，供历史和 UI 查看；它不会作为未完成前缀接着补写。[packages/durable/src/harness/generation.ts L166-L233](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/harness/generation.ts#L166-L233) 中的 `request` phase 会跳过 prepare，但重新运行 `beforeRequest` hooks。hook 可能再次执行，而它当次修改的请求没有完整进入 checkpoint，所以新请求不保证逐字节相同。
 
 | 重开时的 phase | 已保存的信息 | 恢复动作 |
 | --- | --- | --- |
@@ -184,15 +184,15 @@ prepare → 提交 request checkpoint
 | `retry` | attempt 与绝对 `until` | 等到时间，再发起下一次尝试 |
 | `poll` | provider handle 与 `pollAt` | 调用 `fetchDeferred()` 查询原后台响应 |
 
-partial 默认每 100 ms 节流提交到 `LiveDoc.generation.message`，同一时间最多有一个提交进行。[packages/durable/src/harness/generation.ts L353-L420](../pi/packages/durable/src/harness/generation.ts#L353-L420) 中的 pending、timer、inFlight 留在内存，尚未落盘的增量可能随进程丢失。100 ms 是配置的提交间隔，不构成“最多丢 100 ms”的保证；实际时序还受机器与存储影响。终态处理会停掉计时器并等待正在进行的提交完成，避免旧 partial 覆盖最终状态。
+partial 默认每 100 ms 节流提交到 `LiveDoc.generation.message`，同一时间最多有一个提交进行。[packages/durable/src/harness/generation.ts L353-L420](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/harness/generation.ts#L353-L420) 中的 pending、timer、inFlight 留在内存，尚未落盘的增量可能随进程丢失。100 ms 是配置的提交间隔，不构成“最多丢 100 ms”的保证；实际时序还受机器与存储影响。终态处理会停掉计时器并等待正在进行的提交完成，避免旧 partial 覆盖最终状态。
 
-延迟响应也有窗口。[packages/durable/src/harness/generation.ts L423-L453](../pi/packages/durable/src/harness/generation.ts#L423-L453) 的 `classify()` 要把 handle 与 `phase=poll` 一起提交，重开后才能查询。如果服务已经返回 handle，而进程在提交前退出，数据库仍停在 request，恢复会再发请求。只有持久化的 handle 能用于查询；内存中正在消费的流不会保存下来。
+延迟响应也有窗口。[packages/durable/src/harness/generation.ts L423-L453](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/harness/generation.ts#L423-L453) 的 `classify()` 要把 handle 与 `phase=poll` 一起提交，重开后才能查询。如果服务已经返回 handle，而进程在提交前退出，数据库仍停在 request，恢复会再发请求。只有持久化的 handle 能用于查询；内存中正在消费的流不会保存下来。
 
 ## Pi 对照：工具重放要满足两个 safe
 
-对于模型提出的工具调用，Pi 在执行前决定恢复时是否允许再次调用。[packages/durable/src/harness/tool.ts L155-L185](../pi/packages/durable/src/harness/tool.ts#L155-L185) 在 execute 前保存最终参数和 replay policy（重放策略），默认值是 unsafe。恢复到 execute 阶段时，只有保存的策略和当前工具声明都为 safe，运行时才重跑。unsafe 或工具已不可用时，运行时会给模型一条 interrupted 错误，并保留已提交输出。
+对于模型提出的工具调用，Pi 在执行前决定恢复时是否允许再次调用。[packages/durable/src/harness/tool.ts L155-L185](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/harness/tool.ts#L155-L185) 在 execute 前保存最终参数和 replay policy（重放策略），默认值是 unsafe。恢复到 execute 阶段时，只有保存的策略和当前工具声明都为 safe，运行时才重跑。unsafe 或工具已不可用时，运行时会给模型一条 interrupted 错误，并保留已提交输出。
 
-safe 是工具作者对“允许重跑”的承诺，运行时不会证明命令没有副作用。[packages/durable/src/harness/tool.ts L570-L630](../pi/packages/durable/src/harness/tool.ts#L570-L630) 可以把 transcript result 或 nested-call result 与 task outcome 一起结算；文件写入、HTTP 请求和 shell 命令仍发生在数据库事务之外。
+safe 是工具作者对“允许重跑”的承诺，运行时不会证明命令没有副作用。[packages/durable/src/harness/tool.ts L570-L630](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/harness/tool.ts#L570-L630) 可以把 transcript result 或 nested-call result 与 task outcome 一起结算；文件写入、HTTP 请求和 shell 命令仍发生在数据库事务之外。
 
 | 中断位置 | 已保存的证据 | 恢复时可能发生什么 |
 | --- | --- | --- |
@@ -203,7 +203,7 @@ safe 是工具作者对“允许重跑”的承诺，运行时不会证明命令
 
 intent 提交后、outcome 提交前，外部效果发生前后都留下同样的本地记录。和转账例子一样，保证业务效果不重复要靠外部系统提供幂等或 receipt 核对。
 
-memo 是 first-writer-wins 的备忘记录，一个名字只保留最先写入的 JSON 值，适合固定随机决定、业务 key 或人工决定，见 [packages/durable/src/harness/scheduler.ts L1584-L1599](../pi/packages/durable/src/harness/scheduler.ts#L1584-L1599)。但 memo 与外部效果并不原子。[packages/durable/test/examples/13-recovery.ts L27-L45](../pi/packages/durable/test/examples/13-recovery.ts#L27-L45) 的示例先写 `printed-n`，再调用 console.log。若打印后退出，恢复会跳过第二次打印；若 memo 落盘后、打印前退出，恢复也会跳过，于是打印漏掉。先写 memo 可以避免重复，却可能漏掉尚未发生的效果。
+memo 是 first-writer-wins 的备忘记录，一个名字只保留最先写入的 JSON 值，适合固定随机决定、业务 key 或人工决定，见 [packages/durable/src/harness/scheduler.ts L1584-L1599](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/harness/scheduler.ts#L1584-L1599)。但 memo 与外部效果并不原子。[packages/durable/test/examples/13-recovery.ts L27-L45](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/test/examples/13-recovery.ts#L27-L45) 的示例先写 `printed-n`，再调用 console.log。若打印后退出，恢复会跳过第二次打印；若 memo 落盘后、打印前退出，恢复也会跳过，于是打印漏掉。先写 memo 可以避免重复，却可能漏掉尚未发生的效果。
 
 ## Pi 实现补充：检查点怎样提交给存储
 
@@ -215,21 +215,21 @@ memo 是 first-writer-wins 的备忘记录，一个名字只保留最先写入�
 
 这里的顺序也解释了“发布”：成功提交后，再把新状态交给内存中的 tracker、调度器、界面或订阅者。若先通知界面“转账已完成”，再保存结果，进程可能在两者之间退出，界面显示的完成就没有持久记录支持。实现先保存，再采用内存状态，最后发布。
 
-Session 把 commit 与一致快照读取排进同一条 Promise 队列，见 [packages/durable/src/session/session.ts L220-L245](../pi/packages/durable/src/session/session.ts#L220-L245)；具体排队实现是 [packages/durable/src/session/session.ts L854-L861](../pi/packages/durable/src/session/session.ts#L854-L861) 的 `#enqueue()`。源码称它为 mutation line，即串行处理状态变化的提交线。它只协调本进程里的会话。转账请求发生在外部系统，不会自动进入这条线或本地事务。
+Session 把 commit 与一致快照读取排进同一条 Promise 队列，见 [packages/durable/src/session/session.ts L220-L245](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/session/session.ts#L220-L245)；具体排队实现是 [packages/durable/src/session/session.ts L854-L861](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/session/session.ts#L854-L861) 的 `#enqueue()`。源码称它为 mutation line，即串行处理状态变化的提交线。它只协调本进程里的会话。转账请求发生在外部系统，不会自动进入这条线或本地事务。
 
-任务回调先改文档草稿，已经发布的值保持不变。[packages/durable/src/session/transaction.ts L671-L692](../pi/packages/durable/src/session/transaction.ts#L671-L692) 在 callback 成功后封闭事务，检查所有异步 Tx 操作已经完成，再 prepare 文档变化并组装写入批次；失败时 abort 草稿，这批变化不会进入 Storage。callback 内的读取要通过 `tx`。直接调用 Harness 或 runtime 的排队读取，可能排在正在执行的 callback 后面，双方会一直等待。表读取也须在第一次表写入前完成，约束见 [packages/durable/src/session/transaction.ts L922-L939](../pi/packages/durable/src/session/transaction.ts#L922-L939)。外部 I/O 留在任务处理函数中，避免长时间占住提交线。
+任务回调先改文档草稿，已经发布的值保持不变。[packages/durable/src/session/transaction.ts L671-L692](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/session/transaction.ts#L671-L692) 在 callback 成功后封闭事务，检查所有异步 Tx 操作已经完成，再 prepare 文档变化并组装写入批次；失败时 abort 草稿，这批变化不会进入 Storage。callback 内的读取要通过 `tx`。直接调用 Harness 或 runtime 的排队读取，可能排在正在执行的 callback 后面，双方会一直等待。表读取也须在第一次表写入前完成，约束见 [packages/durable/src/session/transaction.ts L922-L939](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/session/transaction.ts#L922-L939)。外部 I/O 留在任务处理函数中，避免长时间占住提交线。
 
-草稿准备好后，[packages/durable/src/session/session.ts L690-L742](../pi/packages/durable/src/session/session.ts#L690-L742) 依次运行 callback 并 prepare writes、调用 `storage.commit(writes, withoutAbortSignal(context))`、用 `tx.adopt(seq)` 更新内存 tracker，再由 `#publish()` 通知 scheduler、view 和订阅者。存储提交成功后，内存才采用候选状态，观察者随后才收到变化。提交一旦准入，即使调用者取消，也会完成存储结算，避免等待取消后无法判断是否落盘。
+草稿准备好后，[packages/durable/src/session/session.ts L690-L742](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/session/session.ts#L690-L742) 依次运行 callback 并 prepare writes、调用 `storage.commit(writes, withoutAbortSignal(context))`、用 `tx.adopt(seq)` 更新内存 tracker，再由 `#publish()` 通知 scheduler、view 和订阅者。存储提交成功后，内存才采用候选状态，观察者随后才收到变化。提交一旦准入，即使调用者取消，也会完成存储结算，避免等待取消后无法判断是否落盘。
 
-存储已提交、内存采用候选状态却失败时，内存会落后于数据库，Session 因而失败关闭。普通宿主监听器抛错只会被报告，已持久化的 commit 保持不变。[packages/durable/src/session/session.ts L730-L775](../pi/packages/durable/src/session/session.ts#L730-L775) 处理这两种提交后的失败。
+存储已提交、内存采用候选状态却失败时，内存会落后于数据库，Session 因而失败关闭。普通宿主监听器抛错只会被报告，已持久化的 commit 保持不变。[packages/durable/src/session/session.ts L730-L775](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/session/session.ts#L730-L775) 处理这两种提交后的失败。
 
 ### 后端保存内容与故障范围
 
-上述记录通过所选 Storage 后端提交。MemoryStorage 提供相同接口与原子语义，但进程退出后数据消失；跨进程恢复需要其他后端，[packages/durable/README.md L630-L639](../pi/packages/durable/README.md#L630-L639) 列出了差别。
+上述记录通过所选 Storage 后端提交。MemoryStorage 提供相同接口与原子语义，但进程退出后数据消失；跨进程恢复需要其他后端，[packages/durable/README.md L630-L639](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/README.md#L630-L639) 列出了差别。
 
-[packages/durable/src/types.ts L703-L748](../pi/packages/durable/src/types.ts#L703-L748) 定义的 `StorageWrite` 可以在同一批次保存 conversation、entry、task、submission 与 document base/delta。entry 保存不可变的交互记录，task 保存最新完整任务记录，document 保存应用状态。文档可保存完整值（base）和相对前一值的改动（delta）；读取时从 base 开始按顺序应用 delta。
+[packages/durable/src/types.ts L703-L748](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/types.ts#L703-L748) 定义的 `StorageWrite` 可以在同一批次保存 conversation、entry、task、submission 与 document base/delta。entry 保存不可变的交互记录，task 保存最新完整任务记录，document 保存应用状态。文档可保存完整值（base）和相对前一值的改动（delta）；读取时从 base 开始按顺序应用 delta。
 
-SQLite 后端在 [packages/durable/src/storage/sqlite/storage.ts L175-L198](../pi/packages/durable/src/storage/sqlite/storage.ts#L175-L198) 的单个数据库事务中检查 ID、写入表和文档，再推进 commit sequence。读取文档时，[packages/durable/src/storage/sqlite/storage.ts L607-L642](../pi/packages/durable/src/storage/sqlite/storage.ts#L607-L642) 取最新适用的 base 并按顺序应用同版本 delta；版本变化时需要新的 base。
+SQLite 后端在 [packages/durable/src/storage/sqlite/storage.ts L175-L198](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/storage/sqlite/storage.ts#L175-L198) 的单个数据库事务中检查 ID、写入表和文档，再推进 commit sequence。读取文档时，[packages/durable/src/storage/sqlite/storage.ts L607-L642](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/storage/sqlite/storage.ts#L607-L642) 取最新适用的 base 并按顺序应用同版本 delta；版本变化时需要新的 base。
 
 WAL 是 write-ahead log（预写日志）：数据库先记录用于恢复的变更日志，再按数据库机制处理数据页。WAL 帮助本地数据库恢复；是否在断电后保留最新提交还取决于同步设置。进程崩溃、整机掉电和存储损坏是不同的故障范围，不能只凭“使用 SQLite”判断所有持久保证。
 
@@ -240,13 +240,13 @@ WAL 是 write-ahead log（预写日志）：数据库先记录用于恢复的变
 | JSONL | README 描述 append-only；`fsync: true` 才会在 commit marker 前 flush，历史也保留在内存 |
 | Cloudflare SQLite | 依赖一个 SQLite-backed Durable Object 的 storage transaction |
 
-Node 的事务入口和设置分别见 [packages/durable/src/storage/sqlite/node.ts L140-L159](../pi/packages/durable/src/storage/sqlite/node.ts#L140-L159)、[packages/durable/src/storage/sqlite/node.ts L179-L210](../pi/packages/durable/src/storage/sqlite/node.ts#L179-L210)。这些后端共享 Storage 接口，具体故障保证由各自实现决定。
+Node 的事务入口和设置分别见 [packages/durable/src/storage/sqlite/node.ts L140-L159](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/storage/sqlite/node.ts#L140-L159)、[packages/durable/src/storage/sqlite/node.ts L179-L210](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/storage/sqlite/node.ts#L179-L210)。这些后端共享 Storage 接口，具体故障保证由各自实现决定。
 
 ### 关闭与存储错误
 
-进程退出也可能来自正常关闭或存储错误。正常 close 在 [packages/durable/src/harness/harness.ts L336-L339](../pi/packages/durable/src/harness/harness.ts#L336-L339) 与 [packages/durable/src/harness/scheduler.ts L323-L330](../pi/packages/durable/src/harness/scheduler.ts#L323-L330) 中封闭准入、通知观察者、取消并等待 invocation，最后关闭 Storage。它不会把所有任务写成 aborted。忽略 AbortSignal 的处理函数会拖住关闭；强杀则会留下无法继续的 Promise 和调用栈，重开仍依据存储记录恢复。
+进程退出也可能来自正常关闭或存储错误。正常 close 在 [packages/durable/src/harness/harness.ts L336-L339](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/harness/harness.ts#L336-L339) 与 [packages/durable/src/harness/scheduler.ts L323-L330](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/harness/scheduler.ts#L323-L330) 中封闭准入、通知观察者、取消并等待 invocation，最后关闭 Storage。它不会把所有任务写成 aborted。忽略 AbortSignal 的处理函数会拖住关闭；强杀则会留下无法继续的 Promise 和调用栈，重开仍依据存储记录恢复。
 
-Storage 错误的处理见 [packages/durable/src/session/session.ts L1049-L1075](../pi/packages/durable/src/session/session.ts#L1049-L1075)。Session 会锁定 failure 并关闭，Harness 不会自动重试。后端可能已经落盘后才向调用者抛错，所以没有收到确认不能证明提交没发生。重新打开后可以取回 submission，用相同 requestId 判断此前是否已经准入。
+Storage 错误的处理见 [packages/durable/src/session/session.ts L1049-L1075](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/session/session.ts#L1049-L1075)。Session 会锁定 failure 并关闭，Harness 不会自动重试。后端可能已经落盘后才向调用者抛错，所以没有收到确认不能证明提交没发生。重新打开后可以取回 submission，用相同 requestId 判断此前是否已经准入。
 
 ## Pi 的支持范围
 
@@ -263,10 +263,10 @@ Storage 错误的处理见 [packages/durable/src/session/session.ts L1049-L1075]
 
 | 阅读位置 | 覆盖的故障点 |
 | --- | --- |
-| [packages/durable/test/harness-tasks-recovery.test.ts L291-L425](../pi/packages/durable/test/harness-tasks-recovery.test.ts#L291-L425) | mark、abort、terminal、reservation 提交前后 |
-| [packages/durable/test/harness-tasks-recovery.test.ts L429-L524](../pi/packages/durable/test/harness-tasks-recovery.test.ts#L429-L524) | 缺定义、版本不兼容、migration 失败与更换定义 |
-| [packages/durable/test/harness-tools-recovery.test.ts L109-L163](../pi/packages/durable/test/harness-tools-recovery.test.ts#L109-L163) | unsafe interrupted；保存策略与当前声明都为 safe 的判定 |
-| [packages/durable/test/harness-generation-recovery.test.ts L124-L162](../pi/packages/durable/test/harness-generation-recovery.test.ts#L124-L162) | 保存 partial、转换为 aborted entry、按原上下文范围重发 |
-| [packages/durable/test/harness-generation-recovery.test.ts L201-L228](../pi/packages/durable/test/harness-generation-recovery.test.ts#L201-L228) | 重开后通过原 handle 查询 deferred 响应 |
+| [packages/durable/test/harness-tasks-recovery.test.ts L291-L425](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/test/harness-tasks-recovery.test.ts#L291-L425) | mark、abort、terminal、reservation 提交前后 |
+| [packages/durable/test/harness-tasks-recovery.test.ts L429-L524](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/test/harness-tasks-recovery.test.ts#L429-L524) | 缺定义、版本不兼容、migration 失败与更换定义 |
+| [packages/durable/test/harness-tools-recovery.test.ts L109-L163](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/test/harness-tools-recovery.test.ts#L109-L163) | unsafe interrupted；保存策略与当前声明都为 safe 的判定 |
+| [packages/durable/test/harness-generation-recovery.test.ts L124-L162](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/test/harness-generation-recovery.test.ts#L124-L162) | 保存 partial、转换为 aborted entry、按原上下文范围重发 |
+| [packages/durable/test/harness-generation-recovery.test.ts L201-L228](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/test/harness-generation-recovery.test.ts#L201-L228) | 重开后通过原 handle 查询 deferred 响应 |
 
 若自行验证，从 `packages/durable` 执行 `node ../../node_modules/vitest/dist/cli.js --run test/harness-tasks-recovery.test.ts`。该测试用假外部服务和受控存储制造故障窗口。
