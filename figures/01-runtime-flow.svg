@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1240" viewBox="0 0 1200 1240" role="img" aria-labelledby="title desc">
+  <title id="title">Agent 循环从请求准备到会话收尾</title>
+  <desc id="desc">完整重绘 AgentSession.prompt 到 agent_settled 的流程。响应 error 或 aborted 时走 turn_end 与 agent_end；正常响应执行工具并追加结果，再由 finishTurn 检查是否继续。若有工具后续或排队输入，prepareNextTurn 回到 prepareRequest；否则进入监听器、Session 重试或压缩检查及 settled。</desc>
+  <rect x="0" y="0" width="1200" height="1240" fill="#f8fafc"/>
+  <text x="48" y="58" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="30" font-weight="700" fill="#0f172a">一次请求怎样走完 Agent 循环</text>
+  <text x="48" y="96" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20" fill="#475569">沿“读文件并解释”看请求、工具结果、继续条件与 Session 收尾</text>
+
+  <rect x="48" y="140" width="260" height="84" rx="14" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="68" y="174" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20" font-weight="700" fill="#0f172a">AgentSession.prompt</text>
+  <text x="68" y="204" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#475569">接收用户输入</text>
+  <path d="M308 182 H356 M346 172 L356 182 L346 192" fill="none" stroke="#2563eb" stroke-width="3"/>
+  <rect x="356" y="140" width="220" height="84" rx="14" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="376" y="174" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20" font-weight="700" fill="#0f172a">输入准备</text>
+  <text x="376" y="204" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#475569">处理输入与提示词</text>
+  <path d="M576 182 H624 M614 172 L624 182 L614 192" fill="none" stroke="#2563eb" stroke-width="3"/>
+  <rect x="624" y="140" width="240" height="84" rx="14" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="644" y="174" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20" font-weight="700" fill="#0f172a">Agent.prompt</text>
+  <text x="644" y="204" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#475569">启动低层运行</text>
+  <path d="M864 182 H912 M902 172 L912 182 L902 192" fill="none" stroke="#2563eb" stroke-width="3"/>
+  <rect x="912" y="140" width="240" height="84" rx="14" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="932" y="174" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20" font-weight="700" fill="#0f172a">runAgentLoop</text>
+  <text x="932" y="204" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#475569">开始请求循环</text>
+
+  <path d="M1032 224 V260 H1000 V300 M990 290 L1000 300 L1010 290" fill="none" stroke="#2563eb" stroke-width="3"/>
+  <rect x="880" y="300" width="240" height="84" rx="14" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="900" y="334" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20" font-weight="700" fill="#0f172a">prepareRequest</text>
+  <text x="900" y="364" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#475569">每次请求前执行</text>
+  <path d="M880 342 H840 M850 332 L840 342 L850 352" fill="none" stroke="#2563eb" stroke-width="3"/>
+  <rect x="600" y="300" width="240" height="84" rx="14" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="620" y="334" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20" font-weight="700" fill="#0f172a">transformContext</text>
+  <text x="620" y="364" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#475569">再 convertToLlm</text>
+  <path d="M600 342 H560 M570 332 L560 342 L570 352" fill="none" stroke="#2563eb" stroke-width="3"/>
+  <rect x="320" y="300" width="240" height="84" rx="14" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="340" y="334" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20" font-weight="700" fill="#0f172a">StreamFn</text>
+  <text x="340" y="364" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#475569">请求模型并读事件流</text>
+  <path d="M320 342 H280 M290 332 L280 342 L290 352" fill="none" stroke="#2563eb" stroke-width="3"/>
+  <rect x="48" y="300" width="232" height="84" rx="14" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="68" y="334" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20" font-weight="700" fill="#0f172a">最终 assistant 消息</text>
+  <text x="68" y="364" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#475569">响应流收束为结果</text>
+
+  <path d="M164 384 V440 M154 430 L164 440 L174 430" fill="none" stroke="#2563eb" stroke-width="3"/>
+  <rect x="48" y="440" width="260" height="90" rx="14" fill="#fffbeb" stroke="#b45309" stroke-width="2"/>
+  <text x="68" y="474" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20" font-weight="700" fill="#0f172a">error 或 aborted？</text>
+  <text x="68" y="506" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#475569">判断最终响应</text>
+  <path d="M178 530 V600 M168 590 L178 600 L188 590" fill="none" stroke="#b45309" stroke-width="3"/>
+  <text x="190" y="570" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#b45309">是</text>
+  <rect x="48" y="600" width="300" height="90" rx="14" fill="#fffbeb" stroke="#b45309" stroke-width="2"/>
+  <text x="68" y="636" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20" font-weight="700" fill="#0f172a"><tspan font-family="monospace">turn_end</tspan> → <tspan font-family="monospace">agent_end</tspan></text>
+  <text x="68" y="666" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#475569">低层运行结束</text>
+  <path d="M308 485 H720 V600 M710 590 L720 600 L730 590" fill="none" stroke="#2563eb" stroke-width="3"/>
+  <text x="512" y="474" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#2563eb">否</text>
+  <rect x="720" y="600" width="300" height="90" rx="14" fill="#f0fdfa" stroke="#0f766e" stroke-width="2"/>
+  <text x="740" y="636" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20" font-weight="700" fill="#0f172a">执行工具并追加结果</text>
+  <text x="740" y="666" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#475569">ToolResult 回到对话</text>
+  <path d="M870 690 V740 M860 730 L870 740 L880 730" fill="none" stroke="#2563eb" stroke-width="3"/>
+  <rect x="720" y="740" width="300" height="84" rx="14" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="740" y="774" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20" font-weight="700" fill="#0f172a">finishTurn</text>
+  <text x="740" y="804" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#475569">决定本轮如何收束</text>
+  <path d="M870 824 V870 M860 860 L870 870 L880 860" fill="none" stroke="#2563eb" stroke-width="3"/>
+  <rect x="720" y="870" width="300" height="90" rx="14" fill="#fffbeb" stroke="#b45309" stroke-width="2"/>
+  <text x="740" y="906" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20" font-weight="700" fill="#0f172a">还有工具后续或输入？</text>
+  <text x="740" y="936" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#475569">工具后续、steer、follow-up</text>
+  <path d="M870 960 V1010 M860 1000 L870 1010 L880 1000" fill="none" stroke="#2563eb" stroke-width="3"/>
+  <text x="884" y="992" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#2563eb">是</text>
+  <rect x="720" y="1010" width="300" height="90" rx="14" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="740" y="1046" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20" font-weight="700" fill="#0f172a">prepareNextTurn</text>
+  <text x="740" y="1076" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#475569">确认继续后才运行</text>
+  <path d="M1020 1055 H1152 V342 H1120 M1130 332 L1120 342 L1130 352" fill="none" stroke="#2563eb" stroke-width="3"/>
+  <text x="1032" y="720" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#2563eb">回到请求准备</text>
+  <path d="M720 914 H388 V645 H348 M358 635 L348 645 L358 655" fill="none" stroke="#b45309" stroke-width="3"/>
+  <text x="500" y="902" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#b45309">否</text>
+
+  <path d="M198 690 V760 M188 750 L198 760 L208 750" fill="none" stroke="#7c3aed" stroke-width="3"/>
+  <rect x="48" y="760" width="300" height="90" rx="14" fill="#f5f3ff" stroke="#7c3aed" stroke-width="2"/>
+  <text x="68" y="796" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20" font-weight="700" fill="#0f172a">Agent 监听器收尾</text>
+  <text x="68" y="826" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#475569">await 订阅监听器</text>
+  <path d="M198 850 V900 M188 890 L198 900 L208 890" fill="none" stroke="#7c3aed" stroke-width="3"/>
+  <rect x="48" y="900" width="300" height="100" rx="14" fill="#f5f3ff" stroke="#7c3aed" stroke-width="2"/>
+  <text x="68" y="938" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20" font-weight="700" fill="#0f172a">Session 重试或压缩检查</text>
+  <text x="68" y="970" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#475569">低层运行后处理</text>
+  <path d="M198 1000 V1050 M188 1040 L198 1050 L208 1040" fill="none" stroke="#7c3aed" stroke-width="3"/>
+  <rect x="48" y="1050" width="300" height="90" rx="14" fill="#f5f3ff" stroke="#7c3aed" stroke-width="2"/>
+  <text x="68" y="1086" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20" font-weight="700" fill="#0f172a"><tspan font-family="monospace">agent_settled</tspan></text>
+  <text x="68" y="1116" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#475569">会话后处理也已完成</text>
+</svg>

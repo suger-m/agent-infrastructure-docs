@@ -1,0 +1,93 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
+  <title id="title">崩溃发生在工具执行的哪个位置</title>
+  <desc id="desc">展示工具意图提交、外部副作用和结果提交的时间线，以及每个崩溃位置的持久证据与恢复策略。结果已提交时复用结果；结果未提交时要按保存策略和当前工具策略判断，副作用可能已经发生。另说明模型新请求与持久轮询恢复的边界。</desc>
+  <rect x="0" y="0" width="1200" height="760" fill="#f8fafc"/>
+  <text x="52" y="68" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="30" font-weight="700">工具执行中崩溃：数据库能证明什么？</text>
+  <text x="52" y="108" fill="#475569" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20">执行意图与结果分开落盘；外部操作发生在这两次提交之间。</text>
+
+  <rect x="70" y="150" width="290" height="142" rx="16" fill="#f5f3ff" stroke="#7c3aed" stroke-width="2"/>
+  <rect x="91" y="169" width="38" height="34" rx="10" fill="#7c3aed"/>
+  <text x="110" y="193" fill="#ffffff" text-anchor="middle" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20" font-weight="700">1</text>
+  <text x="145" y="194" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="22" font-weight="700">提交工具意图</text>
+  <text x="92" y="235" fill="#475569" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18">
+    <tspan x="92" dy="0">最终参数与 replay 策略</tspan>
+    <tspan x="92" dy="25">已写入 Storage</tspan>
+  </text>
+
+  <path d="M370 220 H430" fill="none" stroke="#2563eb" stroke-width="3"/>
+  <path d="M430 220 l-12 -8 v16 z" fill="#2563eb"/>
+  <rect x="366" y="158" width="64" height="30" rx="10" fill="#fffbeb" stroke="#b45309" stroke-width="2"/>
+  <text x="398" y="180" fill="#b45309" text-anchor="middle" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" font-weight="700">崩溃 A</text>
+
+  <rect x="440" y="150" width="300" height="142" rx="16" fill="#f0fdfa" stroke="#0f766e" stroke-width="2"/>
+  <rect x="461" y="169" width="38" height="34" rx="10" fill="#0f766e"/>
+  <text x="480" y="193" fill="#ffffff" text-anchor="middle" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20" font-weight="700">2</text>
+  <text x="515" y="194" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="22" font-weight="700">调用外部工具</text>
+  <text x="462" y="235" fill="#475569" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18">
+    <tspan x="462" dy="0">付款、发信、写文件等</tspan>
+    <tspan x="462" dy="25">副作用发生在数据库之外</tspan>
+  </text>
+
+  <path d="M750 220 H820" fill="none" stroke="#2563eb" stroke-width="3"/>
+  <path d="M820 220 l-12 -8 v16 z" fill="#2563eb"/>
+  <rect x="750" y="158" width="64" height="30" rx="10" fill="#fffbeb" stroke="#b45309" stroke-width="2"/>
+  <text x="782" y="180" fill="#b45309" text-anchor="middle" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" font-weight="700">崩溃 B</text>
+
+  <rect x="830" y="150" width="300" height="142" rx="16" fill="#f5f3ff" stroke="#7c3aed" stroke-width="2"/>
+  <rect x="851" y="169" width="38" height="34" rx="10" fill="#7c3aed"/>
+  <text x="870" y="193" fill="#ffffff" text-anchor="middle" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20" font-weight="700">3</text>
+  <text x="905" y="194" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="22" font-weight="700">提交结果 outcome</text>
+  <text x="852" y="235" fill="#475569" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18">
+    <tspan x="852" dy="0">结果条目与任务终态</tspan>
+    <tspan x="852" dy="25">一起提交并可供复用</tspan>
+  </text>
+
+  <path d="M398 192 V310" fill="none" stroke="#b45309" stroke-width="2" stroke-dasharray="6 6"/>
+  <path d="M782 192 V310" fill="none" stroke="#b45309" stroke-width="2" stroke-dasharray="6 6"/>
+  <rect x="274" y="305" width="252" height="34" rx="12" fill="#fffbeb" stroke="#b45309" stroke-width="1.5"/>
+  <text x="400" y="329" fill="#92400e" text-anchor="middle" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18">intent 已提交；执行状态未知</text>
+  <rect x="650" y="305" width="264" height="34" rx="12" fill="#fffbeb" stroke="#b45309" stroke-width="1.5"/>
+  <text x="782" y="329" fill="#92400e" text-anchor="middle" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18">副作用可能已生效；结果未提交</text>
+
+  <text x="52" y="376" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="22" font-weight="700">重开后按已提交证据选择下一步</text>
+
+  <rect x="52" y="394" width="340" height="174" rx="16" fill="#ffffff" stroke="#cbd5e1" stroke-width="2"/>
+  <text x="74" y="428" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="21" font-weight="700">intent 尚未提交</text>
+  <text x="74" y="464" fill="#475569" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18">
+    <tspan x="74" dy="0">检查点仍在 call 阶段。</tspan>
+    <tspan x="74" dy="25">可重新解析、校验并运行</tspan>
+    <tspan x="74" dy="25">beforeTool；hook 自身副作用</tspan>
+    <tspan x="74" dy="25">也可能重复。</tspan>
+  </text>
+
+  <rect x="430" y="394" width="340" height="174" rx="16" fill="#fffbeb" stroke="#b45309" stroke-width="2"/>
+  <text x="452" y="428" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="21" font-weight="700">intent 已提交，outcome 缺失</text>
+  <text x="452" y="464" fill="#475569" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18">
+    <tspan x="452" dy="0">存储无法分辨工具是否已开始。</tspan>
+    <tspan x="452" dy="25">保存策略与当前声明都 safe：</tspan>
+    <tspan x="452" dy="25">可重放；否则返回 interrupted。</tspan>
+    <tspan x="452" dy="25">是否已生效，需由业务核对。</tspan>
+  </text>
+
+  <rect x="808" y="394" width="340" height="174" rx="16" fill="#f5f3ff" stroke="#7c3aed" stroke-width="2"/>
+  <text x="830" y="428" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="21" font-weight="700">outcome 已提交</text>
+  <text x="830" y="464" fill="#475569" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18">
+    <tspan x="830" dy="0">恢复时读取已保存结果，</tspan>
+    <tspan x="830" dy="25">不再执行这个已结束任务。</tspan>
+    <tspan x="830" dy="25">这保证结果可复用；不证明</tspan>
+    <tspan x="830" dy="25">外部效果 exactly-once。</tspan>
+  </text>
+
+  <text x="52" y="610" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20" font-weight="700">模型请求与持久等待也有恢复边界</text>
+  <rect x="52" y="625" width="540" height="88" rx="14" fill="#eff6ff" stroke="#2563eb" stroke-width="1.5"/>
+  <text x="72" y="657" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18">
+    <tspan x="72" dy="0">新模型请求：已提交 partial 转为 aborted，</tspan>
+    <tspan x="72" dy="25">再按原 cutoff 发新请求；旧流不会接续。</tspan>
+  </text>
+  <rect x="608" y="625" width="540" height="88" rx="14" fill="#eff6ff" stroke="#2563eb" stroke-width="1.5"/>
+  <text x="628" y="657" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18">
+    <tspan x="628" dy="0">持久 poll：已提交 handle 与 pollAt 可续查；</tspan>
+    <tspan x="628" dy="25">retry：已提交 until 可恢复等待。</tspan>
+    <tspan x="628" dy="25">内存中的流与未提交增量不会保留。</tspan>
+  </text>
+</svg>

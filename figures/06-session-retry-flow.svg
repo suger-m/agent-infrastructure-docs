@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1200" viewBox="0 0 1200 1200" role="img" aria-labelledby="title desc">
+  <title id="title">Session 处理最终 assistant 错误的两条恢复路径</title>
+  <desc id="desc">从最终 assistant 响应开始先检查用户取消。未取消时，先分流上下文溢出或可恢复截断：持久省略失败尝试，压缩后只重试一次，再 Agent.continue。其它错误检查是否可重试且预算未耗尽；满足时追加 context_edit、执行可取消退避，再 Agent.continue。不满足则停止并收尾。两条路径分别是压缩恢复和普通 assistant 错误重试。</desc>
+  <rect x="0" y="0" width="1200" height="1200" fill="#f8fafc"/>
+  <text x="48" y="58" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="30" font-weight="700" fill="#0f172a">Session 遇到失败后，重做哪一步？</text>
+  <text x="48" y="96" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20" fill="#475569">先分开上下文恢复与普通可重试错误，再看两条路径如何回到 Agent.continue</text>
+
+  <rect x="420" y="140" width="360" height="84" rx="14" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="444" y="174" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20" font-weight="700" fill="#0f172a">最终 assistant 响应</text>
+  <text x="444" y="204" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#475569">进入 Session 后处理</text>
+  <path d="M600 224 V270 M590 260 L600 270 L610 260" fill="none" stroke="#b45309" stroke-width="3"/>
+  <rect x="420" y="270" width="360" height="90" rx="14" fill="#fffbeb" stroke="#b45309" stroke-width="2"/>
+  <text x="444" y="306" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20" font-weight="700" fill="#0f172a">用户已取消？</text>
+  <text x="444" y="336" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#475569">先检查取消信号</text>
+
+  <path d="M420 315 H308 V620 M318 610 L308 620 L298 610" fill="none" stroke="#b45309" stroke-width="3"/>
+  <text x="344" y="302" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#b45309">是</text>
+  <rect x="48" y="620" width="260" height="100" rx="14" fill="#fffbeb" stroke="#b45309" stroke-width="2"/>
+  <text x="68" y="660" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20" font-weight="700" fill="#0f172a">停止并收尾</text>
+  <text x="68" y="692" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#475569">不安排继续</text>
+
+  <path d="M600 360 V420 M590 410 L600 420 L610 410" fill="none" stroke="#2563eb" stroke-width="3"/>
+  <text x="616" y="399" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#2563eb">否</text>
+  <rect x="420" y="420" width="360" height="96" rx="14" fill="#fffbeb" stroke="#b45309" stroke-width="2"/>
+  <text x="444" y="458" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20" font-weight="700" fill="#0f172a">上下文溢出或可恢复截断？</text>
+  <text x="444" y="490" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#475569">先排除普通错误重试</text>
+
+  <path d="M780 468 H840" fill="none" stroke="#7c3aed" stroke-width="3"/>
+  <path d="M830 458 L840 468 L830 478" fill="none" stroke="#7c3aed" stroke-width="3"/>
+  <text x="790" y="410" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#7c3aed">是：压缩恢复</text>
+  <rect x="840" y="420" width="300" height="96" rx="14" fill="#f5f3ff" stroke="#7c3aed" stroke-width="2"/>
+  <text x="864" y="458" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20" font-weight="700" fill="#0f172a">持久省略失败尝试</text>
+  <text x="864" y="490" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#475569">失败 assistant 及其工具结果</text>
+  <path d="M990 516 V570 M980 560 L990 570 L1000 560" fill="none" stroke="#7c3aed" stroke-width="3"/>
+  <rect x="840" y="570" width="300" height="96" rx="14" fill="#f5f3ff" stroke="#7c3aed" stroke-width="2"/>
+  <text x="864" y="608" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20" font-weight="700" fill="#0f172a">压缩后重试一次</text>
+  <text x="864" y="640" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#475569">本分支只执行一次压缩重试</text>
+  <path d="M990 666 V980 H780 M790 970 L780 980 L790 990" fill="none" stroke="#2563eb" stroke-width="3"/>
+  <text x="1006" y="844" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#2563eb">重试</text>
+
+  <path d="M600 516 V570 M590 560 L600 570 L610 560" fill="none" stroke="#2563eb" stroke-width="3"/>
+  <text x="616" y="550" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#2563eb">否：普通错误路径</text>
+  <rect x="420" y="570" width="360" height="96" rx="14" fill="#fffbeb" stroke="#b45309" stroke-width="2"/>
+  <text x="444" y="608" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20" font-weight="700" fill="#0f172a">可重试错误且预算未耗尽？</text>
+  <text x="444" y="640" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#475569">只检查 assistant 错误</text>
+  <path d="M420 618 H340 V670 H308 M318 660 L308 670 L318 680" fill="none" stroke="#b45309" stroke-width="3"/>
+  <text x="346" y="606" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#b45309">否</text>
+
+  <path d="M600 666 V720 M590 710 L600 720 L610 710" fill="none" stroke="#2563eb" stroke-width="3"/>
+  <text x="616" y="701" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#2563eb">是</text>
+  <rect x="420" y="720" width="360" height="84" rx="14" fill="#f5f3ff" stroke="#7c3aed" stroke-width="2"/>
+  <text x="444" y="754" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20" font-weight="700" fill="#0f172a">追加 context_edit</text>
+  <text x="444" y="784" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#475569">失败回复留历史，退出投影</text>
+  <path d="M600 804 V850 M590 840 L600 850 L610 840" fill="none" stroke="#2563eb" stroke-width="3"/>
+  <rect x="420" y="850" width="360" height="84" rx="14" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="444" y="884" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20" font-weight="700" fill="#0f172a">可取消的退避等待</text>
+  <text x="444" y="914" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#475569">等待结束才继续</text>
+  <path d="M600 934 V980 M590 970 L600 980 L610 970" fill="none" stroke="#2563eb" stroke-width="3"/>
+  <rect x="420" y="980" width="360" height="84" rx="14" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="444" y="1014" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20" font-weight="700" fill="#0f172a">Agent.continue</text>
+  <text x="444" y="1044" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#475569">用已保留的上下文再生成</text>
+  <path d="M780 1022 H1152 V182 H780 M790 172 L780 182 L790 192" fill="none" stroke="#2563eb" stroke-width="3"/>
+  <text x="925" y="952" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#2563eb">回到最终响应处理</text>
+  <rect x="48" y="1090" width="1104" height="50" rx="12" fill="#fffbeb" stroke="#cbd5e1" stroke-width="2"/>
+  <text x="68" y="1122" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#475569">压缩重试若仍失败，Session 报告恢复失败。</text>
+</svg>

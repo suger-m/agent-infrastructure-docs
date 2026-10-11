@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1020" viewBox="0 0 1200 1020" role="img" aria-labelledby="title desc">
+  <title id="title">工具如何路由到本机或远端执行环境</title>
+  <desc id="desc">Durable 工具通过 ExecutionEnv 接口选择 Node 本机后端或 RemoteExecutionEnv。远端路径经过 Connection、SSH stdin/stdout 和 Rust pi-env daemon 到远端文件与进程。宿主模型、存储与凭证保持在控制侧；这不代表秘密不会显式传入执行环境。接口与 cwd 本身不提供 OS 隔离。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#2563eb"/></marker>
+    <marker id="arrow-green" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#0f766e"/></marker>
+    <style>text { font-family: system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif; }</style>
+  </defs>
+  <rect width="1200" height="1020" fill="#f8fafc"/>
+  <text x="56" y="78" font-size="30" font-weight="700" fill="#0f172a">工具怎样在本机与远端之间路由？</text>
+  <text x="56" y="116" font-size="20" fill="#475569">ExecutionEnv 统一文件与命令操作；它不替具体后端定义资源访问策略。</text>
+
+  <rect x="56" y="154" width="260" height="120" rx="16" fill="#f5f3ff" stroke="#7c3aed" stroke-width="2"/>
+  <text x="80" y="194" font-size="21" font-weight="700" fill="#0f172a">宿主控制侧</text>
+  <text x="80" y="228" font-size="19" fill="#475569">模型 · Durable 存储 · 凭证</text>
+  <path d="M320 214 H410" stroke="#7c3aed" stroke-width="2.5" stroke-dasharray="8 7" fill="none" marker-end="url(#arrow)"/>
+  <text x="322" y="196" font-size="18" fill="#475569">保持本地</text>
+
+  <rect x="418" y="154" width="250" height="120" rx="16" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="442" y="194" font-size="21" font-weight="700" fill="#0f172a">Durable 工具</text>
+  <text x="442" y="228" font-size="19" fill="#475569">读写文件 / 执行命令</text>
+  <path d="M672 214 H752" stroke="#2563eb" stroke-width="3" fill="none" marker-end="url(#arrow)"/>
+  <rect x="760" y="154" width="384" height="120" rx="16" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="784" y="194" font-size="21" font-weight="700" fill="#0f172a">api.env：ExecutionEnv</text>
+  <text x="784" y="228" font-size="19" fill="#475569">FileSystem + Shell 接口</text>
+
+  <path d="M900 276 V324 H208 V378" stroke="#2563eb" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
+  <text x="518" y="314" font-size="18" fill="#475569">本机后端</text>
+  <path d="M1040 276 V550 H150 V600" stroke="#0f766e" stroke-width="2.5" fill="none" marker-end="url(#arrow-green)"/>
+  <text x="80" y="582" font-size="18" fill="#0f766e">远端后端</text>
+
+  <rect x="72" y="386" width="272" height="104" rx="16" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="96" y="426" font-size="21" font-weight="700" fill="#0f172a">NodeExecutionEnv</text>
+  <text x="96" y="460" font-size="19" fill="#475569">cwd 是路径基准</text>
+  <path d="M348 438 H420" stroke="#2563eb" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
+  <rect x="428" y="386" width="290" height="104" rx="16" fill="#eff6ff" stroke="#cbd5e1" stroke-width="2"/>
+  <text x="452" y="426" font-size="21" font-weight="700" fill="#0f172a">本机文件与进程</text>
+  <text x="452" y="460" font-size="19" fill="#475569">权限来自宿主 OS</text>
+
+  <rect x="48" y="610" width="252" height="122" rx="16" fill="#f0fdfa" stroke="#0f766e" stroke-width="2"/>
+  <text x="68" y="650" font-size="20" font-weight="700" fill="#0f172a">RemoteExecutionEnv</text>
+  <text x="68" y="682" font-size="18" fill="#475569">构造远端请求</text>
+  <path d="M304 671 H352" stroke="#0f766e" stroke-width="2.5" fill="none" marker-end="url(#arrow-green)"/>
+  <rect x="360" y="610" width="220" height="122" rx="16" fill="#f0fdfa" stroke="#0f766e" stroke-width="2"/>
+  <text x="384" y="650" font-size="20" font-weight="700" fill="#0f172a">Connection</text>
+  <text x="384" y="682" font-size="18" fill="#475569">frame / request ID</text>
+  <path d="M584 671 H632" stroke="#0f766e" stroke-width="2.5" fill="none" marker-end="url(#arrow-green)"/>
+  <rect x="640" y="610" width="220" height="122" rx="16" fill="#f0fdfa" stroke="#0f766e" stroke-width="2"/>
+  <text x="664" y="650" font-size="20" font-weight="700" fill="#0f172a">SSH 通道</text>
+  <text x="664" y="682" font-size="18" fill="#475569">stdin / stdout</text>
+  <path d="M750 734 V762" stroke="#0f766e" stroke-width="2.5" fill="none" marker-end="url(#arrow-green)"/>
+  <rect x="640" y="770" width="220" height="106" rx="16" fill="#f0fdfa" stroke="#0f766e" stroke-width="2"/>
+  <text x="664" y="802" font-size="20" font-weight="700" fill="#0f172a">Rust pi-env</text>
+  <text x="664" y="828" font-size="20" font-weight="700" fill="#0f172a">daemon</text>
+  <text x="664" y="858" font-size="18" fill="#475569">远端系统调用进程</text>
+  <path d="M868 823 H912" stroke="#0f766e" stroke-width="2.5" fill="none" marker-end="url(#arrow-green)"/>
+  <rect x="920" y="770" width="232" height="106" rx="16" fill="#f0fdfa" stroke="#cbd5e1" stroke-width="2"/>
+  <text x="944" y="810" font-size="20" font-weight="700" fill="#0f172a">远端文件与进程</text>
+  <text x="944" y="844" font-size="18" fill="#475569">权限来自远端 OS</text>
+
+  <rect x="56" y="892" width="1088" height="80" rx="14" fill="#fffbeb" stroke="#b45309" stroke-width="2"/>
+  <text x="80" y="924" font-size="18" fill="#475569">cwd 不隔离文件系统；资源访问边界由具体 OS / 沙箱后端实施。</text>
+  <text x="80" y="958" font-size="18" fill="#475569">紫色虚线表示宿主控制侧关联；显式传入的环境变量仍可能带入宿主秘密。</text>
+</svg>

@@ -1,0 +1,101 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1000" viewBox="0 0 1200 1000" role="img" aria-labelledby="title desc">
+  <title id="title">Pi Agent Infra 默认与实验运行路径</title>
+  <desc id="desc">完整展示默认 CLI 与 SDK 路径、实验 durable 路径、两条路径共用的 pi-ai、工具与外部服务，以及 Session、Storage、Chord、Worker 和执行环境之间的关系。</desc>
+  <rect width="1200" height="1000" fill="#f8fafc"/>
+  <text x="52" y="66" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="30" font-weight="700">Pi Agent Infra：默认与实验运行路径</text>
+  <text x="52" y="104" fill="#475569" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20">先分清两套执行引擎，再看它们共用哪些模型、工具与状态组件。</text>
+
+  <path d="M600 188 V222 H220 V270" fill="none" stroke="#2563eb" stroke-width="2.5"/>
+  <path d="M220 270 l-7 -12 h14 z" fill="#2563eb"/>
+  <path d="M600 188 V212 H790 V545 H750" fill="none" stroke="#b45309" stroke-width="2.5" stroke-dasharray="8 7"/>
+  <path d="M750 545 l12 -7 v14 z" fill="#b45309"/>
+  <path d="M370 316 H440" fill="none" stroke="#2563eb" stroke-width="2.5"/>
+  <path d="M440 316 l-12 -7 v14 z" fill="#2563eb"/>
+  <path d="M750 316 H860" fill="none" stroke="#2563eb" stroke-width="2.5"/>
+  <path d="M860 316 l-12 -7 v14 z" fill="#2563eb"/>
+  <path d="M220 362 V410" fill="none" stroke="#2563eb" stroke-width="2.5"/>
+  <path d="M220 410 l-7 -12 h14 z" fill="#2563eb"/>
+  <path d="M600 362 V410" fill="none" stroke="#2563eb" stroke-width="2.5"/>
+  <path d="M600 410 l-7 -12 h14 z" fill="#2563eb"/>
+  <path d="M750 455 H860" fill="none" stroke="#0f766e" stroke-width="2.5"/>
+  <path d="M860 455 l-12 -7 v14 z" fill="#0f766e"/>
+  <path d="M370 575 H440" fill="none" stroke="#b45309" stroke-width="2.5"/>
+  <path d="M440 575 l-12 -7 v14 z" fill="#b45309"/>
+  <path d="M750 585 H820 V342 H860" fill="none" stroke="#7c3aed" stroke-width="2.5"/>
+  <path d="M860 342 l-12 -7 v14 z" fill="#7c3aed"/>
+  <path d="M440 610 H390 V745 H320" fill="none" stroke="#7c3aed" stroke-width="2.5"/>
+  <path d="M320 745 l12 -7 v14 z" fill="#7c3aed"/>
+  <path d="M565 635 V700" fill="none" stroke="#7c3aed" stroke-width="2.5"/>
+  <path d="M565 700 l-7 -12 h14 z" fill="#7c3aed"/>
+  <path d="M750 620 H780 V700" fill="none" stroke="#7c3aed" stroke-width="2.5"/>
+  <path d="M780 700 l-7 -12 h14 z" fill="#7c3aed"/>
+  <path d="M910 745 H930" fill="none" stroke="#0f766e" stroke-width="2.5"/>
+  <path d="M930 745 l-12 -7 v14 z" fill="#0f766e"/>
+  <path d="M565 790 V835" fill="none" stroke="#7c3aed" stroke-width="2.5"/>
+  <path d="M565 835 l-7 -12 h14 z" fill="#7c3aed"/>
+  <path d="M220 620 V665 H1005 V635" fill="none" stroke="#7c3aed" stroke-width="2.5"/>
+  <path d="M1005 635 l-7 12 h14 z" fill="#7c3aed"/>
+
+  <rect x="490" y="118" width="220" height="70" rx="16" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="600" y="161" text-anchor="middle" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="22" font-weight="700">用户任务</text>
+
+  <rect x="70" y="270" width="300" height="92" rx="16" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="220" y="307" text-anchor="middle" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20" font-weight="700">
+    <tspan x="220">默认 CLI 与 SDK</tspan><tspan x="220" dy="26">AgentSession</tspan>
+  </text>
+  <rect x="440" y="270" width="310" height="92" rx="16" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="595" y="307" text-anchor="middle" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20" font-weight="700">
+    <tspan x="595">pi-agent-core</tspan><tspan x="595" dy="26">Agent Loop</tspan>
+  </text>
+  <rect x="860" y="270" width="290" height="92" rx="16" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="1005" y="307" text-anchor="middle" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20" font-weight="700">
+    <tspan x="1005">pi-ai 模型</tspan><tspan x="1005" dy="26">与流式协议</tspan>
+  </text>
+  <rect x="70" y="410" width="300" height="90" rx="16" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="220" y="447" text-anchor="middle" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20" font-weight="700">
+    <tspan x="220">Session JSONL</tspan><tspan x="220" dy="26">与上下文投影</tspan>
+  </text>
+  <rect x="440" y="410" width="310" height="90" rx="16" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="595" y="447" text-anchor="middle" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20" font-weight="700">
+    <tspan x="595">工具与</tspan><tspan x="595" dy="26">扩展 hook</tspan>
+  </text>
+  <rect x="860" y="410" width="290" height="90" rx="16" fill="#f0fdfa" stroke="#0f766e" stroke-width="2"/>
+  <text x="1005" y="447" text-anchor="middle" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20" font-weight="700">
+    <tspan x="1005">MCP 或</tspan><tspan x="1005" dy="26">外部工具</tspan>
+  </text>
+
+  <rect x="70" y="530" width="300" height="90" rx="16" fill="#fffbeb" stroke="#b45309" stroke-width="2"/>
+  <text x="220" y="566" text-anchor="middle" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="19" font-weight="700">
+    <tspan x="220">实验服务与</tspan><tspan x="220" dy="26">Session Worker</tspan>
+  </text>
+  <rect x="440" y="545" width="310" height="90" rx="16" fill="#f5f3ff" stroke="#7c3aed" stroke-width="2"/>
+  <text x="595" y="582" text-anchor="middle" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20" font-weight="700">
+    <tspan x="595">pi-durable</tspan><tspan x="595" dy="26">Harness</tspan>
+  </text>
+  <rect x="860" y="545" width="290" height="90" rx="16" fill="#f5f3ff" stroke="#7c3aed" stroke-width="2"/>
+  <text x="1005" y="582" text-anchor="middle" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="19" font-weight="700">
+    <tspan x="1005">Chord 服务</tspan><tspan x="1005" dy="26">与状态副本</tspan>
+  </text>
+
+  <rect x="70" y="700" width="250" height="90" rx="16" fill="#f5f3ff" stroke="#7c3aed" stroke-width="2"/>
+  <text x="195" y="737" text-anchor="middle" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="19" font-weight="700">
+    <tspan x="195">Scheduler 与</tspan><tspan x="195" dy="26">持久任务</tspan>
+  </text>
+  <rect x="440" y="700" width="250" height="90" rx="16" fill="#f5f3ff" stroke="#7c3aed" stroke-width="2"/>
+  <text x="565" y="737" text-anchor="middle" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="19" font-weight="700">
+    <tspan x="565">Storage 与</tspan><tspan x="565" dy="26">Checkpoint</tspan>
+  </text>
+  <rect x="710" y="700" width="200" height="90" rx="16" fill="#f0fdfa" stroke="#0f766e" stroke-width="2"/>
+  <text x="810" y="737" text-anchor="middle" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="19" font-weight="700">
+    <tspan x="800">执行环境与</tspan><tspan x="800" dy="26">CodingTools</tspan>
+  </text>
+  <rect x="930" y="700" width="220" height="90" rx="16" fill="#f0fdfa" stroke="#0f766e" stroke-width="2"/>
+  <text x="1040" y="737" text-anchor="middle" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="19" font-weight="700">
+    <tspan x="1040">Node 或 Remote</tspan><tspan x="1040" dy="26">ExecutionEnv</tspan>
+  </text>
+  <rect x="440" y="835" width="250" height="90" rx="16" fill="#f5f3ff" stroke="#7c3aed" stroke-width="2"/>
+  <text x="565" y="872" text-anchor="middle" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="19" font-weight="700">
+    <tspan x="565">Chord</tspan><tspan x="565" dy="26">文档状态</tspan>
+  </text>
+  <text x="52" y="966" fill="#475569" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18">实线箭头表示依赖或调用；橙色虚线表示实验入口。两条路径共用 pi-ai，工具与执行环境各有自己的接入点。</text>
+</svg>

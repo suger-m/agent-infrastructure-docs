@@ -1,0 +1,97 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1460" viewBox="0 0 1200 1460" role="img" aria-labelledby="title desc">
+  <title id="title">自定义持久任务的提交与崩溃恢复时序</title>
+  <desc id="desc">保留原始五个参与者和完整时序：保存 apply checkpoint 与稳定 key、原子提交、adopt、publish、调用外部服务、崩溃窗口、重开后使用同一 key 再次调用、保存 terminal outcome 并发布。外部幂等去重是自定义任务与外部服务的约定，不代表内建 unsafe 工具会自动重放。</desc>
+  <rect width="1200" height="1460" fill="#f8fafc"/>
+  <text x="52" y="62" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="30" font-weight="700">提交、外部操作与重开后的恢复时序</text>
+  <text x="52" y="98" fill="#475569" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20">自定义任务先保存 apply 意图，执行外部操作，再保存 terminal outcome。</text>
+  <rect x="52" y="116" width="1096" height="58" rx="14" fill="#fffbeb" stroke="#b45309" stroke-width="1.5"/>
+  <text x="74" y="141" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18">
+    <tspan x="74">同 key 的外部去重依赖这类自定义任务与外部服务的约定；</tspan><tspan x="74" dy="23">它不是内建工具 unsafe 策略下的自动重放保证。</tspan>
+  </text>
+
+  <rect x="48" y="190" width="104" height="62" rx="14" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="100" y="216" text-anchor="middle" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" font-weight="700"><tspan x="100">Task</tspan><tspan x="100" dy="22">handler</tspan></text>
+  <rect x="228" y="190" width="224" height="62" rx="14" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="340" y="216" text-anchor="middle" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" font-weight="700"><tspan x="340">Session</tspan><tspan x="340" dy="22">mutation line</tspan></text>
+  <rect x="532" y="190" width="96" height="62" rx="14" fill="#f5f3ff" stroke="#7c3aed" stroke-width="2"/>
+  <text x="580" y="228" text-anchor="middle" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20" font-weight="700">Storage</text>
+  <rect x="716" y="190" width="208" height="62" rx="14" fill="#f0fdfa" stroke="#0f766e" stroke-width="2"/>
+  <text x="820" y="216" text-anchor="middle" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" font-weight="700"><tspan x="820">External</tspan><tspan x="820" dy="22">service</tspan></text>
+  <rect x="960" y="190" width="200" height="62" rx="14" fill="#f5f3ff" stroke="#7c3aed" stroke-width="2"/>
+  <text x="1060" y="216" text-anchor="middle" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" font-weight="700"><tspan x="1060">View /</tspan><tspan x="1060" dy="22">observer</tspan></text>
+
+  <path d="M100 252 V1356 M340 252 V1356 M580 252 V1356 M820 252 V1356 M1060 252 V1356" fill="none" stroke="#cbd5e1" stroke-width="1.5" stroke-dasharray="5 7"/>
+  <rect x="48" y="260" width="1104" height="72" fill="#eff6ff"/>
+  <rect x="48" y="332" width="1104" height="72" fill="#ffffff"/>
+  <rect x="48" y="404" width="1104" height="72" fill="#f5f3ff"/>
+  <rect x="48" y="476" width="1104" height="72" fill="#ffffff"/>
+  <rect x="48" y="548" width="1104" height="72" fill="#f5f3ff"/>
+  <rect x="48" y="620" width="1104" height="72" fill="#ffffff"/>
+  <rect x="48" y="692" width="1104" height="72" fill="#f0fdfa"/>
+  <rect x="48" y="846" width="1104" height="72" fill="#eff6ff"/>
+  <rect x="48" y="918" width="1104" height="72" fill="#ffffff"/>
+  <rect x="48" y="990" width="1104" height="72" fill="#f0fdfa"/>
+  <rect x="48" y="1062" width="1104" height="72" fill="#eff6ff"/>
+  <rect x="48" y="1134" width="1104" height="72" fill="#ffffff"/>
+  <rect x="48" y="1206" width="1104" height="72" fill="#f5f3ff"/>
+  <rect x="48" y="1278" width="1104" height="72" fill="#ffffff"/>
+
+  <rect x="110" y="268" width="230" height="46" rx="10" fill="#f8fafc"/>
+  <text x="225" y="288" text-anchor="middle" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18"><tspan x="225">保存 apply checkpoint</tspan><tspan x="225" dy="21">与稳定 key</tspan></text>
+  <path d="M100 322 H340" fill="none" stroke="#2563eb" stroke-width="2.5"/><path d="M340 322 l-12 -7 v14 z" fill="#2563eb"/>
+
+  <rect x="355" y="340" width="210" height="46" rx="10" fill="#f8fafc"/>
+  <text x="460" y="370" text-anchor="middle" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18">atomic commit</text>
+  <path d="M340 394 H580" fill="none" stroke="#7c3aed" stroke-width="2.5"/><path d="M580 394 l-12 -7 v14 z" fill="#7c3aed"/>
+
+  <rect x="355" y="412" width="210" height="46" rx="10" fill="#f8fafc"/>
+  <text x="460" y="442" text-anchor="middle" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18">commit sequence</text>
+  <path d="M580 466 H340" fill="none" stroke="#7c3aed" stroke-width="2.5" stroke-dasharray="8 7"/><path d="M340 466 l12 -7 v14 z" fill="#7c3aed"/>
+
+  <rect x="395" y="482" width="230" height="42" rx="10" fill="#f8fafc"/>
+  <text x="510" y="508" text-anchor="middle" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18">adopt 内存候选</text>
+  <path d="M340 544 h45 v-14 h-45" fill="none" stroke="#2563eb" stroke-width="2.5"/><path d="M340 530 l10 -7 v14 z" fill="#2563eb"/>
+
+  <rect x="562" y="556" width="276" height="46" rx="10" fill="#f8fafc"/>
+  <text x="700" y="586" text-anchor="middle" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18">publish 已提交状态</text>
+  <path d="M340 610 H1060" fill="none" stroke="#7c3aed" stroke-width="2.5" stroke-dasharray="8 7"/><path d="M1060 610 l-12 -7 v14 z" fill="#7c3aed"/>
+
+  <rect x="280" y="628" width="360" height="46" rx="10" fill="#f8fafc"/>
+  <text x="460" y="658" text-anchor="middle" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18">apply(key)</text>
+  <path d="M100 682 H820" fill="none" stroke="#0f766e" stroke-width="2.5"/><path d="M820 682 l-12 -7 v14 z" fill="#0f766e"/>
+
+  <rect x="280" y="700" width="360" height="46" rx="10" fill="#f8fafc"/>
+  <text x="460" y="730" text-anchor="middle" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18">receipt</text>
+  <path d="M820 754 H100" fill="none" stroke="#0f766e" stroke-width="2.5" stroke-dasharray="8 7"/><path d="M100 754 l12 -7 v14 z" fill="#0f766e"/>
+
+  <rect x="64" y="778" width="560" height="54" rx="13" fill="#fffbeb" stroke="#b45309" stroke-width="1.5"/>
+  <text x="344" y="812" text-anchor="middle" fill="#92400e" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="19" font-weight="700">此处进程崩溃：receipt 尚未持久化</text>
+
+  <rect x="110" y="854" width="230" height="46" rx="10" fill="#f8fafc"/>
+  <text x="225" y="874" text-anchor="middle" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18"><tspan x="225">重开并从</tspan><tspan x="225" dy="21">apply 继续</tspan></text>
+  <path d="M100 908 H340" fill="none" stroke="#2563eb" stroke-width="2.5"/><path d="M340 908 l-12 -7 v14 z" fill="#2563eb"/>
+
+  <rect x="286" y="926" width="378" height="46" rx="10" fill="#f8fafc"/>
+  <text x="475" y="956" text-anchor="middle" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18">再次 apply(同 key)</text>
+  <path d="M100 980 H820" fill="none" stroke="#0f766e" stroke-width="2.5"/><path d="M820 980 l-12 -7 v14 z" fill="#0f766e"/>
+
+  <rect x="286" y="998" width="378" height="46" rx="10" fill="#f8fafc"/>
+  <text x="475" y="1028" text-anchor="middle" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18">同一 receipt</text>
+  <path d="M820 1052 H100" fill="none" stroke="#0f766e" stroke-width="2.5" stroke-dasharray="8 7"/><path d="M100 1052 l12 -7 v14 z" fill="#0f766e"/>
+
+  <rect x="110" y="1070" width="230" height="46" rx="10" fill="#f8fafc"/>
+  <text x="225" y="1100" text-anchor="middle" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18">保存 terminal outcome</text>
+  <path d="M100 1124 H340" fill="none" stroke="#2563eb" stroke-width="2.5"/><path d="M340 1124 l-12 -7 v14 z" fill="#2563eb"/>
+
+  <rect x="355" y="1142" width="210" height="46" rx="10" fill="#f8fafc"/>
+  <text x="460" y="1172" text-anchor="middle" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18">atomic commit</text>
+  <path d="M340 1196 H580" fill="none" stroke="#7c3aed" stroke-width="2.5"/><path d="M580 1196 l-12 -7 v14 z" fill="#7c3aed"/>
+
+  <rect x="355" y="1214" width="210" height="46" rx="10" fill="#f8fafc"/>
+  <text x="460" y="1244" text-anchor="middle" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18">committed</text>
+  <path d="M580 1268 H340" fill="none" stroke="#7c3aed" stroke-width="2.5" stroke-dasharray="8 7"/><path d="M340 1268 l12 -7 v14 z" fill="#7c3aed"/>
+
+  <rect x="562" y="1286" width="276" height="46" rx="10" fill="#f8fafc"/>
+  <text x="700" y="1316" text-anchor="middle" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18">publish outcome</text>
+  <path d="M340 1340 H1060" fill="none" stroke="#7c3aed" stroke-width="2.5" stroke-dasharray="8 7"/><path d="M1060 1340 l-12 -7 v14 z" fill="#7c3aed"/>
+</svg>

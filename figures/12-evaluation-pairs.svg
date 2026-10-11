@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
+  <title id="title">评估结果按条件配对后比较</title>
+  <desc id="desc">每个 Agent 在有文档和无文档条件下各有计划观测。只有两边各有一个已评分结果才可比较；score 大于等于一算通过，缺失或 blocked 不按零分处理，任一 blocked pair 会阻止该 eval set 发布 headline。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M0 0 L10 5 L0 10 Z" fill="#2563eb"/>
+    </marker>
+    <style>
+      text { font-family: system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif; }
+    </style>
+  </defs>
+  <rect x="0" y="0" width="1200" height="760" fill="#f8fafc"/>
+  <text x="56" y="83" font-size="30" font-weight="700" fill="#0f172a">怎样从两种条件的结果得到可信比较？</text>
+  <text x="56" y="122" font-size="20" fill="#475569">先检查实际产物并评分，再按计划身份配对；下图为规则示意。</text>
+
+  <rect x="56" y="160" width="700" height="68" rx="14" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <circle cx="88" cy="194" r="18" fill="#2563eb"/><text x="82" y="201" font-size="18" font-weight="700" fill="#ffffff">1</text>
+  <text x="120" y="202" font-size="21" font-weight="700" fill="#0f172a">计划维度：案例 × 模型 × 文档条件</text>
+
+  <text x="76" y="270" font-size="18" font-weight="700" fill="#475569">配对身份</text>
+  <text x="278" y="270" font-size="18" font-weight="700" fill="#475569">无文档条件</text>
+  <text x="498" y="270" font-size="18" font-weight="700" fill="#475569">有文档条件</text>
+  <text x="698" y="270" font-size="18" font-weight="700" fill="#475569">配对状态</text>
+
+  <rect x="56" y="284" width="168" height="92" rx="14" fill="#eff6ff" stroke="#cbd5e1" stroke-width="2"/>
+  <text x="80" y="322" font-size="21" font-weight="700" fill="#0f172a">Agent A</text>
+  <text x="80" y="352" font-size="18" fill="#475569">同一配对键</text>
+  <rect x="242" y="284" width="204" height="92" rx="14" fill="#f0fdfa" stroke="#0f766e" stroke-width="2"/>
+  <text x="264" y="321" font-size="19" font-weight="700" fill="#0f172a">已评分：score s₁</text>
+  <text x="264" y="352" font-size="18" fill="#475569">按任务产物判定</text>
+  <rect x="462" y="284" width="204" height="92" rx="14" fill="#f0fdfa" stroke="#0f766e" stroke-width="2"/>
+  <text x="484" y="321" font-size="19" font-weight="700" fill="#0f172a">已评分：score s₂</text>
+  <text x="484" y="352" font-size="18" fill="#475569">按任务产物判定</text>
+  <path d="M670 330 H690" stroke="#2563eb" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
+  <rect x="698" y="284" width="150" height="92" rx="14" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="720" y="321" font-size="19" font-weight="700" fill="#0f172a">完整配对</text>
+  <text x="720" y="352" font-size="18" fill="#475569">可以比较</text>
+
+  <rect x="56" y="392" width="168" height="92" rx="14" fill="#eff6ff" stroke="#cbd5e1" stroke-width="2"/>
+  <text x="80" y="430" font-size="21" font-weight="700" fill="#0f172a">Agent B</text>
+  <text x="80" y="460" font-size="18" fill="#475569">同一配对键</text>
+  <rect x="242" y="392" width="204" height="92" rx="14" fill="#f0fdfa" stroke="#0f766e" stroke-width="2"/>
+  <text x="264" y="429" font-size="19" font-weight="700" fill="#0f172a">已评分：score s₃</text>
+  <text x="264" y="460" font-size="18" fill="#475569">按任务产物判定</text>
+  <rect x="462" y="392" width="204" height="92" rx="14" fill="#fffbeb" stroke="#b45309" stroke-width="2"/>
+  <text x="484" y="429" font-size="19" font-weight="700" fill="#0f172a">缺失 / errored</text>
+  <text x="484" y="460" font-size="18" fill="#475569">不是一个分数</text>
+  <path d="M670 438 H690" stroke="#b45309" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
+  <rect x="698" y="392" width="150" height="92" rx="14" fill="#fffbeb" stroke="#b45309" stroke-width="2"/>
+  <text x="720" y="429" font-size="19" font-weight="700" fill="#0f172a">blocked pair</text>
+  <text x="720" y="460" font-size="18" fill="#475569">不参与比较</text>
+
+  <path d="M856 330 H890 V376 H914" stroke="#2563eb" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
+  <path d="M856 438 H890 V398 H914" stroke="#b45309" stroke-width="2.5" fill="none"/>
+  <rect x="922" y="306" width="222" height="164" rx="16" fill="#fffbeb" stroke="#b45309" stroke-width="2"/>
+  <text x="946" y="346" font-size="21" font-weight="700" fill="#0f172a">该 eval set</text>
+  <text x="946" y="382" font-size="19" fill="#475569">存在 blocked pair</text>
+  <text x="946" y="420" font-size="20" font-weight="700" fill="#b45309">headline 不发布</text>
+  <text x="946" y="451" font-size="18" fill="#475569">不只挑完整配对报收益</text>
+
+  <rect x="56" y="526" width="520" height="142" rx="16" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <circle cx="88" cy="559" r="18" fill="#2563eb"/><text x="82" y="566" font-size="18" font-weight="700" fill="#ffffff">2</text>
+  <text x="120" y="567" font-size="21" font-weight="700" fill="#0f172a">评分与成功判定</text>
+  <text x="80" y="608" font-size="19" fill="#475569">score ≥ 1 算通过；score = 0 是有效低分。</text>
+  <text x="80" y="641" font-size="18" fill="#475569">缺失、重复、skipped、pending 或 errored 不按零计。</text>
+
+  <rect x="624" y="526" width="520" height="142" rx="16" fill="#f5f3ff" stroke="#7c3aed" stroke-width="2"/>
+  <text x="648" y="565" font-size="21" font-weight="700" fill="#0f172a">Session 留档的用途</text>
+  <text x="648" y="606" font-size="19" fill="#475569">可用于诊断与复核；归档不等于通用确定性 Replay。</text>
+  <text x="648" y="640" font-size="18" fill="#475569">重新评估会再次运行模型与工具，外部副作用未必可重放。</text>
+
+  <text x="56" y="712" font-size="18" fill="#475569">比较按 (evalSet, caseId, model, runNumber) 配对；blocked 状态作用于所属 eval set 的 headline。</text>
+</svg>

@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
+  <title id="title">客户端如何从快照接上连续增量</title>
+  <desc id="desc">展示提供端原子取得 seq 42 快照并登记订阅，消费端安装快照后 activate，再按顺序接收 seq 43 和 44。缺少一帧时副本清空并报错，不会自动取快照；需要显式 reset hydration 才能建立新基线。权威源单向发布到只读副本。</desc>
+  <rect x="0" y="0" width="1200" height="760" fill="#f8fafc"/>
+  <text x="52" y="68" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="30" font-weight="700">客户端如何接住状态快照与增量</text>
+  <text x="52" y="108" fill="#475569" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20">先安装完整基线，再激活订阅；之后每个状态序号必须连续。</text>
+
+  <rect x="52" y="142" width="1096" height="66" rx="14" fill="#eff6ff" stroke="#2563eb" stroke-width="1.5"/>
+  <text x="76" y="169" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="19" font-weight="700">快照竞争窗口</text>
+  <text x="76" y="195" fill="#475569" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18">提供端取得快照时同时登记订阅；安装快照期间的新变化先暂存，避免旧快照覆盖新状态或漏掉更新。</text>
+
+  <rect x="52" y="230" width="220" height="296" rx="16" fill="#f0fdfa" stroke="#0f766e" stroke-width="2"/>
+  <text x="76" y="268" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="22" font-weight="700">权威提供端</text>
+  <text x="76" y="300" fill="#475569" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18">唯一写入来源</text>
+  <rect x="76" y="324" width="172" height="68" rx="12" fill="#ffffff" stroke="#0f766e" stroke-width="1.5"/>
+  <text x="92" y="352" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="19" font-weight="700">seq 42 快照</text>
+  <text x="92" y="379" fill="#475569" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18">输出 = “a”</text>
+  <rect x="76" y="418" width="172" height="76" rx="12" fill="#ffffff" stroke="#0f766e" stroke-width="1.5"/>
+  <text x="92" y="448" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="19" font-weight="700">发布 43、44</text>
+  <text x="92" y="477" fill="#475569" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18">追加 b，再追加 c</text>
+
+  <rect x="930" y="230" width="218" height="296" rx="16" fill="#f5f3ff" stroke="#7c3aed" stroke-width="2"/>
+  <text x="954" y="268" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="22" font-weight="700">只读副本</text>
+  <text x="954" y="300" fill="#475569" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18">安装后仅应用更新</text>
+  <rect x="954" y="324" width="170" height="54" rx="12" fill="#ffffff" stroke="#7c3aed" stroke-width="1.5"/>
+  <text x="970" y="358" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18">42：输出 “a”</text>
+  <rect x="954" y="394" width="170" height="54" rx="12" fill="#ffffff" stroke="#7c3aed" stroke-width="1.5"/>
+  <text x="970" y="428" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18">43：输出 “ab”</text>
+  <rect x="954" y="464" width="170" height="42" rx="12" fill="#ffffff" stroke="#7c3aed" stroke-width="1.5"/>
+  <text x="970" y="492" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18">44：输出 “abc”</text>
+
+  <rect x="320" y="230" width="560" height="66" rx="14" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.5"/>
+  <rect x="338" y="246" width="36" height="34" rx="10" fill="#2563eb"/>
+  <text x="356" y="270" fill="#ffffff" text-anchor="middle" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="19" font-weight="700">1</text>
+  <text x="390" y="272" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20">原子 subscribe：取得快照 42，并登记订阅</text>
+  <path d="M272 263 H312" fill="none" stroke="#2563eb" stroke-width="2.5"/>
+  <path d="M312 263 l-10 -7 v14 z" fill="#2563eb"/>
+
+  <rect x="320" y="314" width="560" height="66" rx="14" fill="#fffbeb" stroke="#b45309" stroke-width="1.5"/>
+  <rect x="338" y="330" width="36" height="34" rx="10" fill="#b45309"/>
+  <text x="356" y="354" fill="#ffffff" text-anchor="middle" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="19" font-weight="700">2</text>
+  <text x="390" y="356" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20">安装期间发布 43：先暂存，不抢在快照前应用</text>
+  <path d="M272 451 C294 451 294 347 312 347" fill="none" stroke="#b45309" stroke-width="2.5"/>
+  <path d="M312 347 l-10 -7 v14 z" fill="#b45309"/>
+
+  <rect x="320" y="398" width="560" height="56" rx="14" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.5"/>
+  <rect x="338" y="409" width="36" height="34" rx="10" fill="#2563eb"/>
+  <text x="356" y="433" fill="#ffffff" text-anchor="middle" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="19" font-weight="700">3</text>
+  <text x="390" y="434" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20">副本先 hydration 完整快照 42，再 activate</text>
+  <path d="M880 426 H902 V351 H950" fill="none" stroke="#2563eb" stroke-width="2.5"/>
+  <path d="M950 351 l-10 -7 v14 z" fill="#2563eb"/>
+
+  <rect x="320" y="472" width="560" height="54" rx="14" fill="#eff6ff" stroke="#2563eb" stroke-width="1.5"/>
+  <rect x="338" y="482" width="36" height="34" rx="10" fill="#2563eb"/>
+  <text x="356" y="506" fill="#ffffff" text-anchor="middle" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="19" font-weight="700">4</text>
+  <text x="390" y="507" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20">activate 后按序应用 43，再应用 44</text>
+  <path d="M880 499 H922" fill="none" stroke="#2563eb" stroke-width="2.5"/>
+  <path d="M922 499 l-10 -7 v14 z" fill="#2563eb"/>
+
+  <text x="52" y="572" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="22" font-weight="700">缺帧时必须显式重建基线</text>
+  <rect x="52" y="589" width="1096" height="82" rx="14" fill="#fffbeb" stroke="#b45309" stroke-width="1.5"/>
+  <text x="76" y="620" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="19" font-weight="700">若副本停在 42，却收到 44（期望 43）：</text>
+  <text x="76" y="650" fill="#475569" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18">清空 value 并报错；不会自动抓快照。主机或 binding 负责重订阅；重新安装快照或接收显式 reset 后建立新基线。</text>
+
+  <rect x="52" y="688" width="1096" height="44" rx="12" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.5"/>
+  <text x="72" y="716" fill="#475569" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18">边界：权威源单向发布给只读副本；这是单状态流的序号，不含多主共识或跨主机 Lease。</text>
+</svg>

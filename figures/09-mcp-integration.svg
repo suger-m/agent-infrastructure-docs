@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="980" viewBox="0 0 1200 980" role="img" aria-labelledby="title desc">
+  <title id="title">MCP 服务如何接入会话并经过工具管线</title>
+  <desc id="desc">配置进入 McpServerConnection 和 McpClient，经 stdio 或 Streamable HTTP transport 到 MCP 服务。连接生成工具定义；模型可直接调用，或通过 Codemode 的 ctx.executeTool 调用。两条路径都进入 AgentSession 工具管线和扩展 hooks，再到定义并调用对应服务。Codemode 不绕过 hooks。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#2563eb"/></marker>
+    <marker id="arrow-green" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#0f766e"/></marker>
+    <style>text { font-family: system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif; }</style>
+  </defs>
+  <rect width="1200" height="980" fill="#f8fafc"/>
+  <text x="56" y="78" font-size="30" font-weight="700" fill="#0f172a">MCP 服务怎样接入 Agent 会话？</text>
+  <text x="56" y="116" font-size="20" fill="#475569">注册路径与调用路径分开；直接调用和 Codemode 都经过同一套会话管线。</text>
+
+  <rect x="48" y="160" width="196" height="132" rx="16" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="68" y="200" font-size="20" font-weight="700" fill="#0f172a">全局 / 可信项目</text>
+  <text x="68" y="234" font-size="19" fill="#475569">配置 / 扩展注册</text>
+  <path d="M248 226 H272" stroke="#2563eb" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
+  <rect x="280" y="160" width="210" height="132" rx="16" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="300" y="196" font-size="20" font-weight="700" fill="#0f172a">McpServer</text>
+  <text x="300" y="222" font-size="20" font-weight="700" fill="#0f172a">Connection</text>
+  <text x="300" y="258" font-size="18" fill="#475569">管理连接状态</text>
+  <path d="M494 226 H518" stroke="#2563eb" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
+  <rect x="526" y="160" width="190" height="132" rx="16" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="550" y="196" font-size="20" font-weight="700" fill="#0f172a">McpClient</text>
+  <text x="550" y="230" font-size="18" fill="#475569">initialize</text>
+  <text x="550" y="260" font-size="18" fill="#475569">discovery</text>
+  <path d="M720 226 H744" stroke="#2563eb" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
+  <rect x="752" y="160" width="180" height="132" rx="16" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="776" y="200" font-size="20" font-weight="700" fill="#0f172a">Transport</text>
+  <text x="776" y="234" font-size="18" fill="#475569">stdio / HTTP</text>
+  <path d="M936 226 H960" stroke="#0f766e" stroke-width="2.5" fill="none" marker-end="url(#arrow-green)"/>
+  <rect x="968" y="160" width="184" height="132" rx="16" fill="#f0fdfa" stroke="#0f766e" stroke-width="2"/>
+  <text x="990" y="200" font-size="20" font-weight="700" fill="#0f172a">MCP 服务</text>
+  <text x="990" y="232" font-size="18" fill="#475569">tools/list</text>
+  <text x="990" y="260" font-size="18" fill="#475569">tools/call</text>
+
+  <path d="M386 294 V330 H1000 V350" stroke="#2563eb" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
+  <text x="652" y="322" font-size="18" fill="#475569">连接发现后注册</text>
+  <rect x="850" y="358" width="302" height="104" rx="16" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="874" y="396" font-size="20" font-weight="700" fill="#0f172a">工具定义</text>
+  <text x="874" y="432" font-size="18" fill="#475569">mcp__server__tool</text>
+
+  <rect x="48" y="438" width="190" height="108" rx="16" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="72" y="479" font-size="21" font-weight="700" fill="#0f172a">模型</text>
+  <text x="72" y="512" font-size="18" fill="#475569">选择调用路径</text>
+  <path d="M242 474 L302 464" stroke="#2563eb" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
+  <path d="M242 520 H270 V606 H302" stroke="#2563eb" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
+
+  <rect x="310" y="418" width="212" height="96" rx="16" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="334" y="457" font-size="20" font-weight="700" fill="#0f172a">直接 tool call</text>
+  <text x="334" y="489" font-size="18" fill="#475569">Agent 发起</text>
+  <rect x="310" y="558" width="212" height="96" rx="16" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="334" y="597" font-size="20" font-weight="700" fill="#0f172a">Codemode</text>
+  <text x="334" y="629" font-size="18" fill="#475569">QuickJS 脚本</text>
+  <path d="M526 606 H558" stroke="#2563eb" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
+  <rect x="566" y="558" width="210" height="96" rx="16" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="588" y="597" font-size="20" font-weight="700" fill="#0f172a">ctx.executeTool</text>
+  <text x="588" y="629" font-size="18" fill="#475569">嵌套工具调用</text>
+
+  <path d="M526 466 H800 V584 H818" stroke="#2563eb" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
+  <path d="M780 606 H800 V626 H818" stroke="#2563eb" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
+  <rect x="826" y="520" width="224" height="128" rx="16" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="850" y="558" font-size="20" font-weight="700" fill="#0f172a">AgentSession</text>
+  <text x="850" y="590" font-size="18" fill="#475569">工具管线</text>
+  <text x="850" y="620" font-size="18" fill="#475569">扩展 hooks</text>
+  <path d="M1054 584 H1110 V472" stroke="#2563eb" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
+  <path d="M1152 410 H1170 V145 H500 V226 H498" stroke="#0f766e" stroke-width="2.5" fill="none" marker-end="url(#arrow-green)"/>
+  <rect x="56" y="796" width="1088" height="92" rx="16" fill="#fffbeb" stroke="#b45309" stroke-width="2"/>
+  <text x="80" y="835" font-size="20" font-weight="700" fill="#0f172a">边界</text>
+  <text x="154" y="835" font-size="19" fill="#475569">Codemode 的 ctx.executeTool 仍进入 AgentSession hooks，不会直接绕过管线访问 transport。</text>
+  <text x="80" y="868" font-size="18" fill="#475569">stdio / Streamable HTTP 是传输选择；连接、工具定义和服务 OS 权限是不同层次。</text>
+</svg>

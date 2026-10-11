@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
+  <title id="title">保存的 A 到 G 历史怎样投影为模型上下文</title>
+  <desc id="desc">沿当前分支依次保存 A 到 G。E 的 compaction 用摘要覆盖 A 和 B，保留起点是 C；F 将 D 的上下文贡献置为空；G 是新用户输入。模型收到 E 的摘要、C 和 G。若在 B 上另开分支，E 和 F 不在那条路径上。</desc>
+  <rect x="0" y="0" width="1200" height="760" fill="#f8fafc"/>
+  <text x="48" y="64" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="30" font-weight="700" fill="#0f172a">保存历史 A 到 G，请求只取当前投影</text>
+  <text x="48" y="104" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20" fill="#475569">压缩和编辑追加到历史；它们改变模型看到的消息，不删除旧条目</text>
+
+  <text x="48" y="154" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" font-weight="700" fill="#475569">当前分支上的保存条目（按追加顺序）</text>
+  <rect x="48" y="176" width="142" height="118" rx="14" fill="#f5f3ff" stroke="#7c3aed" stroke-width="2"/>
+  <text x="68" y="210" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" font-weight="700" fill="#7c3aed">A · user</text>
+  <text x="68" y="250" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#0f172a">初始任务</text>
+  <path d="M190 235 H212 M202 225 L212 235 L202 245" fill="none" stroke="#cbd5e1" stroke-width="3"/>
+  <rect x="212" y="176" width="142" height="118" rx="14" fill="#f5f3ff" stroke="#7c3aed" stroke-width="2"/>
+  <text x="232" y="210" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" font-weight="700" fill="#7c3aed">B · 回答</text>
+  <text x="232" y="250" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#0f172a">旧回答</text>
+  <path d="M354 235 H376 M366 225 L376 235 L366 245" fill="none" stroke="#cbd5e1" stroke-width="3"/>
+  <rect x="376" y="176" width="142" height="118" rx="14" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="396" y="210" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" font-weight="700" fill="#2563eb">C · user</text>
+  <text x="396" y="250" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#0f172a">最近输入</text>
+  <path d="M518 235 H540 M530 225 L540 235 L530 245" fill="none" stroke="#cbd5e1" stroke-width="3"/>
+  <rect x="540" y="176" width="142" height="118" rx="14" fill="#f5f3ff" stroke="#7c3aed" stroke-width="2"/>
+  <text x="560" y="210" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" font-weight="700" fill="#7c3aed">D · 回答</text>
+  <text x="560" y="250" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#0f172a">最近回答</text>
+  <path d="M682 235 H704 M694 225 L704 235 L694 245" fill="none" stroke="#cbd5e1" stroke-width="3"/>
+  <rect x="704" y="176" width="142" height="118" rx="14" fill="#f5f3ff" stroke="#7c3aed" stroke-width="2"/>
+  <text x="724" y="210" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" font-weight="700" fill="#7c3aed">E · 压缩</text>
+  <text x="724" y="246" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#0f172a">摘要</text>
+  <text x="724" y="272" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#0f172a">保留自 C</text>
+  <path d="M846 235 H868 M858 225 L868 235 L858 245" fill="none" stroke="#cbd5e1" stroke-width="3"/>
+  <rect x="868" y="176" width="142" height="118" rx="14" fill="#fffbeb" stroke="#b45309" stroke-width="2"/>
+  <text x="888" y="210" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" font-weight="700" fill="#b45309">F · 编辑</text>
+  <text x="888" y="246" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#0f172a">目标 D</text>
+  <text x="888" y="272" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#0f172a">设为省略</text>
+  <path d="M1010 235 H1032 M1022 225 L1032 235 L1022 245" fill="none" stroke="#cbd5e1" stroke-width="3"/>
+  <rect x="1032" y="176" width="120" height="118" rx="14" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="1050" y="210" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" font-weight="700" fill="#2563eb">G · user</text>
+  <text x="1050" y="250" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#0f172a">继续</text>
+
+  <path d="M283 294 V342 H444 M434 332 L444 342 L434 352" fill="none" stroke="#7c3aed" stroke-width="2" stroke-dasharray="7 7"/>
+  <text x="468" y="349" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#7c3aed">若从 B 另开分支：E、F 不在新路径上</text>
+
+  <text x="48" y="396" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" font-weight="700" fill="#475569">当前请求的 SessionProjection：只列实际贡献消息的条目</text>
+  <rect x="48" y="420" width="1104" height="176" rx="18" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <rect x="72" y="456" width="300" height="104" rx="14" fill="#f5f3ff" stroke="#7c3aed" stroke-width="2"/>
+  <text x="94" y="491" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" font-weight="700" fill="#7c3aed">E 的摘要</text>
+  <text x="94" y="531" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20" fill="#0f172a">「旧任务和进度」</text>
+  <text x="396" y="516" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="28" font-weight="700" fill="#2563eb">+</text>
+  <rect x="444" y="456" width="268" height="104" rx="14" fill="#ffffff" stroke="#2563eb" stroke-width="2"/>
+  <text x="466" y="491" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" font-weight="700" fill="#2563eb">C · 最近输入</text>
+  <text x="466" y="531" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#475569">E 的保留范围从 C 开始</text>
+  <text x="736" y="516" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="28" font-weight="700" fill="#2563eb">+</text>
+  <rect x="784" y="456" width="332" height="104" rx="14" fill="#ffffff" stroke="#2563eb" stroke-width="2"/>
+  <text x="808" y="491" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" font-weight="700" fill="#2563eb">G · 继续</text>
+  <text x="808" y="531" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#475569">当前分支上的新输入</text>
+
+  <rect x="48" y="628" width="1104" height="84" rx="14" fill="#ffffff" stroke="#cbd5e1" stroke-width="2"/>
+  <text x="72" y="663" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#475569">原始历史仍保留 A、B、D，以及压缩和编辑记录 E、F。A/B 被摘要覆盖；F 让 D 对请求贡献 0 条消息。</text>
+  <text x="72" y="693" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#475569">先选当前分支，再应用压缩范围和上下文编辑；模型收到的是投影，不是整份会话文件。</text>
+</svg>

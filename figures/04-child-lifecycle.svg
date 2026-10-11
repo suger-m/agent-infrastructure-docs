@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
+  <title id="title">Checkout 等待并取消子任务后才能收尾</title>
+  <desc id="desc">Checkout 拥有并等待 Payment A、Payment B。Payment B 失败触发 failFast，为仍活跃的 Payment A 写入取消标记；调度器仍要等 A 结算。Checkout 随后读取结果决定失败，已有普通子工作未清空时先处于 completing，全部收尾后进入 terminal，waitForTask 才返回。后台工作由 conversation 所有的 background anchor 建立空闲检查和取消遍历的边界。</desc>
+  <rect x="0" y="0" width="1200" height="760" fill="#f8fafc"/>
+  <text x="48" y="64" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="30" font-weight="700" fill="#0f172a">父任务何时算真正结束？</text>
+  <text x="48" y="104" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20" fill="#475569">沿一次「结账等待两笔付款」看所有权、failFast 和 waitForTask</text>
+
+  <rect x="48" y="156" width="234" height="116" rx="16" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="72" y="194" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" font-weight="700" fill="#2563eb">1 · Checkout</text>
+  <text x="72" y="236" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20" fill="#0f172a">拥有并等待 A、B</text>
+
+  <path d="M164 272 V320 H454 V340 M444 330 L454 340 L464 330" fill="none" stroke="#2563eb" stroke-width="3"/>
+  <text x="210" y="312" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#2563eb">拥有</text>
+  <path d="M164 320 H824 V340 M814 330 L824 340 L834 330" fill="none" stroke="#2563eb" stroke-width="3"/>
+  <text x="550" y="312" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#2563eb">拥有</text>
+
+  <rect x="344" y="340" width="220" height="108" rx="16" fill="#f0fdfa" stroke="#0f766e" stroke-width="2"/>
+  <text x="370" y="378" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" font-weight="700" fill="#0f766e">2 · Payment A</text>
+  <text x="370" y="418" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#475569">仍在运行</text>
+  <rect x="714" y="340" width="220" height="108" rx="16" fill="#fffbeb" stroke="#b45309" stroke-width="2"/>
+  <text x="740" y="378" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" font-weight="700" fill="#b45309">3 · Payment B</text>
+  <text x="740" y="418" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#475569">失败：非 completed</text>
+
+  <path d="M824 448 V468 H454 V458 M464 468 L454 458 L444 468" fill="none" stroke="#b45309" stroke-width="3" stroke-dasharray="8 7"/>
+  <text x="478" y="504" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#b45309">failFast：给仍活跃的 A 写取消标记</text>
+
+  <rect x="344" y="524" width="590" height="106" rx="16" fill="#fffbeb" stroke="#b45309" stroke-width="2"/>
+  <text x="370" y="562" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" font-weight="700" fill="#b45309">4 · 仍需等待 A 结算</text>
+  <text x="370" y="602" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#475569">取消是请求；清理完成、A 进入 terminal 后，Checkout 才继续</text>
+
+  <path d="M634 630 V640 H260 V650 M270 640 L260 650 L250 640" fill="none" stroke="#2563eb" stroke-width="3"/>
+  <rect x="48" y="650" width="424" height="60" rx="14" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="68" y="688" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" font-weight="700" fill="#2563eb">5 · Checkout 读 outcomes，提交失败结果</text>
+
+  <rect x="950" y="156" width="202" height="254" rx="16" fill="#f5f3ff" stroke="#7c3aed" stroke-width="2"/>
+  <text x="970" y="192" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" font-weight="700" fill="#7c3aed">另一条收尾规则</text>
+  <text x="970" y="224" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#0f172a">提交结束时</text>
+  <text x="970" y="250" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#0f172a">有活跃子工作</text>
+  <text x="970" y="278" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#0f172a">→ completing</text>
+  <text x="970" y="310" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#0f172a">普通工作清空</text>
+  <text x="970" y="338" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#0f172a">→ terminal</text>
+  <text x="970" y="366" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#475569">waitForTask</text>
+  <text x="970" y="390" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#475569">此时才返回</text>
+
+  <rect x="950" y="426" width="202" height="286" rx="16" fill="#ffffff" stroke="#cbd5e1" stroke-width="2"/>
+  <text x="970" y="462" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" font-weight="700" fill="#0f172a">后台任务边界</text>
+  <text x="970" y="490" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#475569">Conversation</text>
+  <text x="970" y="516" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#475569">→ background</text>
+  <text x="970" y="542" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#475569">anchor → child</text>
+  <path d="M970 560 H1132" stroke="#cbd5e1" stroke-width="2"/>
+  <text x="970" y="586" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#475569">普通空闲与取消</text>
+  <text x="970" y="612" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#475569">遍历不会越过此界。</text>
+  <text x="970" y="642" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#475569">要把后台也纳入取消：</text>
+  <text x="970" y="670" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#b45309">conversation.abort</text>
+  <text x="970" y="696" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#b45309">background: true</text>
+</svg>

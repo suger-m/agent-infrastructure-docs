@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
+  <title id="title">工具执行位置与资源边界</title>
+  <desc id="desc">ExecutionEnv 让工具切换本机、远端或隔离后端；接口统一操作，不代表自动隔离。cwd 只是路径基准，资源限制由具体后端实施。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M0 0 L10 5 L0 10 Z" fill="#2563eb"/>
+    </marker>
+    <marker id="arrow-orange" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M0 0 L10 5 L0 10 Z" fill="#b45309"/>
+    </marker>
+    <style>
+      text { font-family: system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif; }
+    </style>
+  </defs>
+  <rect x="0" y="0" width="1200" height="760" fill="#f8fafc"/>
+  <text x="56" y="83" font-size="30" font-weight="700" fill="#0f172a">工具执行在哪里，隔离边界又在哪里？</text>
+  <text x="56" y="122" font-size="20" fill="#475569">ExecutionEnv 统一文件与命令操作；具体后端决定系统调用落在哪台机器。</text>
+
+  <rect x="56" y="166" width="230" height="126" rx="16" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="78" y="202" font-size="21" font-weight="700" fill="#0f172a">运行主机</text>
+  <text x="78" y="235" font-size="19" fill="#475569">模型 · Durable · 凭证</text>
+  <text x="78" y="265" font-size="18" fill="#475569">宿主进程持有的权限</text>
+
+  <path d="M290 229 H334" stroke="#2563eb" stroke-width="3" fill="none" marker-end="url(#arrow)"/>
+  <rect x="342" y="166" width="194" height="126" rx="16" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="365" y="202" font-size="21" font-weight="700" fill="#0f172a">工具</text>
+  <text x="365" y="235" font-size="19" fill="#475569">文件与命令</text>
+  <text x="365" y="265" font-size="18" fill="#475569">通过环境接口操作</text>
+
+  <path d="M540 229 H584" stroke="#2563eb" stroke-width="3" fill="none" marker-end="url(#arrow)"/>
+  <rect x="592" y="166" width="250" height="126" rx="16" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="616" y="202" font-size="21" font-weight="700" fill="#0f172a">ExecutionEnv 接口</text>
+  <text x="616" y="235" font-size="19" fill="#475569">FileSystem + Shell</text>
+  <text x="616" y="265" font-size="18" fill="#475569">接口不自带访问策略</text>
+
+  <path d="M717 294 V336 H216 V372" stroke="#2563eb" stroke-width="2.5" fill="none"/>
+  <path d="M717 336 H600 V372" stroke="#2563eb" stroke-width="2.5" fill="none"/>
+  <path d="M717 336 H984 V350" stroke="#b45309" stroke-width="2.5" fill="none" stroke-dasharray="9 7"/>
+  <path d="M216 350 V370" stroke="#2563eb" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
+  <path d="M600 350 V370" stroke="#2563eb" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
+  <path d="M984 350 V370" stroke="#b45309" stroke-width="2.5" fill="none" marker-end="url(#arrow-orange)"/>
+
+  <rect x="56" y="380" width="320" height="154" rx="16" fill="#eff6ff" stroke="#cbd5e1" stroke-width="2"/>
+  <text x="80" y="418" font-size="21" font-weight="700" fill="#0f172a">本机：NodeExecutionEnv</text>
+  <text x="80" y="453" font-size="19" fill="#475569">cwd 只作为路径基准</text>
+  <text x="80" y="483" font-size="19" fill="#475569">文件与进程权限来自宿主 OS</text>
+  <text x="80" y="513" font-size="18" fill="#475569">不同 cwd 仍访问同一文件系统</text>
+
+  <rect x="440" y="380" width="320" height="154" rx="16" fill="#f0fdfa" stroke="#0f766e" stroke-width="2"/>
+  <text x="464" y="418" font-size="21" font-weight="700" fill="#0f172a">远端：SSH + Rust daemon</text>
+  <text x="464" y="453" font-size="19" fill="#475569">请求转到远端主机执行</text>
+  <text x="464" y="483" font-size="19" fill="#475569">范围由远端账号与 OS 决定</text>
+  <text x="464" y="513" font-size="18" fill="#475569">连接协议本身不建立隔离</text>
+
+  <rect x="824" y="372" width="320" height="170" rx="16" fill="#fffbeb" stroke="#b45309" stroke-width="2.5" stroke-dasharray="9 7"/>
+  <text x="848" y="410" font-size="21" font-weight="700" fill="#0f172a">容器 / VM / OS 沙箱</text>
+  <text x="848" y="445" font-size="19" fill="#475569">可选部署 / 扩展</text>
+  <text x="848" y="475" font-size="19" fill="#475569">配置文件 / 进程 / 网络约束</text>
+  <text x="848" y="505" font-size="18" fill="#475569">并确认所有工具都经过边界</text>
+
+  <rect x="56" y="582" width="1088" height="116" rx="16" fill="#fffbeb" stroke="#b45309" stroke-width="2"/>
+  <text x="80" y="622" font-size="21" font-weight="700" fill="#0f172a">边界说明</text>
+  <text x="80" y="655" font-size="19" fill="#475569">橙色虚线框表示资源约束要由具体后端实施；cwd 路径、ExecutionEnv、MCP / OAuth 都不等于 OS 沙箱。</text>
+  <text x="80" y="682" font-size="18" fill="#475569">默认本机工具继承启动进程的权限；接口没有承诺统一白名单或全面隔离。</text>
+</svg>

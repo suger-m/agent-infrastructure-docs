@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1300" viewBox="0 0 1200 1300" role="img" aria-labelledby="title desc">
+  <title id="title">Chord 客户端订阅快照与增量的时序</title>
+  <desc id="desc">完整展示 Durable Session、Chord provider、Remote consumer 与 UI subscription 四个参与者的原始时序：存储提交后 adopt/publish，发送权威状态与操作；客户端订阅并取得序号10快照；序号11发布时先缓冲；副本先 hydration 再 activate，随后解码校验并应用更新，最后向 UI 发布完整值。断线、换代或显式 reset 后需重建基线。</desc>
+  <rect width="1200" height="1300" fill="#f8fafc"/>
+  <text x="52" y="62" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="30" font-weight="700">订阅竞争：先装快照，再接续增量</text>
+  <text x="52" y="98" fill="#475569" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20">快照与后续发布按同一状态成员的序号衔接；本图沿用 10 与 11。</text>
+
+  <rect x="54" y="154" width="192" height="64" rx="14" fill="#f5f3ff" stroke="#7c3aed" stroke-width="2"/>
+  <text x="150" y="179" text-anchor="middle" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" font-weight="700"><tspan x="150">Durable</tspan><tspan x="150" dy="23">Session</tspan></text>
+  <rect x="352" y="154" width="196" height="64" rx="14" fill="#f0fdfa" stroke="#0f766e" stroke-width="2"/>
+  <text x="450" y="179" text-anchor="middle" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" font-weight="700"><tspan x="450">Chord</tspan><tspan x="450" dy="23">provider</tspan></text>
+  <rect x="652" y="154" width="196" height="64" rx="14" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="750" y="179" text-anchor="middle" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" font-weight="700"><tspan x="750">Remote</tspan><tspan x="750" dy="23">consumer</tspan></text>
+  <rect x="952" y="154" width="196" height="64" rx="14" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="1050" y="179" text-anchor="middle" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" font-weight="700"><tspan x="1050">UI</tspan><tspan x="1050" dy="23">subscription</tspan></text>
+
+  <path d="M150 218 V1088 M450 218 V1088 M750 218 V1088 M1050 218 V1088" fill="none" stroke="#cbd5e1" stroke-width="1.5" stroke-dasharray="5 7"/>
+  <rect x="48" y="232" width="1104" height="74" fill="#f5f3ff"/>
+  <rect x="48" y="306" width="1104" height="74" fill="#ffffff"/>
+  <rect x="48" y="380" width="1104" height="74" fill="#eff6ff"/>
+  <rect x="48" y="454" width="1104" height="74" fill="#ffffff"/>
+  <rect x="48" y="528" width="1104" height="74" fill="#f5f3ff"/>
+  <rect x="48" y="602" width="1104" height="74" fill="#fffbeb"/>
+  <rect x="48" y="676" width="1104" height="74" fill="#eff6ff"/>
+  <rect x="48" y="750" width="1104" height="74" fill="#ffffff"/>
+  <rect x="48" y="824" width="1104" height="74" fill="#f0fdfa"/>
+  <rect x="48" y="898" width="1104" height="74" fill="#ffffff"/>
+  <rect x="48" y="972" width="1104" height="74" fill="#f5f3ff"/>
+
+  <rect x="82" y="238" width="236" height="48" rx="10" fill="#f8fafc"/>
+  <text x="200" y="258" text-anchor="middle" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18"><tspan x="200">Storage commit 后</tspan><tspan x="200" dy="22">adopt / publish</tspan></text>
+  <path d="M150 304 h48 v-10 h-48" fill="none" stroke="#7c3aed" stroke-width="2.5"/><path d="M150 294 l10 -7 v14 z" fill="#7c3aed"/>
+
+  <rect x="234" y="312" width="332" height="48" rx="10" fill="#f8fafc"/>
+  <text x="400" y="332" text-anchor="middle" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18"><tspan x="400">权威 value</tspan><tspan x="400" dy="22">与 exact ops</tspan></text>
+  <path d="M150 372 H450" fill="none" stroke="#7c3aed" stroke-width="2.5" stroke-dasharray="8 7"/><path d="M450 372 l-12 -7 v14 z" fill="#7c3aed"/>
+
+  <rect x="534" y="386" width="332" height="48" rx="10" fill="#f8fafc"/>
+  <text x="700" y="416" text-anchor="middle" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18">subscribe</text>
+  <path d="M750 446 H450" fill="none" stroke="#2563eb" stroke-width="2.5"/><path d="M450 446 l12 -7 v14 z" fill="#2563eb"/>
+
+  <rect x="534" y="460" width="332" height="48" rx="10" fill="#f8fafc"/>
+  <text x="700" y="480" text-anchor="middle" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18"><tspan x="700">snapshot 与</tspan><tspan x="700" dy="22">sequence 10</tspan></text>
+  <path d="M450 520 H750" fill="none" stroke="#7c3aed" stroke-width="2.5" stroke-dasharray="8 7"/><path d="M750 520 l-12 -7 v14 z" fill="#7c3aed"/>
+
+  <rect x="234" y="534" width="332" height="48" rx="10" fill="#f8fafc"/>
+  <text x="400" y="554" text-anchor="middle" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18"><tspan x="400">sequence 11</tspan><tspan x="400" dy="22">的变化</tspan></text>
+  <path d="M150 594 H450" fill="none" stroke="#7c3aed" stroke-width="2.5" stroke-dasharray="8 7"/><path d="M450 594 l-12 -7 v14 z" fill="#7c3aed"/>
+
+  <rect x="434" y="608" width="232" height="48" rx="10" fill="#fffbeb"/>
+  <text x="550" y="638" text-anchor="middle" fill="#92400e" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18">buffer update 11</text>
+  <path d="M450 674 h46 v-10 h-46" fill="none" stroke="#b45309" stroke-width="2.5"/><path d="M450 664 l10 -7 v14 z" fill="#b45309"/>
+
+  <rect x="634" y="682" width="232" height="48" rx="10" fill="#f8fafc"/>
+  <text x="750" y="702" text-anchor="middle" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18"><tspan x="750">hydrate</tspan><tspan x="750" dy="22">snapshot 10</tspan></text>
+  <path d="M750 748 h46 v-10 h-46" fill="none" stroke="#2563eb" stroke-width="2.5"/><path d="M750 738 l10 -7 v14 z" fill="#2563eb"/>
+
+  <rect x="634" y="756" width="232" height="48" rx="10" fill="#f8fafc"/>
+  <text x="750" y="786" text-anchor="middle" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18">activate</text>
+  <path d="M750 816 H450" fill="none" stroke="#2563eb" stroke-width="2.5"/><path d="M450 816 l12 -7 v14 z" fill="#2563eb"/>
+
+  <rect x="534" y="830" width="332" height="48" rx="10" fill="#f8fafc"/>
+  <text x="700" y="850" text-anchor="middle" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18"><tspan x="700">update</tspan><tspan x="700" dy="22">11</tspan></text>
+  <path d="M450 890 H750" fill="none" stroke="#7c3aed" stroke-width="2.5" stroke-dasharray="8 7"/><path d="M750 890 l-12 -7 v14 z" fill="#7c3aed"/>
+
+  <rect x="634" y="904" width="232" height="48" rx="10" fill="#f8fafc"/>
+  <text x="750" y="924" text-anchor="middle" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18"><tspan x="750">decode + validate</tspan><tspan x="750" dy="22">+ apply</tspan></text>
+  <path d="M750 970 h46 v-10 h-46" fill="none" stroke="#2563eb" stroke-width="2.5"/><path d="M750 960 l10 -7 v14 z" fill="#2563eb"/>
+
+  <rect x="784" y="978" width="266" height="48" rx="10" fill="#f8fafc"/>
+  <text x="917" y="998" text-anchor="middle" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18"><tspan x="917">完整 immutable</tspan><tspan x="917" dy="22">value 11</tspan></text>
+  <path d="M750 1040 H1050" fill="none" stroke="#7c3aed" stroke-width="2.5" stroke-dasharray="8 7"/><path d="M1050 1040 l-12 -7 v14 z" fill="#7c3aed"/>
+
+  <rect x="160" y="1120" width="880" height="100" rx="16" fill="#fffbeb" stroke="#b45309" stroke-width="1.5"/>
+  <text x="188" y="1156" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20" font-weight="700">断线、换代或显式 reset：重新建立基线</text>
+  <text x="188" y="1190" fill="#475569" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18">副本先安装新的完整快照，再接续后续序号；普通 update 必须连续，缺号时不能拿它代替 reset。</text>
+</svg>

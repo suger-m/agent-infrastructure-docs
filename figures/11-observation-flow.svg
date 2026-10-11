@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1080" viewBox="0 0 1200 1080" role="img" aria-labelledby="title desc">
+  <title id="title">Agent 现有观测与应用遥测接入路径</title>
+  <desc id="desc">Agent 运行产生生命周期事件和消息 usage。事件进入应用订阅器，usage 进入 Session 统计并用于 Eval 的 Token 成本与延迟报告。应用订阅器需自行接入 TelemetryContext，再形成父子 Span。Span 可由内存适配器记录，接入外部追踪后端需自行实现适配器。虚线表示应用补充的接入边，不代表默认自动追踪。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#2563eb"/></marker>
+    <marker id="arrow-purple" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#7c3aed"/></marker>
+    <marker id="arrow-orange" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#b45309"/></marker>
+    <style>text { font-family: system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif; }</style>
+  </defs>
+  <rect width="1200" height="1080" fill="#f8fafc"/>
+  <text x="56" y="78" font-size="30" font-weight="700" fill="#0f172a">一次运行有哪些现成记录，遥测怎样接入？</text>
+  <text x="56" y="116" font-size="20" fill="#475569">左侧是事件与应用接入，右侧是 Usage 汇总；下层区分已有 Span 记录与外部后端。</text>
+
+  <rect x="440" y="150" width="320" height="106" rx="16" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="480" y="192" font-size="22" font-weight="700" fill="#0f172a">Agent 运行</text>
+  <text x="480" y="226" font-size="19" fill="#475569">发出事件并积累消息</text>
+
+  <path d="M480 258 V304 H200 V332" stroke="#2563eb" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
+  <path d="M720 258 V290 H570 V332" stroke="#2563eb" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
+  <rect x="80" y="340" width="240" height="104" rx="16" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="104" y="382" font-size="21" font-weight="700" fill="#0f172a">生命周期事件</text>
+  <text x="104" y="416" font-size="18" fill="#475569">message / tool start-end</text>
+  <rect x="450" y="340" width="240" height="104" rx="16" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="474" y="382" font-size="21" font-weight="700" fill="#0f172a">消息与 Usage</text>
+  <text x="474" y="416" font-size="18" fill="#475569">Token 用量记录</text>
+
+  <path d="M200 446 V532" stroke="#2563eb" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
+  <path d="M570 446 V532" stroke="#2563eb" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
+  <rect x="80" y="540" width="240" height="104" rx="16" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="104" y="582" font-size="21" font-weight="700" fill="#0f172a">应用订阅器</text>
+  <text x="104" y="616" font-size="18" fill="#475569">消费生命周期事件</text>
+  <rect x="450" y="540" width="240" height="104" rx="16" fill="#f5f3ff" stroke="#7c3aed" stroke-width="2"/>
+  <text x="474" y="582" font-size="21" font-weight="700" fill="#0f172a">Session 统计</text>
+  <text x="474" y="616" font-size="18" fill="#475569">累计 Usage</text>
+  <path d="M698 592 H832" stroke="#2563eb" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
+  <rect x="840" y="540" width="312" height="120" rx="16" fill="#f5f3ff" stroke="#7c3aed" stroke-width="2"/>
+  <text x="864" y="578" font-size="21" font-weight="700" fill="#0f172a">Eval 的 Token 成本</text>
+  <text x="864" y="608" font-size="21" font-weight="700" fill="#0f172a">与延迟报告</text>
+  <text x="864" y="642" font-size="18" fill="#475569">使用 Session 统计与运行记录</text>
+
+  <path d="M200 646 V676 H860 V692" stroke="#b45309" stroke-width="2.5" stroke-dasharray="9 7" fill="none" marker-end="url(#arrow-orange)"/>
+  <text x="348" y="666" font-size="18" fill="#b45309">应用自行接入 TelemetryContext</text>
+  <rect x="740" y="700" width="250" height="104" rx="16" fill="#f5f3ff" stroke="#7c3aed" stroke-width="2"/>
+  <text x="764" y="742" font-size="21" font-weight="700" fill="#0f172a">TelemetryContext</text>
+  <text x="764" y="776" font-size="18" fill="#475569">由应用接入</text>
+  <path d="M732 752 H698" stroke="#7c3aed" stroke-width="2.5" fill="none" marker-end="url(#arrow-purple)"/>
+  <rect x="460" y="700" width="230" height="104" rx="16" fill="#f5f3ff" stroke="#7c3aed" stroke-width="2"/>
+  <text x="484" y="742" font-size="21" font-weight="700" fill="#0f172a">父子 Span</text>
+  <text x="484" y="776" font-size="18" fill="#475569">操作关系与事件</text>
+  <path d="M452 752 H418" stroke="#7c3aed" stroke-width="2.5" fill="none" marker-end="url(#arrow-purple)"/>
+  <rect x="180" y="700" width="230" height="104" rx="16" fill="#f5f3ff" stroke="#7c3aed" stroke-width="2"/>
+  <text x="204" y="742" font-size="21" font-weight="700" fill="#0f172a">内存适配器</text>
+  <text x="204" y="776" font-size="18" fill="#475569">记录 Span 关系</text>
+
+  <path d="M575 812 V830 H1000 V842" stroke="#b45309" stroke-width="2.5" stroke-dasharray="9 7" fill="none" marker-end="url(#arrow-orange)"/>
+  <text x="706" y="816" font-size="18" fill="#b45309">自行实现适配器</text>
+  <rect x="850" y="850" width="302" height="104" rx="16" fill="#fffbeb" stroke="#b45309" stroke-width="2" stroke-dasharray="8 6"/>
+  <text x="878" y="892" font-size="21" font-weight="700" fill="#0f172a">外部追踪后端</text>
+  <text x="878" y="926" font-size="18" fill="#475569">由应用 / 适配器实现</text>
+
+  <rect x="56" y="974" width="1088" height="44" rx="12" fill="#fffbeb" stroke="#b45309" stroke-width="2"/>
+  <text x="80" y="1003" font-size="18" fill="#475569">图例：蓝线＝已有事件 / Usage 记录；紫线＝遥测 API 路径；橙色虚线＝应用补充接入，不代表默认自动追踪。</text>
+</svg>

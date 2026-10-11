@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1320" viewBox="0 0 1200 1320" role="img" aria-labelledby="title desc">
+  <title id="title">历史条目经过投影变成模型请求</title>
+  <desc id="desc">A 到 J 展示投影主线：从全部 JSONL 条目沿当前 leaf 和 parentId 选出活动分支，应用最新 compaction 与保留范围及目标 context_edit，形成 SessionProjection 和 AgentMessage 数组，再经 transformContext、convertToLlm 与 TranscriptContext 规范化，最终发送提供方请求。</desc>
+  <rect x="0" y="0" width="1200" height="1320" fill="#f8fafc"/>
+  <text x="48" y="58" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="30" font-weight="700" fill="#0f172a">保存的历史怎样变成模型请求</text>
+  <text x="48" y="96" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20" fill="#475569">先选活动分支，再压缩与编辑；最后转换成提供方消息</text>
+
+  <rect x="350" y="150" width="500" height="82" rx="14" fill="#f5f3ff" stroke="#7c3aed" stroke-width="2"/>
+  <text x="374" y="184" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20" font-weight="700" fill="#0f172a">1 · 全部 JSONL 条目</text>
+  <text x="374" y="214" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#475569">原始历史仍保留所有分支与旧消息</text>
+  <path d="M600 232 V265 M590 255 L600 265 L610 255" fill="none" stroke="#2563eb" stroke-width="3"/>
+  <rect x="350" y="265" width="500" height="82" rx="14" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="374" y="299" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20" font-weight="700" fill="#0f172a">2 · 沿 leaf 与 parentId 选分支</text>
+  <text x="374" y="329" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#475569">仅取当前叶节点的根到叶路径</text>
+  <path d="M600 347 V380 M590 370 L600 380 L610 370" fill="none" stroke="#2563eb" stroke-width="3"/>
+  <rect x="350" y="380" width="500" height="82" rx="14" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="374" y="414" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20" font-weight="700" fill="#0f172a">3 · 选最新 compaction 与保留范围</text>
+  <text x="374" y="444" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#475569">摘要替代较早上下文，近期原文保留</text>
+  <path d="M600 462 V495 M590 485 L600 495 L610 485" fill="none" stroke="#2563eb" stroke-width="3"/>
+  <rect x="350" y="495" width="500" height="82" rx="14" fill="#fffbeb" stroke="#b45309" stroke-width="2"/>
+  <text x="374" y="529" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20" font-weight="700" fill="#0f172a">4 · 按目标应用最新 context_edit</text>
+  <text x="374" y="559" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#475569">省略贡献 0 条；replacement 替换内容</text>
+  <path d="M600 577 V610 M590 600 L600 610 L610 600" fill="none" stroke="#2563eb" stroke-width="3"/>
+  <rect x="350" y="610" width="500" height="82" rx="14" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="374" y="644" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20" font-weight="700" fill="#0f172a">5 · SessionProjection</text>
+  <text x="374" y="674" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#475569">保留每条贡献消息的来源条目</text>
+  <path d="M600 692 V725 M590 715 L600 725 L610 715" fill="none" stroke="#2563eb" stroke-width="3"/>
+  <rect x="350" y="725" width="500" height="82" rx="14" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="374" y="759" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20" font-weight="700" fill="#0f172a">6 · AgentMessage 数组</text>
+  <text x="374" y="789" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#475569">本次请求实际选出的消息</text>
+  <path d="M600 807 V840 M590 830 L600 840 L610 830" fill="none" stroke="#2563eb" stroke-width="3"/>
+  <rect x="350" y="840" width="500" height="82" rx="14" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="374" y="874" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20" font-weight="700" fill="#0f172a">7 · transformContext</text>
+  <text x="374" y="904" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#475569">应用请求边界的上下文变换</text>
+  <path d="M600 922 V955 M590 945 L600 955 L610 945" fill="none" stroke="#2563eb" stroke-width="3"/>
+  <rect x="350" y="955" width="500" height="82" rx="14" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="374" y="989" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20" font-weight="700" fill="#0f172a">8 · convertToLlm</text>
+  <text x="374" y="1019" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#475569">转换为模型接口消息</text>
+  <path d="M600 1037 V1070 M590 1060 L600 1070 L610 1060" fill="none" stroke="#2563eb" stroke-width="3"/>
+  <rect x="350" y="1070" width="500" height="82" rx="14" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="374" y="1104" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20" font-weight="700" fill="#0f172a">9 · 规范化 TranscriptContext</text>
+  <text x="374" y="1134" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#475569">整理好后交给模型提供方</text>
+  <path d="M600 1152 V1185 M590 1175 L600 1185 L610 1175" fill="none" stroke="#2563eb" stroke-width="3"/>
+  <rect x="350" y="1185" width="500" height="82" rx="14" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="374" y="1219" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20" font-weight="700" fill="#0f172a">10 · 提供方请求</text>
+  <text x="374" y="1249" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#475569">发送当前投影，而非整份 JSONL</text>
+
+</svg>

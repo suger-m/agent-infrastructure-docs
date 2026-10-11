@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
+  <title id="title">MCP 工具从配置到模型调用</title>
+  <desc id="desc">配置连接 MCP 服务，initialize 握手后读取工具定义并注册给会话；模型调用工具，经 MCP 返回结果供下一轮使用。传输、认证与操作系统隔离是不同层次。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M0 0 L10 5 L0 10 Z" fill="#2563eb"/>
+    </marker>
+    <style>
+      text { font-family: system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif; }
+    </style>
+  </defs>
+  <rect x="0" y="0" width="1200" height="760" fill="#f8fafc"/>
+  <text x="56" y="83" font-size="30" font-weight="700" fill="#0f172a">MCP 工具怎样进入 Agent 会话？</text>
+  <text x="56" y="122" font-size="20" fill="#475569">先完成连接与发现，再注册工具；模型调用时才发送 tools/call。</text>
+
+  <rect x="48" y="178" width="188" height="196" rx="16" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <circle cx="76" cy="208" r="17" fill="#2563eb"/><text x="70" y="215" font-size="18" font-weight="700" fill="#ffffff">1</text>
+  <text x="102" y="215" font-size="21" font-weight="700" fill="#0f172a">读取配置</text>
+  <text x="68" y="258" font-size="19" fill="#475569">全局配置</text>
+  <text x="68" y="288" font-size="19" fill="#475569">+ 可信项目配置</text>
+  <text x="68" y="330" font-size="18" fill="#475569">确定服务与启用状态</text>
+
+  <path d="M240 276 H263" stroke="#2563eb" stroke-width="3" fill="none" marker-end="url(#arrow)"/>
+  <rect x="270" y="178" width="206" height="196" rx="16" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <circle cx="298" cy="208" r="17" fill="#2563eb"/><text x="292" y="215" font-size="18" font-weight="700" fill="#ffffff">2</text>
+  <text x="324" y="215" font-size="21" font-weight="700" fill="#0f172a">建立传输</text>
+  <text x="290" y="258" font-size="18" fill="#475569">传输任选其一：</text>
+  <rect x="290" y="274" width="164" height="34" rx="10" fill="#f0fdfa" stroke="#0f766e"/>
+  <text x="307" y="298" font-size="18" fill="#0f766e">stdio 子进程</text>
+  <rect x="290" y="316" width="164" height="38" rx="10" fill="#f0fdfa" stroke="#0f766e"/>
+  <text x="297" y="341" font-size="18" fill="#0f766e">Streamable HTTP</text>
+
+  <path d="M480 276 H503" stroke="#2563eb" stroke-width="3" fill="none" marker-end="url(#arrow)"/>
+  <rect x="510" y="178" width="202" height="196" rx="16" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <circle cx="538" cy="208" r="17" fill="#2563eb"/><text x="532" y="215" font-size="18" font-weight="700" fill="#ffffff">3</text>
+  <text x="564" y="215" font-size="21" font-weight="700" fill="#0f172a">握手与发现</text>
+  <text x="530" y="258" font-size="19" fill="#475569">initialize 初始化</text>
+  <text x="530" y="288" font-size="19" fill="#475569">tools/list 取定义</text>
+  <text x="530" y="328" font-size="18" fill="#475569">注册为 mcp__…__…</text>
+  <text x="530" y="354" font-size="18" fill="#475569">握手后才交给模型</text>
+
+  <path d="M716 276 H739" stroke="#2563eb" stroke-width="3" fill="none" marker-end="url(#arrow)"/>
+  <rect x="746" y="178" width="192" height="196" rx="16" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <circle cx="774" cy="208" r="17" fill="#2563eb"/><text x="768" y="215" font-size="18" font-weight="700" fill="#ffffff">4</text>
+  <text x="800" y="215" font-size="21" font-weight="700" fill="#0f172a">模型调用</text>
+  <text x="766" y="258" font-size="19" fill="#475569">选择已注册工具</text>
+  <text x="766" y="288" font-size="19" fill="#475569">经工具管线执行</text>
+  <text x="766" y="328" font-size="18" fill="#475569">发送 tools/call</text>
+
+  <path d="M942 276 H965" stroke="#2563eb" stroke-width="3" fill="none" marker-end="url(#arrow)"/>
+  <rect x="972" y="178" width="180" height="196" rx="16" fill="#f0fdfa" stroke="#0f766e" stroke-width="2"/>
+  <circle cx="1000" cy="208" r="17" fill="#0f766e"/><text x="994" y="215" font-size="18" font-weight="700" fill="#ffffff">5</text>
+  <text x="1026" y="215" font-size="21" font-weight="700" fill="#0f172a">服务返回</text>
+  <text x="992" y="258" font-size="19" fill="#475569">MCP result</text>
+  <text x="992" y="288" font-size="19" fill="#475569">转换为工具结果</text>
+  <text x="992" y="328" font-size="18" fill="#475569">进入模型下一轮</text>
+
+  <rect x="56" y="442" width="520" height="144" rx="16" fill="#f0fdfa" stroke="#0f766e" stroke-width="2" stroke-dasharray="9 7"/>
+  <text x="80" y="481" font-size="21" font-weight="700" fill="#0f172a">远端服务验证客户端</text>
+  <text x="80" y="519" font-size="19" fill="#475569">HTTP header / OAuth token 让远端服务验证客户端。</text>
+  <text x="80" y="553" font-size="18" fill="#475569">处理服务访问凭证，不授予本机文件或进程权限。</text>
+
+  <rect x="624" y="442" width="520" height="160" rx="16" fill="#fffbeb" stroke="#b45309" stroke-width="2" stroke-dasharray="9 7"/>
+  <text x="648" y="481" font-size="21" font-weight="700" fill="#0f172a">执行边界：操作系统资源</text>
+  <text x="648" y="519" font-size="19" fill="#475569">stdio 可继承宿主环境；</text>
+  <text x="648" y="547" font-size="19" fill="#475569">HTTP 由服务部署控制。</text>
+  <text x="648" y="577" font-size="18" fill="#475569">限制文件、进程或网络需具体容器 / VM / OS 策略。</text>
+
+  <text x="56" y="640" font-size="19" font-weight="700" fill="#0f172a">图例</text>
+  <path d="M118 634 H174" stroke="#0f766e" stroke-width="2" stroke-dasharray="8 6"/>
+  <text x="188" y="641" font-size="18" fill="#475569">虚线卡片表示独立控制路径：认证与 OS 隔离互不替代</text>
+  <text x="56" y="687" font-size="18" fill="#475569">服务工具定义说明“可调用什么”；它本身不会建立审批或沙箱策略。</text>
+</svg>

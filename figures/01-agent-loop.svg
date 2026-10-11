@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
+  <title id="title">一次读文件请求如何走完 Agent 循环</title>
+  <desc id="desc">这是没有新输入的示意：用户要求读文件并解释。第一次模型请求返回 read 工具调用，本地工具读取文件并写回 ToolResult，第二次模型请求生成解释。正常回答无工具调用，且没有排队输入或显式继续条件时，本轮结束；error 或 aborted 也会结束低层运行。</desc>
+  <rect x="0" y="0" width="1200" height="760" fill="#f8fafc"/>
+  <text x="48" y="64" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="30" font-weight="700" fill="#0f172a">一次「读文件并解释」怎样走完 Agent 循环</text>
+  <text x="48" y="104" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20" fill="#475569">模型先请求读文件，工具结果写回后再生成解释</text>
+
+  <rect x="48" y="160" width="214" height="132" rx="16" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="68" y="194" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" font-weight="700" fill="#2563eb">1 · 用户输入</text>
+  <text x="68" y="234" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="21" fill="#0f172a">「读文件并解释」</text>
+  <text x="68" y="267" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#475569">进入当前对话</text>
+
+  <path d="M262 226 H300 M290 216 L300 226 L290 236" fill="none" stroke="#2563eb" stroke-width="3"/>
+  <rect x="300" y="160" width="220" height="132" rx="16" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="320" y="194" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" font-weight="700" fill="#2563eb">2 · 模型请求 #1</text>
+  <text x="320" y="234" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="21" fill="#0f172a">返回 read 调用</text>
+  <text x="320" y="267" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#475569">此时还没有文件内容</text>
+
+  <path d="M520 226 H558 M548 216 L558 226 L548 236" fill="none" stroke="#0f766e" stroke-width="3"/>
+  <rect x="558" y="160" width="240" height="132" rx="16" fill="#f0fdfa" stroke="#0f766e" stroke-width="2"/>
+  <text x="578" y="194" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" font-weight="700" fill="#0f766e">3 · 本地工具执行</text>
+  <text x="578" y="234" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="21" fill="#0f172a">read 读取文件</text>
+  <text x="578" y="267" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#475569">工具实现在 Agent 一侧</text>
+
+  <path d="M798 226 H836 M826 216 L836 226 L826 236" fill="none" stroke="#0f766e" stroke-width="3"/>
+  <rect x="836" y="160" width="316" height="132" rx="16" fill="#f0fdfa" stroke="#0f766e" stroke-width="2"/>
+  <text x="856" y="194" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" font-weight="700" fill="#0f766e">4 · 写回工具结果</text>
+  <text x="856" y="234" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="21" fill="#0f172a">ToolResult：文件内容</text>
+  <text x="856" y="267" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#475569">与 read 调用配对后加入对话</text>
+
+  <path d="M994 292 V362 H530 V390 M520 380 L530 390 L540 380" fill="none" stroke="#2563eb" stroke-width="3"/>
+  <text x="584" y="350" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#2563eb">工具结果触发下一轮请求</text>
+
+  <rect x="300" y="390" width="460" height="132" rx="16" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="324" y="426" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" font-weight="700" fill="#2563eb">5 · 模型请求 #2</text>
+  <text x="324" y="466" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="21" fill="#0f172a">模型读到原问题和文件内容</text>
+  <text x="324" y="499" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#475569">然后生成解释</text>
+
+  <path d="M760 456 H806 M796 446 L806 456 L796 466" fill="none" stroke="#2563eb" stroke-width="3"/>
+  <rect x="806" y="390" width="346" height="144" rx="16" fill="#fffbeb" stroke="#b45309" stroke-width="2"/>
+  <text x="830" y="426" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" font-weight="700" fill="#b45309">6 · 停止边界</text>
+  <text x="830" y="466" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="21" fill="#0f172a">正常回答没有工具调用</text>
+  <text x="830" y="493" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#475569">无排队输入且无显式继续时</text>
+  <text x="830" y="517" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" fill="#475569">发出 agent_end，运行收尾</text>
+
+  <rect x="48" y="584" width="1104" height="112" rx="16" fill="#fffbeb" stroke="#cbd5e1" stroke-width="2"/>
+  <text x="72" y="624" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20" font-weight="700" fill="#b45309">另一种停止</text>
+  <text x="72" y="662" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20" fill="#475569">若模型响应以 error 或 aborted 结束，低层运行也会收尾退出；它不会沿工具结果路径继续请求。</text>
+</svg>

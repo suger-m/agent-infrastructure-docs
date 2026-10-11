@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="900" viewBox="0 0 1200 900" role="img" aria-labelledby="title desc">
+  <title id="title">任务所有权与显式等待关系</title>
+  <desc id="desc">完整展示 Root conversation 拥有 Checkout task 和 Background anchor；Checkout 拥有 Payment A、Payment B 和 Child conversation，并通过 waiting.on 与 failFast 显式等待两笔 Payment；子会话、子 generation、后台 child conversation 与后台 child generation 的所有权链。</desc>
+  <rect width="1200" height="900" fill="#f8fafc"/>
+  <text x="52" y="66" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="30" font-weight="700">任务图：所有权决定收尾范围，等待边只表示 join</text>
+  <text x="52" y="104" fill="#475569" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20">实线是拥有关系；虚线是显式等待。后台 anchor 归 Root conversation 所有。</text>
+
+  <path d="M600 184 V230 H490 V280" fill="none" stroke="#2563eb" stroke-width="2.5"/>
+  <path d="M490 280 l-7 -12 h14 z" fill="#2563eb"/>
+  <path d="M715 146 H1010 V280" fill="none" stroke="#2563eb" stroke-width="2.5"/>
+  <path d="M1010 280 l-7 -12 h14 z" fill="#2563eb"/>
+
+  <path d="M375 330 H335 V450 H175 V490" fill="none" stroke="#2563eb" stroke-width="2.5"/>
+  <path d="M175 490 l-7 -12 h14 z" fill="#2563eb"/>
+  <path d="M445 380 L470 490" fill="none" stroke="#2563eb" stroke-width="2.5"/>
+  <path d="M470 490 l-7 -12 h14 z" fill="#2563eb"/>
+  <path d="M605 330 H850 V490" fill="none" stroke="#2563eb" stroke-width="2.5"/>
+  <path d="M850 490 l-7 -12 h14 z" fill="#2563eb"/>
+  <path d="M1010 370 V490" fill="none" stroke="#2563eb" stroke-width="2.5"/>
+  <path d="M1010 490 l-7 -12 h14 z" fill="#2563eb"/>
+  <path d="M745 580 V690" fill="none" stroke="#2563eb" stroke-width="2.5"/>
+  <path d="M745 690 l-7 -12 h14 z" fill="#2563eb"/>
+  <path d="M1010 580 V690" fill="none" stroke="#2563eb" stroke-width="2.5"/>
+  <path d="M1010 690 l-7 -12 h14 z" fill="#2563eb"/>
+
+  <path d="M375 355 H100 V490" fill="none" stroke="#b45309" stroke-width="2.5" stroke-dasharray="8 7"/>
+  <path d="M100 490 l-7 -12 h14 z" fill="#b45309"/>
+  <path d="M565 380 V430 H550 V490" fill="none" stroke="#b45309" stroke-width="2.5" stroke-dasharray="8 7"/>
+  <path d="M550 490 l-7 -12 h14 z" fill="#b45309"/>
+
+  <rect x="485" y="110" width="230" height="74" rx="16" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="600" y="155" text-anchor="middle" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="21" font-weight="700">Root conversation</text>
+  <rect x="375" y="280" width="230" height="100" rx="16" fill="#f5f3ff" stroke="#7c3aed" stroke-width="2"/>
+  <text x="490" y="340" text-anchor="middle" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="21" font-weight="700">Checkout task</text>
+  <rect x="885" y="280" width="250" height="90" rx="16" fill="#fffbeb" stroke="#b45309" stroke-width="2"/>
+  <text x="1010" y="335" text-anchor="middle" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="21" font-weight="700">Background anchor</text>
+
+  <rect x="70" y="490" width="210" height="90" rx="16" fill="#f0fdfa" stroke="#0f766e" stroke-width="2"/>
+  <text x="175" y="545" text-anchor="middle" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="21" font-weight="700">Payment A</text>
+  <rect x="385" y="490" width="210" height="90" rx="16" fill="#f0fdfa" stroke="#0f766e" stroke-width="2"/>
+  <text x="490" y="545" text-anchor="middle" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="21" font-weight="700">Payment B</text>
+  <rect x="630" y="490" width="230" height="90" rx="16" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="745" y="545" text-anchor="middle" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="21" font-weight="700">Child conversation</text>
+  <rect x="900" y="490" width="220" height="90" rx="16" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="1010" y="528" text-anchor="middle" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="19" font-weight="700">
+    <tspan x="1010">Background child</tspan><tspan x="1010" dy="25">conversation</tspan>
+  </text>
+  <rect x="630" y="690" width="230" height="90" rx="16" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="745" y="745" text-anchor="middle" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="21" font-weight="700">Child generation</text>
+  <rect x="900" y="690" width="220" height="90" rx="16" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="1010" y="728" text-anchor="middle" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="19" font-weight="700">
+    <tspan x="1010">Background child</tspan><tspan x="1010" dy="25">generation</tspan>
+  </text>
+
+  <rect x="567" y="197" width="66" height="30" rx="10" fill="#f8fafc"/>
+  <text x="600" y="219" text-anchor="middle" fill="#2563eb" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18">拥有</text>
+  <rect x="825" y="132" width="66" height="30" rx="10" fill="#f8fafc"/>
+  <text x="858" y="154" text-anchor="middle" fill="#2563eb" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18">拥有</text>
+  <rect x="302" y="395" width="66" height="30" rx="10" fill="#f8fafc"/>
+  <text x="335" y="417" text-anchor="middle" fill="#2563eb" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18">拥有</text>
+  <rect x="437" y="437" width="66" height="30" rx="10" fill="#f8fafc"/>
+  <text x="470" y="459" text-anchor="middle" fill="#2563eb" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18">拥有</text>
+  <rect x="817" y="415" width="66" height="30" rx="10" fill="#f8fafc"/>
+  <text x="850" y="437" text-anchor="middle" fill="#2563eb" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18">拥有</text>
+  <rect x="978" y="420" width="66" height="30" rx="10" fill="#f8fafc"/>
+  <text x="1011" y="442" text-anchor="middle" fill="#2563eb" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18">拥有</text>
+  <rect x="712" y="620" width="66" height="30" rx="10" fill="#f8fafc"/>
+  <text x="745" y="642" text-anchor="middle" fill="#2563eb" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18">拥有</text>
+  <rect x="978" y="620" width="66" height="30" rx="10" fill="#f8fafc"/>
+  <text x="1011" y="642" text-anchor="middle" fill="#2563eb" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18">拥有</text>
+
+  <rect x="100" y="340" width="220" height="30" rx="10" fill="#fffbeb" stroke="#b45309" stroke-width="1"/>
+  <text x="210" y="362" text-anchor="middle" fill="#92400e" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18">waiting.on / failFast</text>
+  <rect x="590" y="395" width="210" height="30" rx="10" fill="#fffbeb" stroke="#b45309" stroke-width="1"/>
+  <text x="695" y="417" text-anchor="middle" fill="#92400e" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18">waiting.on / failFast</text>
+  <text x="52" y="850" fill="#475569" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18">Checkout 结束时仍须等它拥有的普通工作收尾；failFast 只提前请求取消，不会把等待变成已结束。</text>
+</svg>

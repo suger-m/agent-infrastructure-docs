@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="940" viewBox="0 0 1200 940" role="img" aria-labelledby="title desc">
+  <title id="title">项目加载、工具拦截与服务凭证的权限路径</title>
+  <desc id="desc">项目资源经过项目可信判断后加载或跳过。模型工具请求经过参数校验和 tool_call hooks；扩展可阻止调用并返回工具错误，或放行 execute。执行再进入本机、沙箱或远端 OS，或发起 MCP 请求；服务认证 token 与 scope 验证独立于本机 OS 权限。凭证存储和刷新为 token 提供来源。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#2563eb"/></marker>
+    <marker id="arrow-green" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#0f766e"/></marker>
+    <marker id="arrow-orange" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#b45309"/></marker>
+    <style>text { font-family: system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif; }</style>
+  </defs>
+  <rect width="1200" height="940" fill="#f8fafc"/>
+  <text x="56" y="78" font-size="30" font-weight="700" fill="#0f172a">登录后，工具权限由哪些层决定？</text>
+  <text x="56" y="116" font-size="20" fill="#475569">项目加载、工具拦截、OS 访问和服务端 token 各自控制不同路径。</text>
+
+  <rect x="56" y="164" width="196" height="104" rx="16" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="80" y="205" font-size="21" font-weight="700" fill="#0f172a">项目资源</text>
+  <path d="M256 216 H274" stroke="#2563eb" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
+  <path d="M380 164 L484 216 L380 268 L276 216 Z" fill="#fffbeb" stroke="#b45309" stroke-width="2"/>
+  <text x="332" y="211" font-size="20" font-weight="700" fill="#0f172a">项目</text>
+  <text x="310" y="238" font-size="20" font-weight="700" fill="#0f172a">被信任？</text>
+  <path d="M484 216 H510 V190 H526" stroke="#0f766e" stroke-width="2.5" fill="none" marker-end="url(#arrow-green)"/>
+  <text x="490" y="172" font-size="18" fill="#0f766e">是</text>
+  <rect x="534" y="144" width="274" height="92" rx="16" fill="#f0fdfa" stroke="#0f766e" stroke-width="2"/>
+  <text x="558" y="182" font-size="20" font-weight="700" fill="#0f172a">加载项目配置 / 扩展</text>
+  <text x="558" y="214" font-size="18" fill="#475569">信任允许加载项目资源</text>
+  <path d="M380 270 V294 H670 V298" stroke="#b45309" stroke-width="2.5" fill="none" marker-end="url(#arrow-orange)"/>
+  <text x="400" y="290" font-size="18" fill="#b45309">否</text>
+  <rect x="534" y="306" width="274" height="82" rx="16" fill="#fffbeb" stroke="#b45309" stroke-width="2"/>
+  <text x="558" y="342" font-size="20" font-weight="700" fill="#0f172a">跳过需信任的资源</text>
+  <text x="558" y="372" font-size="18" fill="#475569">不加载项目配置 / 扩展</text>
+
+  <rect x="56" y="456" width="190" height="108" rx="16" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="80" y="497" font-size="21" font-weight="700" fill="#0f172a">模型工具请求</text>
+  <path d="M250 510 H278" stroke="#2563eb" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
+  <rect x="286" y="456" width="232" height="108" rx="16" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="306" y="496" font-size="20" font-weight="700" fill="#0f172a">校验参数</text>
+  <text x="306" y="530" font-size="18" fill="#475569">tool_call hooks</text>
+  <path d="M522 510 H550" stroke="#2563eb" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
+  <path d="M620 450 L690 510 L620 570 L550 510 Z" fill="#fffbeb" stroke="#b45309" stroke-width="2"/>
+  <text x="581" y="505" font-size="19" font-weight="700" fill="#0f172a">扩展</text>
+  <text x="568" y="531" font-size="18" fill="#0f172a">返回 block？</text>
+  <path d="M690 492 H732 V446 H758" stroke="#b45309" stroke-width="2.5" fill="none" marker-end="url(#arrow-orange)"/>
+  <text x="702" y="474" font-size="18" fill="#b45309">是</text>
+  <rect x="766" y="408" width="210" height="82" rx="16" fill="#fffbeb" stroke="#b45309" stroke-width="2"/>
+  <text x="790" y="445" font-size="20" font-weight="700" fill="#0f172a">工具错误结果</text>
+  <text x="790" y="474" font-size="18" fill="#475569">调用被阻止</text>
+  <path d="M690 528 H732 V586 H758" stroke="#0f766e" stroke-width="2.5" fill="none" marker-end="url(#arrow-green)"/>
+  <text x="702" y="562" font-size="18" fill="#0f766e">否</text>
+  <rect x="766" y="548" width="210" height="82" rx="16" fill="#f0fdfa" stroke="#0f766e" stroke-width="2"/>
+  <text x="790" y="585" font-size="20" font-weight="700" fill="#0f172a">工具 execute</text>
+  <text x="790" y="614" font-size="18" fill="#475569">实际执行开始</text>
+
+  <path d="M980 570 H994 V508 H1002" stroke="#0f766e" stroke-width="2.5" fill="none" marker-end="url(#arrow-green)"/>
+  <rect x="1010" y="452" width="142" height="112" rx="16" fill="#fffbeb" stroke="#b45309" stroke-width="2"/>
+  <text x="1032" y="490" font-size="19" font-weight="700" fill="#0f172a">OS 访问</text>
+  <text x="1028" y="522" font-size="18" fill="#475569">本机 / 沙箱</text>
+  <text x="1052" y="548" font-size="18" fill="#475569">/ 远端</text>
+
+  <path d="M980 608 H1004 V702 H1018" stroke="#0f766e" stroke-width="2.5" fill="none" marker-end="url(#arrow-green)"/>
+  <rect x="1026" y="660" width="126" height="84" rx="16" fill="#f0fdfa" stroke="#0f766e" stroke-width="2"/>
+  <text x="1054" y="696" font-size="20" font-weight="700" fill="#0f172a">MCP 请求</text>
+  <path d="M1022 702 H1000" stroke="#0f766e" stroke-width="2.5" fill="none" marker-end="url(#arrow-green)"/>
+  <rect x="770" y="660" width="222" height="84" rx="16" fill="#f5f3ff" stroke="#7c3aed" stroke-width="2"/>
+  <text x="792" y="696" font-size="19" font-weight="700" fill="#0f172a">认证 provider</text>
+  <text x="792" y="726" font-size="18" fill="#475569">提供 token</text>
+  <path d="M766 702 H740" stroke="#7c3aed" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
+  <rect x="512" y="660" width="220" height="84" rx="16" fill="#f5f3ff" stroke="#7c3aed" stroke-width="2"/>
+  <text x="532" y="696" font-size="19" font-weight="700" fill="#0f172a">外部服务验证</text>
+  <text x="532" y="726" font-size="18" fill="#475569">token 与 scope</text>
+  <path d="M881 808 V752" stroke="#7c3aed" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
+  <rect x="770" y="808" width="222" height="82" rx="16" fill="#f5f3ff" stroke="#7c3aed" stroke-width="2"/>
+  <text x="790" y="845" font-size="19" font-weight="700" fill="#0f172a">凭证存储与刷新</text>
+  <text x="790" y="875" font-size="18" fill="#475569">供认证读取</text>
+
+  <rect x="56" y="660" width="410" height="230" rx="16" fill="#fffbeb" stroke="#b45309" stroke-width="2" stroke-dasharray="8 6"/>
+  <text x="80" y="700" font-size="20" font-weight="700" fill="#0f172a">权限边界不同</text>
+  <text x="80" y="738" font-size="18" fill="#475569">工具 gate 决定调用是否执行。</text>
+  <text x="80" y="770" font-size="18" fill="#475569">token / scope 供服务端验证。</text>
+  <text x="80" y="802" font-size="18" fill="#475569">OS 权限决定进程能访问什么。</text>
+  <text x="80" y="846" font-size="18" fill="#475569">项目可信只决定资源是否加载。</text>
+</svg>
