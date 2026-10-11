@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
+  <title id="title">遥测从采集关联到存储查询</title>
+  <desc id="desc">通用教学链路采集 span、日志和指标，以 trace 与任务标识关联后进入有界缓冲，通过 exporter 和可选 collector 写入存储，再由查询界面下钻。指标只用有限类别标签，任务标识保留在 trace 或日志。</desc>
+  <defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#526579"/></marker></defs><rect width="1200" height="760" fill="#f5f8fc"/>
+  <style>.title{font:700 28px 'Segoe UI','Microsoft YaHei',sans-serif;fill:#14283f}.label{font:600 19px 'Segoe UI','Microsoft YaHei',sans-serif;fill:#18324d}.small{font:17px 'Segoe UI','Microsoft YaHei',sans-serif;fill:#526579}.node{fill:#fff;stroke:#9db0c4;stroke-width:2}.blue{fill:#e7f1ff;stroke:#5b8cc9}.green{fill:#e6f5ee;stroke:#4c9b72}.amber{fill:#fff2d9;stroke:#c58a2b}.line{fill:none;stroke:#526579;stroke-width:2.5;marker-end:url(#arrow)}</style>
+  <text x="48" y="58" class="title">让一次运行的证据可以查询</text><text x="50" y="104" class="small">通用教学链路 · 缓冲和导出失败需计数，遥测不替代业务状态</text>
+  <rect x="55" y="185" width="190" height="118" rx="16" class="node blue"/><text x="150" y="225" text-anchor="middle" class="label">执行现场采集</text><text x="150" y="255" text-anchor="middle" class="small">Span · 日志 · 指标</text><text x="150" y="281" text-anchor="middle" class="small">状态与用量</text>
+  <rect x="305" y="185" width="190" height="118" rx="16" class="node blue"/><text x="400" y="225" text-anchor="middle" class="label">关联上下文</text><text x="400" y="255" text-anchor="middle" class="small">trace / task ID</text><text x="400" y="281" text-anchor="middle" class="small">父子 Span</text>
+  <rect x="555" y="185" width="190" height="118" rx="16" class="node amber"/><text x="650" y="225" text-anchor="middle" class="label">有界缓冲</text><text x="650" y="255" text-anchor="middle" class="small">批量 · 脱敏</text><text x="650" y="281" text-anchor="middle" class="small">记录丢弃量</text>
+  <rect x="805" y="185" width="150" height="118" rx="16" class="node blue"/><text x="880" y="225" text-anchor="middle" class="label">Exporter</text><text x="880" y="255" text-anchor="middle" class="small">批量导出</text><text x="880" y="281" text-anchor="middle" class="small">可选 Collector</text>
+  <rect x="1015" y="185" width="150" height="118" rx="16" class="node green"/><text x="1090" y="225" text-anchor="middle" class="label">遥测存储</text><text x="1090" y="255" text-anchor="middle" class="small">保留期限</text><text x="1090" y="281" text-anchor="middle" class="small">Trace / 日志 / 指标</text>
+  <rect x="885" y="430" width="240" height="105" rx="16" class="node blue"/><text x="1005" y="470" text-anchor="middle" class="label">查询与下钻</text><text x="1005" y="500" text-anchor="middle" class="small">先看窗口，再查 task ID</text>
+  <rect x="250" y="430" width="430" height="105" rx="16" class="node green"/><text x="465" y="470" text-anchor="middle" class="label">指标标签保持低基数</text><text x="465" y="500" text-anchor="middle" class="small">按模型、工具、结果类别汇总</text>
+  <path d="M245 244H299" class="line"/><path d="M495 244H549" class="line"/><path d="M745 244H799" class="line"/><path d="M955 244H1009" class="line"/><path d="M1090 309V424" class="line"/><path d="M150 303V380H240V482H244" class="line"/>
+  <text x="155" y="369" class="small">汇总计数与分布</text>
+  <text x="250" y="588" class="small">不要把每个任务 ID 当成指标标签：把高基数标识留在 Trace 或日志中，查询时再关联。</text>
+</svg>

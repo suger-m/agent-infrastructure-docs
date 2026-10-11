@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 680" role="img" aria-labelledby="title desc">
+  <title id="title">宿主的工具调用管线从定义到按 ID 返回结果</title><desc id="desc">宿主注册并发现工具定义，向模型提供可见定义；调用进入参数验证和授权，再由适配器执行后端操作，结果按调用 ID 返回。</desc>
+  <defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#526579"/></marker></defs><rect width="1200" height="680" fill="#f5f8fc"/>
+  <style>.title{font:700 28px 'Segoe UI','Microsoft YaHei',sans-serif;fill:#14283f}.label{font:600 19px 'Segoe UI','Microsoft YaHei',sans-serif;fill:#18324d}.small{font:17px 'Segoe UI','Microsoft YaHei',sans-serif;fill:#526579}.node{fill:#fff;stroke:#9db0c4;stroke-width:2}.blue{fill:#e7f1ff;stroke:#5b8cc9}.green{fill:#e6f5ee;stroke:#4c9b72}.amber{fill:#fff2d9;stroke:#c58a2b}.line{fill:none;stroke:#526579;stroke-width:2.5;marker-end:url(#arrow)}</style>
+  <text x="48" y="58" class="title">定义进入注册表，调用通过宿主检查后才执行</text><text x="50" y="98" class="small">通用教学模型 · 定义可见不等于已授权，参数合法也不等于有权访问</text>
+  <rect x="55" y="155" width="210" height="100" rx="16" class="node blue"/><text x="160" y="195" text-anchor="middle" class="label">定义 / 发现</text><text x="160" y="225" text-anchor="middle" class="small">名称、描述、参数 schema</text>
+  <rect x="335" y="155" width="210" height="100" rx="16" class="node blue"/><text x="440" y="195" text-anchor="middle" class="label">注册表</text><text x="440" y="225" text-anchor="middle" class="small">定义关联执行入口</text>
+  <rect x="615" y="155" width="210" height="100" rx="16" class="node green"/><text x="720" y="195" text-anchor="middle" class="label">模型请求</text><text x="720" y="225" text-anchor="middle" class="small">工具名 + 参数 + 调用 ID</text>
+  <rect x="895" y="155" width="250" height="100" rx="16" class="node amber"/><text x="1020" y="195" text-anchor="middle" class="label">参数验证</text><text x="1020" y="225" text-anchor="middle" class="small">schema 不通过则不执行</text>
+  <path d="M265 205H330" class="line"/><path d="M545 205H610" class="line"/><path d="M825 205H890" class="line"/>
+  <rect x="895" y="370" width="250" height="100" rx="16" class="node amber"/><text x="1020" y="410" text-anchor="middle" class="label">授权检查</text><text x="1020" y="440" text-anchor="middle" class="small">身份、资源与操作范围</text>
+  <rect x="615" y="370" width="210" height="100" rx="16" class="node blue"/><text x="720" y="410" text-anchor="middle" class="label">适配器执行</text><text x="720" y="440" text-anchor="middle" class="small">数据库 / 文件 / API 等</text>
+  <rect x="335" y="370" width="210" height="100" rx="16" class="node green"/><text x="440" y="410" text-anchor="middle" class="label">结果按 ID 关联</text><text x="440" y="440" text-anchor="middle" class="small">成功、错误或未找到</text>
+  <rect x="55" y="370" width="210" height="100" rx="16" class="node blue"/><text x="160" y="410" text-anchor="middle" class="label">返回会话</text><text x="160" y="440" text-anchor="middle" class="small">供后续模型请求使用</text>
+  <path d="M1020 255V365" class="line"/><path d="M895 420H830" class="line"/><path d="M615 420H550" class="line"/><path d="M335 420H270" class="line"/>
+  <rect x="55" y="535" width="1090" height="82" rx="16" fill="#edf2f7" stroke="#d5dee8"/><text x="82" y="570" class="label">前置检查失败应在执行前返回可辨认错误。</text><text x="82" y="598" class="small">宿主管理等待与关联；后端负责自身连接和资源生命周期，模型不持有后端资源。</text>
+</svg>

@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
+  <title id="title">评估从固定案例到完整性检查</title>
+  <desc id="desc">通用教学评估先准备 dataset、fixture 和 rubric，再隔离运行 Agent，保存实际产物并由 Judge 检查。完整性步骤结合原定计划、评分与异常记录，核验观测身份和状态；缺失结果必须单列，不能冒充零分。</desc>
+  <defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#526579"/></marker></defs><rect width="1200" height="760" fill="#f5f8fc"/>
+  <style>.title{font:700 28px 'Segoe UI','Microsoft YaHei',sans-serif;fill:#14283f}.label{font:600 19px 'Segoe UI','Microsoft YaHei',sans-serif;fill:#18324d}.small{font:17px 'Segoe UI','Microsoft YaHei',sans-serif;fill:#526579}.node{fill:#fff;stroke:#9db0c4;stroke-width:2}.blue{fill:#e7f1ff;stroke:#5b8cc9}.green{fill:#e6f5ee;stroke:#4c9b72}.amber{fill:#fff2d9;stroke:#c58a2b}.red{fill:#fff0ef;stroke:#c66a62}.line{fill:none;stroke:#526579;stroke-width:2.5;marker-end:url(#arrow)}</style>
+  <text x="48" y="58" class="title">评估必须核对产物，也要核对计划是否完整</text><text x="50" y="104" class="small">通用教学流程 · 不表示 Pi 默认执行该整套评估框架</text>
+  <rect x="55" y="180" width="230" height="112" rx="16" class="node blue"/><text x="170" y="220" text-anchor="middle" class="label">冻结实验材料</text><text x="170" y="250" text-anchor="middle" class="small">Dataset · Fixture · Rubric</text><text x="170" y="276" text-anchor="middle" class="small">版本与运行计划</text>
+  <rect x="345" y="180" width="210" height="112" rx="16" class="node amber"/><text x="450" y="220" text-anchor="middle" class="label">隔离运行</text><text x="450" y="250" text-anchor="middle" class="small">每次重置初始材料</text><text x="450" y="276" text-anchor="middle" class="small">限制工作环境</text>
+  <rect x="615" y="180" width="210" height="112" rx="16" class="node blue"/><text x="720" y="220" text-anchor="middle" class="label">保存产物与记录</text><text x="720" y="250" text-anchor="middle" class="small">文件 · 调用 · 状态</text><text x="720" y="276" text-anchor="middle" class="small">运行身份</text>
+  <rect x="885" y="180" width="245" height="112" rx="16" class="node green"/><text x="1007" y="220" text-anchor="middle" class="label">Judge 检查证据</text><text x="1007" y="250" text-anchor="middle" class="small">程序 / 模型 / 人工</text><text x="1007" y="276" text-anchor="middle" class="small">分数与失败依据</text>
+  <rect x="615" y="420" width="260" height="112" rx="16" class="node amber"/><text x="745" y="460" text-anchor="middle" class="label">完整性核验</text><text x="745" y="490" text-anchor="middle" class="small">每个计划恰有匹配观测</text><text x="745" y="516" text-anchor="middle" class="small">身份与状态有效</text>
+  <rect x="970" y="420" width="190" height="112" rx="16" class="node green"/><text x="1065" y="460" text-anchor="middle" class="label">报告与回归</text><text x="1065" y="490" text-anchor="middle" class="small">分项结果 · 差异</text><text x="1065" y="516" text-anchor="middle" class="small">注明分母与缺失</text>
+  <rect x="250" y="420" width="245" height="112" rx="16" class="node red"/><text x="372" y="460" text-anchor="middle" class="label">异常 / 缺失记录</text><text x="372" y="490" text-anchor="middle" class="small">未获得可评分结果</text><text x="372" y="516" text-anchor="middle" class="small">不当作零分</text>
+  <path d="M285 236H339" class="line"/><path d="M555 236H609" class="line"/><path d="M825 236H879" class="line"/><path d="M1007 298V350H745V414" class="line"/><path d="M875 476H964" class="line"/><path d="M450 298V355H372V414" class="line"/><path d="M720 292V330H525V390H440V414" class="line"/>
+  <path d="M495 476H609" class="line"/>
+  <path d="M170 298V580H560V505H609" class="line" stroke-dasharray="8 7"/>
+  <text x="250" y="570" class="small">原定运行计划</text>
+  <text x="70" y="610" class="small">任务完成但产物不合格：有可评分的任务失败。环境未启动或产物缺失：没有可评分证据。</text>
+</svg>

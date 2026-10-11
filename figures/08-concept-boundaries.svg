@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 680" role="img" aria-labelledby="title desc">
+  <title id="title">执行环境的访问边界与资源配额</title><desc id="desc">文件、进程和网络控制定义可访问范围；CPU、内存与时长限制消耗额度。权限边界和资源配额彼此独立。</desc>
+  <defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#526579"/></marker></defs><rect width="1200" height="680" fill="#f5f8fc"/>
+  <style>.title{font:700 28px 'Segoe UI','Microsoft YaHei',sans-serif;fill:#14283f}.label{font:600 19px 'Segoe UI','Microsoft YaHei',sans-serif;fill:#18324d}.small{font:17px 'Segoe UI','Microsoft YaHei',sans-serif;fill:#526579}.node{fill:#fff;stroke:#9db0c4;stroke-width:2}.blue{fill:#e7f1ff;stroke:#5b8cc9}.amber{fill:#fff2d9;stroke:#c58a2b}.line{fill:none;stroke:#526579;stroke-width:2.5;marker-end:url(#arrow)}</style>
+  <text x="48" y="58" class="title">访问权限控制能做什么，资源配额控制能用多少</text><text x="50" y="98" class="small">通用教学模型 · 具体边界须由操作系统、虚拟化或执行后端落实</text>
+  <rect x="55" y="150" width="520" height="390" rx="22" fill="#edf4fb" stroke="#9db0c4" stroke-width="2"/><text x="315" y="190" text-anchor="middle" class="label">访问边界：可见范围与操作权限</text>
+  <rect x="95" y="230" width="205" height="100" rx="16" class="node blue"/><text x="197" y="269" text-anchor="middle" class="label">文件系统</text><text x="197" y="299" text-anchor="middle" class="small">只读输入 / 可写副本</text>
+  <rect x="330" y="230" width="205" height="100" rx="16" class="node blue"/><text x="432" y="269" text-anchor="middle" class="label">进程范围</text><text x="432" y="299" text-anchor="middle" class="small">低权限身份与后代</text>
+  <rect x="210" y="390" width="205" height="100" rx="16" class="node blue"/><text x="312" y="429" text-anchor="middle" class="label">网络策略</text><text x="312" y="459" text-anchor="middle" class="small">出口、目标与端口</text>
+  <rect x="625" y="150" width="520" height="390" rx="22" fill="#fff7e9" stroke="#c58a2b" stroke-width="2"/><text x="885" y="190" text-anchor="middle" class="label">资源配额：消耗上限与停止条件</text>
+  <rect x="665" y="230" width="205" height="100" rx="16" class="node amber"/><text x="767" y="269" text-anchor="middle" class="label">CPU</text><text x="767" y="299" text-anchor="middle" class="small">限制计算份额</text>
+  <rect x="900" y="230" width="205" height="100" rx="16" class="node amber"/><text x="1002" y="269" text-anchor="middle" class="label">内存</text><text x="1002" y="299" text-anchor="middle" class="small">限制总占用</text>
+  <rect x="785" y="390" width="205" height="100" rx="16" class="node amber"/><text x="887" y="429" text-anchor="middle" class="label">执行时长</text><text x="887" y="459" text-anchor="middle" class="small">到期由监督者终止</text>
+  <path d="M575 345H618" class="line"/><text x="596" y="328" text-anchor="middle" class="small">分别配置</text>
+  <rect x="130" y="575" width="940" height="65" rx="15" fill="#fde9e7" stroke="#c86c61" stroke-width="2"/><text x="600" y="615" text-anchor="middle" class="label">限 CPU 不会自动限制文件访问；禁网也不会阻止覆盖可写文件。</text>
+</svg>

@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
+  <title id="title">通用队列领取与确认生命周期</title>
+  <desc id="desc">提交先保存任务，任务等待并由一个 Worker 原子领取；正常路径执行、保存结果、确认后结束。若 Worker 未确认便失联，租约过期后任务回到可领取状态。</desc>
+  <defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#526579"/></marker></defs>
+  <rect width="1200" height="760" fill="#f5f8fc"/><text x="48" y="58" class="title">任务交付：确认前保留恢复证据</text>
+  <style>.title{font:700 28px 'Segoe UI','Microsoft YaHei',sans-serif;fill:#14283f}.label{font:600 19px 'Segoe UI','Microsoft YaHei',sans-serif;fill:#18324d}.small{font:17px 'Segoe UI','Microsoft YaHei',sans-serif;fill:#526579}.node{fill:#fff;stroke:#9db0c4;stroke-width:2}.blue{fill:#e7f1ff;stroke:#5b8cc9}.green{fill:#e6f5ee;stroke:#4c9b72}.amber{fill:#fff2d9;stroke:#c58a2b}.line{fill:none;stroke:#526579;stroke-width:2.5;marker-end:url(#arrow)}.dash{fill:none;stroke:#c58a2b;stroke-width:2.5;stroke-dasharray:8 7;marker-end:url(#arrow)}</style>
+  <text x="50" y="104" class="small">通用教学模型 · 队列和共享 Worker Pool 不代表 Pi 默认实现</text>
+  <rect x="55" y="190" width="190" height="90" rx="16" class="node blue"/><text x="150" y="228" text-anchor="middle" class="label">提交任务</text><text x="150" y="256" text-anchor="middle" class="small">保存输入与 ID</text>
+  <rect x="315" y="190" width="190" height="90" rx="16" class="node"/><text x="410" y="228" text-anchor="middle" class="label">等待队列</text><text x="410" y="256" text-anchor="middle" class="small">尚未执行</text>
+  <rect x="575" y="190" width="210" height="90" rx="16" class="node blue"/><text x="680" y="228" text-anchor="middle" class="label">原子领取</text><text x="680" y="256" text-anchor="middle" class="small">登记 Worker 与租约</text>
+  <rect x="855" y="190" width="170" height="90" rx="16" class="node"/><text x="940" y="228" text-anchor="middle" class="label">执行工作</text><text x="940" y="256" text-anchor="middle" class="small">可能调用外部服务</text>
+  <rect x="855" y="390" width="170" height="90" rx="16" class="node green"/><text x="940" y="428" text-anchor="middle" class="label">保存结果</text><text x="940" y="456" text-anchor="middle" class="small">记录任务结论</text>
+  <rect x="575" y="390" width="210" height="90" rx="16" class="node green"/><text x="680" y="428" text-anchor="middle" class="label">确认交付 ack</text><text x="680" y="456" text-anchor="middle" class="small">队列结束本次交付</text>
+  <rect x="315" y="390" width="190" height="90" rx="16" class="node amber"/><text x="410" y="428" text-anchor="middle" class="label">租约过期</text><text x="410" y="456" text-anchor="middle" class="small">未确认且执行者失联</text>
+  <rect x="575" y="535" width="210" height="72" rx="16" class="node green"/><text x="680" y="579" text-anchor="middle" class="label">交付已结清</text>
+  <path d="M245 235H310" class="line"/><path d="M505 235H570" class="line"/><path d="M785 235H850" class="line"/><path d="M940 280V385" class="line"/><path d="M855 435H790" class="line"/><path d="M680 480V530" class="line"/>
+  <path d="M855 260V330H410V385" class="dash"/><text x="627" y="322" class="small">未确认，Worker 失联</text>
+  <path d="M315 435H275V150H680V185" class="dash"/><text x="420" y="142" class="small">到期后重新领取</text>
+  <rect x="55" y="650" width="970" height="70" rx="18" fill="#edf2f7" stroke="#d5dee8"/><text x="85" y="680" class="label">确认只结束正常交付</text><text x="360" y="680" class="small">若结果先保存而确认前崩溃，重投仍可能重复执行；需要识别或核对重复效果。</text>
+</svg>

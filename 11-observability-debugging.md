@@ -2,147 +2,181 @@
 
 [返回学习地图](README.md) · 前置：[Agent 循环](01-agent-runtime.md) · 关联：[评估与回放](12-evaluation-replay.md)
 
-用户要求“读两个文件后修改配置”。模型很快生成两个工具调用，第二个工具却耗时较长。如果只记下最终回答的时间，就无法判断等待发生在模型、工具，还是事件监听器写日志的过程中。
+用户提交“读两个文件后修改配置”，等了很久才收到结果。任务最终成功，两个文件也读到了，但这些信息还不能回答：任务一直在排队吗？模型响应慢吗？两个读取真的并行了吗？中间有没有失败后重试？增加执行者数量，是否会让下一次任务更快？
 
-可观测性用于留下能解释执行情况的记录。调试时，先定位等待在哪个阶段，再到那个阶段查看输入、输出或错误。记录应能回答具体问题：是否已经发起模型请求，工具是否开始，哪个调用尚未结束，任务是在等别人还是缺少执行定义。
+可观测性要留下足以回答这些问题的运行证据。输入是执行过程中产生的时间、事件、状态和资源用量；输出是可查询的单次执行过程，以及很多次执行的汇总。排查者据此选择下一步检查或修改的位置。遥测丢失时，仍应能从业务存储判断任务是否完成；遥测记录本身不承担任务恢复职责。
 
-完整排查过程可以从这个慢任务开始：
+前半章用一个通用任务服务说明这些证据如何产生。该服务有队列、执行者和遥测存储，属于教学架构，不代表 Pi 默认 CLI 已提供这些组件。后半章再核对 Pi 的事件、会话统计和实验性 durable 路径。
 
-1. 记下本次输入对应的运行，以及模型消息与工具调用 ID。
-2. 沿事件顺序找最后完成的阶段，例如模型已经给出调用，但某个工具没有结束事件。
-3. 对已结束的工具读取耗时，结合调用者额外记录的时间检查其他等待；不要把工具计时范围之外的延迟算进去。
-4. 若工作属于 durable，再读取任务阶段、等待关系或阻塞原因，判断它是否能被调度。
-5. 需要长期比较时，把明确口径的数据汇总为指标；需要查看父子操作关系时，再接入追踪。
+## 从一条开始日志到一条可追踪的请求
 
-Metrics（指标）是按约定口径统计的数值，例如一次运行的 Token 数，或者一组运行的失败率。Trace（追踪）把相关操作连起来；Span 是其中一段操作的记录。它们需要应用定义怎样关联，不能仅凭一批事件自动推导出所有等待和耗时。下面先使用仓库已有数据，再看哪些追踪能力需要接入。
+任务在入口被接受，先进入队列，空闲执行者领取后调用模型。模型要求读取 A、B 两个文件，执行者同时启动两次读取；拿到结果后再次调用模型，再写入配置，最后返回用户。每个参与者都只知道自己执行的那部分。如果执行者只打印“开始”“完成”，几项任务并发时记录便会交错；另一台机器上的子任务也无法凭日志相邻位置找回父任务。
 
-先区分三种记录。事件说明某次运行中发生了什么；统计把多次调用的用量或时长汇总；Trace（追踪）把一次操作和它的子操作连成关系。它们回答不同问题，也都不能替代恢复任务所需的持久状态。
+入口因此给这次任务一个稳定的任务 ID，并建立一次 trace，即关联本次请求各项操作的追踪。trace ID 标识这组遥测记录；任务 ID 标识业务工作。二者分开保存，便于一个长任务跨恢复过程关联多段追踪，也避免把重试误认成新任务。
 
-| 记录 | 负责回答的问题 | 例子与限制 |
+执行者为模型请求、文件读取、配置写入分别创建 span。span 是一次有边界的操作记录，通常有名称、开始时间、结束时间、状态、属性和自己的 span ID。创建子操作时，同时保存父 span ID，于是可以回答“这次读取属于哪个执行过程”。每次重试须有新的尝试记录和尝试序号；覆盖上一条失败记录会抹掉慢任务的原因。
+
+```mermaid
+flowchart TD
+    T[任务 trace：读文件并修改配置] --> Q[排队区间]
+    T --> W[执行者处理]
+    W --> M1[第一次模型请求]
+    W --> R[并行读取阶段]
+    R --> A[读取 A]
+    R --> B[读取 B]
+    W --> M2[第二次模型请求]
+    M2 --> X[尝试 1：失败]
+    M2 --> D[退避等待]
+    M2 --> Y[尝试 2：成功]
+    W --> C[写入配置]
+```
+
+图只表示操作归属，实际先后与重叠还需时间戳。若读取交给另一台 worker，提交方须把 trace ID、父 span ID 等追踪上下文放进队列消息或网络请求；接收方提取上下文后创建自己的 span。子任务还应保存父任务 ID 和自身任务 ID，帮助把追踪与业务状态对应起来。上下文没有传过去，两边即使都有日志，也只会得到两段无法自动拼接的记录。批量消费或多个父任务汇合时，可以用 span link 表示额外关联，不应伪造一个唯一父操作。
+
+同一过程还会产生另外两种证据。日志记录离散事件，例如“第二次模型请求返回限流错误”；带上时间、错误类别和 trace ID 后，可以从追踪跳到错误细节。指标（metrics）把许多执行汇总成计数、当前值或分布，例如一分钟内完成的任务数、当前排队数和耗时分布。指标能告诉我们“最近很多任务变慢了”，但通常不保存每个任务的完整细节。trace 用于检查一个具体任务，日志补充发生的事件，指标判断现象的规模。这些信号的基本分工可参阅 [OpenTelemetry signals](https://opentelemetry.io/docs/concepts/signals/)。
+
+## 证据怎样从执行现场到达查询界面
+
+只有创建 span 的接口，排查人员仍然查不到运行历史。完整链路需要把采集、关联、传输和保存都接起来：
+
+1. 入口记录接受时间和任务 ID，创建追踪上下文。队列保存入队时间与上下文；领取时记录领取时间。队列拥有任务状态，遥测记录这些状态变化的证据。
+2. 执行者记录开始处理的时刻，在模型、工具、子任务和每次重试周围采集 span；日志携带同一关联信息。模型返回 usage 时，把用量归入对应请求和尝试，结束时补充状态。操作失败也要结束记录，避免正常错误看起来像一直运行。
+3. 进程内遥测组件聚合计数和耗时分布，把日志与已完成的 span 放入有容量上限的缓冲区。exporter（导出器）按后端协议批量发送；需要集中处理时，再由 collector（收集服务）接收、过滤、脱敏和转发。小型程序也可直接写本地文件，无须先搭独立服务。
+4. 存储后端保存可查询的 trace、日志和指标，并规定保留时间。缓冲区排满或网络不可用时，要明确丢弃、重试或阻塞策略，并记录丢失数量。否则查询缺一段时，排查者不知道是业务没执行还是遥测没送到。
+5. 查询界面先按时间窗口和服务版本查看延迟或失败率，再用具体任务 ID 找到 trace。查看者沿时间线定位最长等待区间，读取相关日志，并与队列或任务存储中的当前状态对照。
+
+![通用教学遥测链路：采集、关联、缓冲、导出、存储和查询；指标按低基数类别汇总](figures/11-concept-telemetry-pipeline.svg)
+
+任务 ID 用于 Trace 或日志下钻，不作为每个任务各自一条指标序列的标签。
+
+跨进程传递的是可序列化的上下文，不能把内存里的 span 对象直接交给另一台 worker。跨机器的绝对时间还依赖时钟校准；单个进程内测耗时应优先使用单调时钟，避免系统时间调整导致负耗时。若两台机器时钟有偏差，不能仅凭显示位置断言哪个事件先发生，还需调用关系和消息关联信息。
+
+## 把用户等待拆成能采取行动的时间
+
+先为任务定义四个边界：入口接受、执行者开始处理、执行者处理结束、结果可供用户取得。接受到开始处理是排队时长；开始处理到处理结束是执行阶段时长；接受到结果可用是端到端延迟。执行阶段本身仍可能包含网络等待、退避和等待子任务，并不等于 CPU 一直在工作。如果结束后还有结果传输，也要单独计入用户等待。任务多次重新入队时，应逐段记录排队，不能把第一次领取以后的所有时间都叫执行计算。
+
+下面是假设没有重试的一次教学测量，数值仅用于演算，不是 Pi 默认值或真实基准：排队 2 秒，第一次模型请求 1 秒；随后 A、B 同时开始，分别耗时 820 毫秒、190 毫秒；两者都完成后，第二次模型请求耗时 1 秒，写入配置耗时 100 毫秒。忽略其他开销时，端到端延迟为 4.92 秒，其中执行阶段为 2.92 秒。
+
+A、B 的耗时相加是 1.01 秒，读取阶段实际经过的时间是 820 毫秒。并行部分按实际重叠区间计算，不能把所有 span 的 duration 相加当作总耗时；父 span 已覆盖的子 span 时间也不能重复加入。决定任务最早何时能完成的依赖链称为关键路径。这里后续模型请求必须等 A，因此把 B 从 190 毫秒优化到 50 毫秒，并不会缩短任务的结束时间。若工具开始时间不同，则连取最大 duration 也不够，需要看各自的开始、结束和后续依赖。
+
+这个分解直接改变排查方向。若大部分时间在排队，应检查可用执行容量和输入速度；若排队正常、模型请求变长，应查看服务响应、输入输出规模与重试；若工具完成后仍长时间没有返回，应检查后续模型请求、hook、监听器和结果交付。没有对应 span 的空白只能叫尚未测量的区间，不能直接归因于模型。
+
+![通用教学 Trace 时间线：并行读取按依赖汇合，A 的 820 毫秒构成本例关键路径，总延迟 4.92 秒](figures/11-concept-critical-path.svg)
+
+本例 B 的 190 毫秒已经被 A 的等待覆盖，减少 B 的时长不会改变总延迟。
+
+流式响应还可记录请求到首个内容片段的时间，以及请求到完整结束的时间。前者影响用户多久看到进展，后者影响工具何时获得完整参数、任务何时进入下一步。只报告首个片段到达很快，会漏掉生成阶段拖长的问题。
+
+## 一条慢任务之外，怎样判断系统是否积压
+
+单次追踪解释一次经历。判断这是不是普遍退化，需要在固定窗口内汇总同一类任务，并注明环境、版本、成功或失败范围。
+
+延迟的 p50 是中位数，约一半样本不超过它；p95 表示约 95% 的样本不超过该值。若 p50 稳定而 p95 上升，说明较慢的那部分任务恶化，可能只影响特定模型、工具或重试路径。平均值会把这些长等待摊薄。各 worker 的 p95 不能直接求平均得到系统 p95，应合并原始样本或可合并的直方图后再计算；直方图分桶越粗，分位数估计越粗。
+
+对前面的队列，同时观察以下指标才能区分突发流量正在消退，还是处理能力长期不足：
+
+| 指标 | 在这个任务服务里怎样定义 | 能帮助判断什么 |
 | --- | --- | --- |
-| Agent 事件 | 某条消息或工具在运行中的哪个阶段 | `message_update`、`tool_execution_start/end`，按事件顺序看一次运行 |
-| Metrics / 统计 | 消耗了多少 Token、成本或时间 | Session usage 会累计历史记录；当前没有统一聚合后端 |
-| Trace / Span | 一个操作与哪些子操作有关 | `pi-telemetry` 可记录父子关系；内存适配器没有时间戳 |
-| 业务状态 | 任务重开后怎样继续 | 由 Session 或 durable 保存，不能从遥测推断 |
+| queue depth | 此刻尚未领取的任务数，运行中任务另计 | 积压数量是否持续增长 |
+| queue age | 当前队列中最老任务已经等待多久 | 是否有低优先级任务长期得不到执行 |
+| queue latency | 已被领取任务的入队到领取时长分布 | 用户通常及最慢一批等了多久 |
+| throughput | 单位时间内完成的任务数，注明是否仅成功任务 | 系统实际处理速度 |
+| arrival rate | 单位时间接受的任务数 | 输入是否持续超过处理能力 |
 
-## 先用慢工具的例子定位等待
+queue latency 只包含已领取任务，最老的未领取任务尚未进入分布，所以还要看 queue age。只有 depth 也不足以判断严重性：相同数量的轻任务与长任务对应不同等待。提高并发前应查看执行者资源和下游限流；若模型服务已经限流，更多并发可能制造更多重试，反而拉长队列。
 
-对“读两个文件后修改配置”，先记录 `message_update` 与工具开始、结束事件。用 `toolCallId` 把某个工具的 `tool_execution_start` 和 `tool_execution_end` 对起来，再读取结束事件上的 `durationMs`。最后查看 assistant 的 usage，了解模型累计消耗。事件说明阶段，工具耗时说明实际执行时间；若要进一步分开模型等待、钩子和监听器等待，调用者还需补充对应计时。本文对应源码提交 `96abe9a5ad45005cae34ed1c52d42f71fc88bedc`。
+指标通常按模型、工具名称、结果类别、部署版本等有限集合分组。这种不同标签值数量有限的属性称为低基数。把每个任务 ID 都作为标签，会为几乎每个任务新建一组时间序列，增加存储和查询开销。任务 ID、调用 ID 和完整错误细节应放在 trace 或日志中，汇总图需要下钻时再关联具体追踪。
 
-下文先看已有事件与统计分别覆盖哪里，再说明 Span 如何补充调用关系。
+## Token、成本和失败率都需要统计口径
 
-### 先看事件发生的顺序
+一次任务可能调用模型多次；第二次还可能失败后重试。要解释成本，必须把每次请求的 usage 归属到任务和尝试，再汇总。Token 是模型处理文本等内容时采用的计量单位，不能简单等同于字符或单词。输入 token、输出 token、缓存读取和缓存写入可能使用不同价格；供应商对输入是否已包含缓存部分的定义也可能不同。归一化时先明确哪些类别互斥，避免把已经包含在总输入中的缓存 token 又加一次。
 
-事件是程序在某个阶段发出的通知，例如“工具开始”“工具结束”。监听器是接收这些通知的函数。若程序等待监听器写完日志再继续，记录行为本身就占用执行时间；若程序只调用监听器而不等待异步返回，日志可能晚于任务结束才完成。下面分别核对 Agent 与 AgentSession 的契约，是为了判断记录是否影响所观察的运行。
+估计成本按每类用量乘对应单价后求和，并保留模型、价格版本、币种和计价单位。一次任务成本要包含实际发生的重试、为它生成摘要的请求及其他归属费用，不能只取最后一个成功响应。失败请求若没有返回 usage，应记为未知或另行核对，不能据此认定没有费用。应用估算值与供应商最终账单也可能因价格规则、折扣或缺失用量不同，需要单独对账。
 
-读 [agent/src/types.ts:509-539](../../packages/agent/src/types.ts#L509-L539) 的 `AgentEvent` 时，可以把一次运行拆成几轮：每轮包含一份 assistant 回复及其工具调用。流式 `message_update` 描述增量变化，要保存完整消息则等最终的 `message_end`。
+会话是多个用户输入累积的容器。如果第一次让 Agent 读文件，第二次让它修改配置，整个 Session 的 token 总数自然可能包含两次工作。单任务统计应按明确的开始结束边界或任务归属收集；只有在期间没有其他并发工作等前提下，才可用累计值的前后差近似本次用量。
 
-两个工具并行执行时，`tool_execution_end` 按实际完成顺序出现，写回对话的工具结果却按模型原始调用顺序排列。这两种顺序可对照 [agent-loop.ts:586-658](../../packages/agent/src/agent-loop.ts#L586-L658)，调试记录应按 ID 关联，数组位置无法可靠对应这两组数据。
+失败率也必须先决定在数什么。假设同一批 10 项任务已经全部结束，其中一项失败两次、第三次成功，其余各成功一次：任务失败率是 0/10，尝试失败率是 2/12；发生过重试的任务比例是 1/10，额外重试次数与初始任务数之比是 2/10。四个数字描述不同现象。任务失败率说明用户最终都拿到了结果，尝试失败率则显示为此多付出的延迟和调用成本。
 
-`Agent.subscribe()` 允许监听器返回 Promise，事件派发会等它完成。因此，`agent_end` 监听器还在工作时，Agent 仍未空闲。入口和等待语义见 [agent.ts:260-269](../../packages/agent/src/agent.ts#L260-L269)。例如监听器要等日志落盘，这段等待也会影响运行的结束时间。
+记录时还应区分任务尝试、模型请求尝试和工具尝试，不能把不同层的 retry 混用一个分母。对运行中任务、取消、超时和主动拒绝也要预先规定归类。按窗口内结束的尝试计算失败率时，应同时说明未完成的尝试尚未进入分母，否则长期挂起的任务可能让失败率看起来很好。观测负责显示这些额外工作，重试策略负责决定是否继续投入资源。
 
-默认 CLI/SDK 暴露的 `AgentSession.subscribe()` 则约定监听器返回 void，`_emit()` 同步调用它，不等待异步返回值。实现见 [agent-session.ts:1038-1043](../../packages/coding-agent/src/core/agent-session.ts#L1038-L1043)、[agent-session.ts:1364-1379](../../packages/coding-agent/src/core/agent-session.ts#L1364-L1379)。所以 Session 的日志监听器即使返回 Promise，也不会让运行等到日志完成。
+## 遥测本身也会影响运行
 
-### 一段耗时与一份累计消耗
+每个流式 token 都写一条同步日志，会增加磁盘、网络和序列化开销，甚至让日志系统成为慢任务的来源。一般应在有诊断价值的边界采集，限制内容大小，批量导出。异步缓冲能减少业务等待，但进程退出时可能丢失未导出的记录；等待刷新能减少丢失，却会增加退出时间。需要根据诊断用途给缓冲容量和刷新时间设上限。
 
-一次工具耗时、一轮模型用量和整个会话总用量有不同范围。例如首次输入读文件，第二次输入继续修改，会话累计值包含两次交互；拿它当作第二次输入成本就会多算。分支中的旧尝试和摘要请求也可能留下 usage（用量记录）。统计前必须先明确“我在数哪些记录”，再决定分母是什么。
+流量较大时可以采样，只保留部分 trace。开始时随机决定是否记录，成本较低，但会漏掉少见失败；结束后依据耗时或错误决定是否保留，有利于保留异常，却需要先暂存候选记录。无论采用哪种方法，都应知道一次查询缺记录是否由采样造成。失败率等全量指标宜在独立计数路径上采集，不能直接拿偏向失败样本的 trace 集合当全部任务统计。
 
-Token 用量通常分输入、输出和缓存相关项；缓存项表示服务报告的缓存使用情况。成本根据记录的用量与模型价格元数据估算，真实收费仍要核对服务账单。失败率同样需要定义一次尝试和一次任务：一个任务重试两次后成功，可以是一次任务成功、两次尝试失败；混用计数对象就会产生不同结论。
+文件内容、模型提示词、工具参数和结果可能含有密钥或用户数据。采集端应先确定允许记录的字段，默认保留长度、类别、用量、受控错误码等诊断信息；必要内容先脱敏，再决定是否导出，并限制访问权限与保留期限。在元数据上标记敏感不会自动完成脱敏。提示词哈希只能用于比较内容是否一致，也不能代替正文、授权或完整的匿名化措施。
 
-`executePreparedToolCall()` 在执行工具前读取单调时钟 `performance.now()`，执行成功或抛错后计算耗时毫秒数。计时位置见 [agent-loop.ts:821-856](../../packages/agent/src/agent-loop.ts#L821-L856)。它只覆盖 `execute()`，参数校验和前后 hook 都在计时范围之外；工具被阻止、未实际执行时也没有这项耗时。
+遥测后端故障通常不应直接导致任务失败，但必须能观察到导出失败和丢弃数量。否则没有失败日志可能只是记录链路已断。对必须可靠留存的审计记录，应另行定义持久化和失败策略，不能依赖可采样、可丢弃的调试日志。
 
-`AgentSession.getSessionStats()` 则扫描会话的全部条目，累计 assistant、工具、压缩摘要和分支摘要等记录的 usage，范围见 [agent-session.ts:4177-4235](../../packages/coding-agent/src/core/agent-session.ts#L4177-L4235)。读这个数时，要按整个会话的累计消耗理解：它既包含当前上下文之外的历史，也无法直接当作单次输入的消耗。
+## 运行成功与任务做对了怎样区分
 
-| 数值 | 已有来源 | 解读边界 |
-| --- | --- | --- |
-| 工具耗时 | `tool_execution_end.durationMs` | 不含前后 hook |
-| 输入/输出/缓存 Token | Session usage 汇总 | 包含历史分支及部分后台操作，按实际记录累计 |
-| 估计成本 | usage 中的价格计算、eval report | 模型价格元数据的估计值；不是账单对账 |
-| 整次 eval 延迟 | harness 的 `performance.now()` 差值 | 包含 harness 内初始化与清理，不含外层构建镜像 |
-| 队列深度、重试次数、失败率 | 需要上层自行定义和采集 | 当前没有统一指标命名与聚合服务 |
+假设追踪显示没有异常、配置写入成功、耗时也达标，Agent 却把错误的配置项改了。这说明执行过程正常结束，不能证明产物满足用户意图。相反，一次中途限流后重试成功的任务，可以有失败尝试而最终产物完全正确。
 
-评估运行会复制 Session 统计，记录 `systemPromptSha256`，在有价格数据时还会记录成本。报告赋值见 [evals/src/harness.ts:391-417](../../packages/evals/src/harness.ts#L391-L417)。这个摘要能用来确认提示词是否相同，无法据此还原提示词内容。
+可观测性帮助定位延迟、故障和资源消耗；质量评估还要拿最终配置与成功条件比较，判断修改是否正确、是否遗漏约束。二者可用任务 ID 关联：先发现评估失败，再查看同一次执行的模型输入、工具结果和重试轨迹，寻找原因。如何建立代表性案例、评分标准与回归比较，见开头关联的评估章节。
+
+## Pi 对照：已有记录怎样支持这次排查
+
+Pi 的 Agent 生命周期事件、工具耗时和 Session usage 可以支持局部诊断。当前版本没有默认接通完整任务追踪，没有统一指标后端或 exporter。前面的队列指标、跨 worker 上下文传播、全链路延迟分布与遥测存储，需要应用自行补充。下面先看默认 CLI/SDK 路径，再看 telemetry 接口与实验性 durable 检查能力。
+
+### 用调用 ID 配对并行工具
+
+回到两个文件的读取。assistant 给出两个工具调用，日志依次出现两次开始，随后 B 的结束先到、A 的结束后到。下面沿用教学数值说明 Pi 字段，它们不是仓库默认耗时或真实测量值。
+
+| 事件 | 调用 ID | `durationMs` | 说明 |
+| --- | --- | ---: | --- |
+| `tool_execution_start` | `call-A` | 未提供 | A 的开始事件 |
+| `tool_execution_start` | `call-B` | 未提供 | B 的开始事件 |
+| `tool_execution_end` | `call-B` | 190 | B 的 `execute()` 计时 |
+| `tool_execution_end` | `call-A` | 820 | A 的 `execute()` 计时 |
+
+结束事件上的 `toolCallId` 把一次开始与对应结束关联起来。并行执行时，结束事件按实际完成顺序出现，写回对话的工具结果却按模型原始调用顺序排列。因此必须按 ID 配对，不能按两个数组的位置配对。A 的执行函数更慢由 `durationMs` 支持，单看结束先后无法得出同样结论，因为开始时间可能不同。
+
+`tool_execution_start` 表示开始处理该调用，实际 `execute()` 前还要准备和检查参数。`executePreparedToolCall()` 使用 `performance.now()`，在执行函数成功或抛错后计算 `durationMs`。参数检查以及 before/after hook 在该计时范围外；执行函数完成后等待已发出的更新事件，也发生在耗时读数之后。被阻止或没有实际执行的工具没有这项耗时。因此开始、结束事件之间的墙钟时间与 `durationMs` 不必相等。
+
+如果还没有 `tool_execution_start`，先检查最后的 assistant 消息是否给出了工具调用。出现开始而没有结束时，再检查错误、进程或任务状态。工具都已结束则继续查后续 assistant 消息和 Agent 生命周期，确认是否进入下一次模型请求或仍在等待监听器。`AgentEvent` 的 `message_update` 是流式增量；保存完整消息应等最终 `message_end`。一次运行可能包含多轮 assistant 回复和工具调用，看到一条消息结束不能作为整个任务已经结束的依据，也不能把暂时没有日志直接当成故障。
+
+### 监听器和 Session 统计覆盖什么范围
+
+`Agent.subscribe()` 允许 listener 返回 Promise，派发会按订阅顺序等待，其耗时也影响运行何时 settle。`agent_end` 虽是该次运行最后发出的事件，Agent 仍需等它的监听器完成才能进入 idle。默认 CLI/SDK 的 `AgentSession.subscribe()` 则约定返回 void；`_emit()` 同步调用 listener，不等待异步返回值。同步 listener 工作仍占用派发时间，异步返回的 Promise 则不会因这层派发而被等待。因此日志写盘是否拖慢运行，要先确认订阅的是哪一层。
+
+单靠工具 `durationMs` 无法拆出模型请求、参数处理、hook 或监听器耗时。应用应围绕需要诊断的开始和结束边界另外计时，并采用同一运行 ID。把现有 Agent 事件打印出来，也不会自动补齐这些测量。
+
+Session 的 `getSessionStats()` 扫描整份会话条目，包括 assistant、工具、独立 usage 条目、压缩摘要和分支摘要等用量；已经从模型上下文压缩掉的历史仍可能在累计值中。因此第二次输入修改配置时，统计值也包含第一次读文件的消耗。eval harness 会复制 Session 统计并保存 `systemPromptSha256`，该哈希可用于确认提示词是否相同，无法还原提示词正文；报告成本仍是基于价格元数据的估计值，账单金额需另行核对。
 
 ![Agent 生命周期事件、Usage 统计与应用补充遥测的观测路径](figures/11-observation-flow.svg)
 
-图中的实线是 Agent 和 Session 已提供的记录，虚线表示应用需要接入的遥测连接。
+图中的实线表示 Agent 和 Session 已提供的记录，虚线是应用需接入的遥测连接。图没有表示仓库默认提供一条完整的任务追踪。
 
-## 用 Span 记录操作关系
+### `pi-telemetry` 的接口与内存记录器
 
-事件顺序不一定足以恢复操作关系。两项工具并行时，事件会交错出现；仅凭相邻位置，无法判断某个子调用属于哪个父操作。Span 保存自己的 ID 和父 ID，让记录者明确关联“本次任务 → 某次模型请求 → 某项工具”。这些箭头是应用需要建立的关系，当前代码没有默认把这整条链都接上。
+`pi-telemetry` 提供 `startSpan()`、`addEvent()`、`setAttributes()` 和 `setStatus()`，可由调用方显式建立父子关系。Telemetry context 可以经模型请求选项传递，但具体适配器是否创建 Span 取决于自身实现。仅仅传入 context，不等于任务、模型请求、工具和重试已经全程记录。
 
-创建 Span 时传入业务回调，适配器在回调结束后结束记录。这样记录生命周期跟随实际操作，异常也可保留。下面的内存适配器用于检查父子关系与结束顺序；它没有计时字段，因此不能单靠这些记录判断哪个操作用了几秒。
+内存适配器记录父 ID、属性、事件、状态和结束顺序，适合检验关联与生命周期；它不保存时间戳或持续时间，因而不能单独生成延迟火焰图。要实现前文的时间线，还需带计时的适配器和覆盖相应操作的采集代码。采样、敏感字段处理、导出器与跨进程上下文传播也须由调用方或适配器实现。
 
-Span 接口提供 `startSpan()`、`addEvent()`、`setAttributes()` 和 `setStatus()`，定义见 [telemetry/src/index.ts:1-22](../../packages/telemetry/src/index.ts#L1-L22)。结束由适配器负责：回调返回或其 Promise 完成后，Span 随之结束，因此没有需要调用者手动配对的公开 `end()`。Trace、Span、Event 等术语在本项目中的对应，汇总在文末「源码位置与术语速查」。
+Schema 类型辅助器可以在 TypeScript 编写时约束名称、属性和事件形状。运行时不验证 `parents` 或 `sensitive` 元数据，也不负责脱敏。`packages/telemetry/README.md` 提到的 `AGENT_TELEMETRY_SCHEMAS`、`startAiSpan` 和 `startHarnessSpan` 在当前 [agent 导出](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/agent/src/index.ts#L1-L5) 中并不存在，不能当作已经可用的 Agent 集成能力。内存适配器、Session 统计与 eval 事件也不能自动拼成完整历史追踪。
 
-内存适配器的关键路径是 [memory.ts:120-186](../../packages/telemetry/src/memory.ts#L120-L186)。适配器先建立记录并保存 `parentId`，再同步调用业务回调一次；回调收到的 Span 同时也是创建子 Span 所用的上下文。回调成功便正常结束，抛错或 reject 时则保留同一个错误值，默认记为 error。
+### 实验性 durable 路径怎样检查等待
 
-属性、事件与状态的记录若失败，适配器会忽略记录错误，业务回调仍然执行；业务自己抛出的错误则照常传播。显式 `setStatus()` 会优先于自动结果，即使回调随后抛错，已显式设置的状态也不会被覆盖。
+若运行由 durable 驱动，没有结果可能是在等待子任务，也可能缺少注册定义或存在版本迁移问题。只读 `inspect()` 返回 `ready/running/waiting/completing/blocked` 等推导状态及阻塞原因。它不启动调度，也不执行迁移函数；尚待迁移且具备迁移条件的任务可以显示为带 `migrates` 的 ready，不能据此断言迁移已经成功。应先检查这些信息，再决定是否 `resume()`。
 
-已结束 Span 上的记录操作不再生效。从它创建迟到的子 Span 时，适配器会给出一个不记录数据的上下文，但仍执行业务回调。这样，记录生命周期不会阻断实际操作。
+`taskGraph()` 展示存活任务的归属和等待关系，包含 completing 的 outcome 状态，但不包含完整检查点、outcome 载荷或 inspect 推导出的 blocked 原因。它帮助定位在等谁，具体阻塞还需 inspect 或相应持久记录。遥测解释过去发生的过程，持久状态提供恢复依据，二者需要结合读取。
 
-`getSpans()` 返回副本，见 [memory.ts:189-219](../../packages/telemetry/src/memory.ts#L189-L219)。记录保存序号、父 ID、状态、事件和结束顺序，没有时间戳或持续时间。因此内存适配器可以验证调用关系，却没有绘制延迟火焰图所需的计时数据。
+## 源码补充：Span 生命周期
 
-### 类型能约束哪些记录
+内存 Span 在回调返回或 Promise 完成后结束。属性、事件与状态写入失败会被忽略，业务回调仍执行；业务错误会传播，并默认记为 error，显式状态优先于自动结果。已结束 Span 上的记录操作不生效；迟到的子 Span 使用不记录数据的上下文，但仍执行回调。`getSpans()` 返回副本。这些行为让遥测记录尽量不改变业务语义，也意味着记录失败本身未必在业务结果中显现。
 
-如果各处随意写名称和属性，同一操作可能一处叫 tool、一处叫 tool_call，汇总时就无法直接对应。Schema 是事先声明允许使用的名称与字段；类型辅助器让 TypeScript 在编写代码时检查拼写和字段形状。适配器则把统一的记录接口转成某种实际保存方式，例如本节的内存记录。编写阶段的约束与运行时记录是两层，所以还要分别核对能检查什么、是否真正脱敏。
+## 源码位置、测试与练习
 
-`defineTelemetrySchema()` 用来辅助类型推导，运行时原样返回定义，见 [index.ts:71-74](../../packages/telemetry/src/index.ts#L71-L74)。`createTypedSpanStarter()` 根据定义限制 Span 名称、属性和事件，并把子创建器绑定到父 Span，实现见 [index.ts:324-354](../../packages/telemetry/src/index.ts#L324-L354)。
+- Agent 事件与并行工具：[事件类型](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/agent/src/types.ts#L509-L539)、[工具执行顺序](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/agent/src/agent-loop.ts#L586-L658)、[工具计时](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/agent/src/agent-loop.ts#L821-L856)
+- 监听器与统计：[Agent 订阅](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/agent/src/agent.ts#L260-L269)、[Session 订阅](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/core/agent-session.ts#L1038-L1043)、[同步发出](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/core/agent-session.ts#L1364-L1379)、[Session stats](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/core/agent-session.ts#L4177-L4235)、[eval 记录](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/evals/src/harness.ts#L391-L417)
+- Telemetry 实现：[接口](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/telemetry/src/index.ts#L1-L22)、[内存 Span 生命周期](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/telemetry/src/memory.ts#L120-L186)、[内存快照](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/telemetry/src/memory.ts#L189-L219)、[Schema 类型辅助器](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/telemetry/src/index.ts#L71-L74)、[Typed Span](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/telemetry/src/index.ts#L324-L354)
+- 模型与 CLI 传递：[请求上下文类型](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/ai/src/types.ts#L157-L160)、[选项构造](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/ai/src/api/simple-options.ts#L36-L65)、[CLI telemetry 开关](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/core/telemetry.ts#L1-L13)、[provider attribution](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/core/provider-attribution.ts#L38-L71)
+- durable 诊断：[inspect 入口](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/harness/harness.ts#L258-L266)、[任务状态推导](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/harness/scheduler.ts#L1255-L1281)、[taskGraph 类型](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/harness/task-graph.ts#L18-L43)
+- 延伸章节：Agent 循环、[编排](04-orchestration.md)、[持久执行](05-durable-execution.md)
+- 测试：[遥测测试](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/telemetry/test/telemetry.test.ts#L29-L151)、[conformance 实现](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/telemetry/src/testing/conformance.ts#L60-L315)、[conformance 测试](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/telemetry/test/conformance.test.ts#L21-L46)、[AI telemetry 透传](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/ai/test/telemetry-options.test.ts#L68-L120)、[durable inspect](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/test/harness-inspect.test.ts#L94-L110)
 
-这些检查只在 TypeScript 阶段生效。运行时不会校验定义，也不会强制执行 `parents` 或 `sensitive` 元数据的含义；脱敏与采样仍由调用者或适配器实现。
-
-### 把上下文传到模型请求
-
-`ProviderRequestOptions.telemetryContext` 的定义见 [ai/src/types.ts:157-160](../../packages/ai/src/types.ts#L157-L160)，`buildBaseOptions()` 保留它，见 [simple-options.ts:36-65](../../packages/ai/src/api/simple-options.ts#L36-L65)。自定义模型服务适配器可以沿这个通道接入遥测，但具体适配器是否创建 Span，仍取决于它自己的实现。
-
-CLI 的安装遥测开关另见 [coding-agent/core/telemetry.ts:1-13](../../packages/coding-agent/src/core/telemetry.ts#L1-L13)，它也控制部分模型服务的归属标记请求头，相关逻辑见 [provider-attribution.ts:38-71](../../packages/coding-agent/src/core/provider-attribution.ts#L38-L71)。这个开关控制的能力没有包含任务追踪。
-
-## 没有结果的任务，是在等待还是被阻塞
-
-没有输出不一定是故障。任务可能正常等待子任务，也可能已准备好但调度未启用，或者找不到执行代码。先读取诊断状态，可以避免把所有情况都处理成“再运行一次”。inspect 读取当前事实，resume 启用执行；这两个动作分开，让排查不必先改变现场。
-
-当持久任务迟迟没有结果时，durable 的只读诊断接口可以先说明它在等待还是被阻塞，再由调用方决定是否恢复。
-
-实验 durable harness 可以直接检查持久任务状态。`inspect()` 通过 Session 的串行读取通道返回 `scheduling`、仍存活的任务和未结算的提交，入口见 [harness.ts:258-266](../../packages/durable/src/harness/harness.ts#L258-L266)；每个任务同时附有原记录和推导出的运行状态，读取逻辑见 [scheduler.ts:1255-1281](../../packages/durable/src/harness/scheduler.ts#L1255-L1281)。
-
-一个迟迟没有结果的任务，可能在等另一个任务，也可能缺少注册定义，或版本迁移失败。`inspect()` 会区分 `ready/running/waiting/completing/blocked`，阻塞状态还能带 `missing_task/task_too_old/migration_failed` 原因。检查本身不启动调度，也不执行任务的迁移函数，所以可以先读诊断，再决定是否 `resume()`。
-
-`taskGraph()` 用来展示存活任务的归属与等待关系，类型见 [task-graph.ts:18-43](../../packages/durable/src/harness/task-graph.ts#L18-L43)。终态节点会被移除，completing 节点只保留精简的 outcome 状态，phase 来自检查点；完整检查点、outcome 的结果或错误载荷、阻塞原因都不在图里。任务关系的图示见 [多 Agent 编排](04-orchestration.md)。
-
-## 边界与未实现
-
-前面的记录与诊断都基于现有实现；接入真实追踪系统之前，以下缺口需要应用或后续版本补上：
-
-- 当前代码尚未默认接通“任务、模型请求、工具、重试”的完整追踪系统，也没有内置指标服务或遥测导出器。
-- 阅读时有一处文档与实现的差异：`packages/telemetry/README.md` 提到 `AGENT_TELEMETRY_SCHEMAS`、`startAiSpan`、`startHarnessSpan`，而当前 [agent/src/index.ts:1-5](../../packages/agent/src/index.ts#L1-L5) 及其导出源码没有这些定义，所以该段 README 所描述的自动埋点尚未在这个版本实现。
-- `inspect()` 与 `taskGraph()` 两种接口展示当前状态，完整的历史追踪仍需另行记录。
-- 接入后端前，应先定义一次任务、一次模型尝试、一次工具效果各自的 ID 和计数口径，避免重试导致成功率与成本重复计数。完整指标后端、跨进程追踪上下文传播、采样、导出器刷新、队列和重试的统一指标口径，以及敏感字段处理，目前都需要继续实现。执行恢复所需的持久状态仍由 [持久执行](05-durable-execution.md) 负责。
-
-## 源码位置与术语速查
-
-本章出现的遥测术语与项目实现的对应如下：
-
-| 术语 | 具体含义 | 本项目对应 |
-| --- | --- | --- |
-| Trace | 把一次操作及其子操作串起来的记录 | Span 可记录父子关系；应用负责把业务操作接入 |
-| Span | 一个操作从开始到结束的记录 | `startSpan(options, callback)` |
-| Event | 操作期间发生的一件事，没有自身持续时间 | `addEvent()`、Agent 生命周期事件 |
-| Metrics | 多次运行的汇总数值，例如失败率、延迟分布 | Session 和 eval 提供数据；没有通用指标后端 |
-| 业务状态 | 恢复运行所必需的任务、消息与 Checkpoint | 由 Session/durable 保存，不能依赖遥测恢复 |
-
-## 测试与练习
-
-| 已有测试 | 学习目标 |
-| --- | --- |
-| [telemetry.test.ts:29-151](../../packages/telemetry/test/telemetry.test.ts#L29-L151) | 定义的编译期约束与父子创建器 |
-| [testing/conformance.ts:60-315](../../packages/telemetry/src/testing/conformance.ts#L60-L315) | 回调只调用一次、保留错误值、结束后停止记录、记录失败不影响业务 |
-| [conformance.test.ts:21-46](../../packages/telemetry/test/conformance.test.ts#L21-L46) | 读取快照不会暴露可变内部记录 |
-| [ai/test/telemetry-options.test.ts:68-120](../../packages/ai/test/telemetry-options.test.ts#L68-L120) | 模拟模型服务收到同一个上下文；用例只验证透传 |
-| [durable/test/harness-inspect.test.ts:94-110](../../packages/durable/test/harness-inspect.test.ts#L94-L110) | paused、blocked 与 ready 的诊断；检查不执行迁移 |
-
-练习从 `InMemoryTelemetryContext` 开始，无需模型或密钥。在外层 `startSpan({ name: "task" }, callback)` 的回调中，用收到的 Span 并行创建两个子 Span，让第二个先结束，再检查它们的 `parentId` 是否相同、`endSequence` 是否按完成顺序变化。接着让回调返回 `{ ok: false }`，默认状态仍是 ok，需要显式设为 error。这可以观察业务返回失败与抛异常在自动状态判断上的区别。
-
-仓库依赖已安装时，可以在 `packages/telemetry` 运行这些定向测试：
+练习时让 `InMemoryTelemetryContext` 创建一个父 Span 和两个子 Span，安排第二个先结束，再检查 `parentId` 和 `endSequence`。随后让回调返回 `{ ok: false }`：默认状态仍是 ok，只有显式设置或抛异常才会形成相应状态。这也说明业务返回值的含义需要调用者解释，记录器不会自行判断任务质量。原定向测试命令如下，应在 `packages/telemetry` 中运行：
 
 ```powershell
 node ../../node_modules/vitest/dist/cli.js --run test/telemetry.test.ts test/conformance.test.ts

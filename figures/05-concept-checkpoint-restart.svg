@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
+  <title id="title">检查点保存可恢复的业务状态</title><desc id="desc">检查点保存当前阶段、必要输入、已确认产物和等待条件。重启后的新执行者读取检查点和任务定义，再从显式阶段继续，不恢复旧调用栈。</desc>
+  <defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#526579"/></marker></defs><rect width="1200" height="760" fill="#f5f8fc"/>
+  <style>.title{font:700 28px 'Segoe UI','Microsoft YaHei',sans-serif;fill:#14283f}.label{font:600 19px 'Segoe UI','Microsoft YaHei',sans-serif;fill:#18324d}.small{font:17px 'Segoe UI','Microsoft YaHei',sans-serif;fill:#526579}.node{fill:#fff;stroke:#9db0c4;stroke-width:2}.blue{fill:#e7f1ff;stroke:#5b8cc9}.green{fill:#e6f5ee;stroke:#4c9b72}.amber{fill:#fff2d9;stroke:#c58a2b}.line{fill:none;stroke:#526579;stroke-width:2.5;marker-end:url(#arrow)}</style>
+  <text x="48" y="58" class="title">检查点让新执行者知道下一步</text><text x="50" y="104" class="small">通用持久执行教学图 · 阶段与数据是示例，不代表 Pi 的默认任务功能</text>
+  <rect x="55" y="205" width="200" height="100" rx="16" class="node blue"/><text x="155" y="245" text-anchor="middle" class="label">准备修改方案</text><text x="155" y="275" text-anchor="middle" class="small">产生补丁草案</text>
+  <rect x="350" y="190" width="260" height="130" rx="18" class="node amber"/><text x="480" y="230" text-anchor="middle" class="label">提交检查点</text><text x="480" y="262" text-anchor="middle" class="small">阶段 + 参数 + 文件版本</text><text x="480" y="290" text-anchor="middle" class="small">已确认产物 + 等待条件</text>
+  <rect x="705" y="205" width="200" height="100" rx="16" class="node"/><text x="805" y="245" text-anchor="middle" class="label">进程中断</text><text x="805" y="275" text-anchor="middle" class="small">内存调用栈消失</text>
+  <rect x="350" y="430" width="260" height="110" rx="16" class="node blue"/><text x="480" y="472" text-anchor="middle" class="label">新执行者读取</text><text x="480" y="504" text-anchor="middle" class="small">记录 + 任务定义 + 产物</text>
+  <rect x="705" y="430" width="200" height="110" rx="16" class="node green"/><text x="805" y="472" text-anchor="middle" class="label">继续校验</text><text x="805" y="504" text-anchor="middle" class="small">使用新调用栈</text>
+  <rect x="1000" y="430" width="150" height="110" rx="16" class="node green"/><text x="1075" y="472" text-anchor="middle" class="label">保存结果</text><text x="1075" y="504" text-anchor="middle" class="small">与终态同批提交</text>
+  <path d="M255 255H345" class="line"/><path d="M610 255H700" class="line"/><path d="M805 310V370H610V485" class="line"/><path d="M610 485H700" class="line"/><path d="M905 485H995" class="line"/>
+  <rect x="55" y="605" width="1095" height="74" rx="16" fill="#edf2f7" stroke="#d5dee8"/><text x="82" y="650" class="label">保存业务阶段，不保存旧函数正在执行到哪一行</text><text x="620" y="650" class="small">若文件版本或等待条件不可用，先暂停并报告。</text>
+</svg>

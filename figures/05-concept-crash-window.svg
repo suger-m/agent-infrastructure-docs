@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
+  <title id="title">外部效果与本地结果记录之间的崩溃窗口</title><desc id="desc">本地先提交操作意图，再调用外部服务，最后提交结果。若效果已发生而结果未记录，本地仍只有意图；恢复者需用稳定键查询、幂等重放或进入核对。</desc>
+  <defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#526579"/></marker></defs><rect width="1200" height="760" fill="#f5f8fc"/>
+  <style>.title{font:700 28px 'Segoe UI','Microsoft YaHei',sans-serif;fill:#14283f}.label{font:600 19px 'Segoe UI','Microsoft YaHei',sans-serif;fill:#18324d}.small{font:17px 'Segoe UI','Microsoft YaHei',sans-serif;fill:#526579}.node{fill:#fff;stroke:#9db0c4;stroke-width:2}.blue{fill:#e7f1ff;stroke:#5b8cc9}.green{fill:#e6f5ee;stroke:#4c9b72}.amber{fill:#fff2d9;stroke:#c58a2b}.line{fill:none;stroke:#526579;stroke-width:2.5;marker-end:url(#arrow)}.dash{fill:none;stroke:#c58a2b;stroke-width:2.5;stroke-dasharray:8 7;marker-end:url(#arrow)}</style>
+  <text x="48" y="58" class="title">本地记录看不见外部效果是否已发生</text><text x="50" y="104" class="small">通用故障时间线 · 外部效果不在本地数据库事务内</text>
+  <text x="58" y="175" class="label">本地任务存储</text><text x="58" y="360" class="label">执行者</text><text x="58" y="535" class="label">外部服务</text>
+  <path d="M220 180H1125M220 365H1125M220 540H1125" stroke="#c5d1dd" stroke-width="2"/>
+  <rect x="265" y="205" width="180" height="72" rx="14" class="node blue"/><text x="355" y="235" text-anchor="middle" class="label">提交 intent</text><text x="355" y="261" text-anchor="middle" class="small">参数 + 稳定键</text>
+  <rect x="515" y="385" width="185" height="72" rx="14" class="node"/><text x="607" y="415" text-anchor="middle" class="label">发送请求</text><text x="607" y="441" text-anchor="middle" class="small">调用尝试 #1</text>
+  <rect x="760" y="565" width="185" height="72" rx="14" class="node green"/><text x="852" y="595" text-anchor="middle" class="label">创建工单</text><text x="852" y="621" text-anchor="middle" class="small">外部效果已生效</text>
+  <rect x="980" y="385" width="165" height="72" rx="14" class="node amber"/><text x="1062" y="415" text-anchor="middle" class="label">连接中断</text><text x="1062" y="441" text-anchor="middle" class="small">响应未收到</text>
+  <rect x="980" y="205" width="165" height="72" rx="14" class="node amber"/><text x="1062" y="235" text-anchor="middle" class="label">尚无 outcome</text><text x="1062" y="261" text-anchor="middle" class="small">只有 intent</text>
+  <path d="M445 241H485V340H607V380" class="line"/><path d="M700 421L755 588" class="line"/><path d="M945 600L975 430" class="dash"/><path d="M1062 380V282" class="line"/>
+  <text x="923" y="497" class="small">返回途中断线</text>
+  <rect x="270" y="655" width="875" height="54" rx="14" fill="#edf2f7"/><text x="295" y="690" class="small">恢复时按原键查状态或安全重放；若结果仍未知且重做不安全，停止自动执行并核对。</text>
+</svg>

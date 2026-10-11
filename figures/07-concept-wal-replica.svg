@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 680" role="img" aria-labelledby="title desc">
+  <title id="title">本地 WAL 恢复与主副本读取过期是两种机制</title>
+  <desc id="desc">本地 SQLite 的 WAL 与主文件共同参与崩溃恢复；另一条独立路径把主库已提交状态复制到可能暂时落后的只读副本。</desc>
+  <defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#526579"/></marker></defs><rect width="1200" height="680" fill="#f5f8fc"/>
+  <style>.title{font:700 28px 'Segoe UI','Microsoft YaHei',sans-serif;fill:#14283f}.label{font:600 19px 'Segoe UI','Microsoft YaHei',sans-serif;fill:#18324d}.small{font:17px 'Segoe UI','Microsoft YaHei',sans-serif;fill:#526579}.node{fill:#fff;stroke:#9db0c4;stroke-width:2}.blue{fill:#e7f1ff;stroke:#5b8cc9}.green{fill:#e6f5ee;stroke:#4c9b72}.amber{fill:#fff2d9;stroke:#c58a2b}.line{fill:none;stroke:#526579;stroke-width:2.5;marker-end:url(#arrow)}</style>
+  <text x="48" y="58" class="title">本地崩溃恢复与跨副本新鲜度，分别处理</text><text x="50" y="98" class="small">通用教学模型 · WAL 是本地数据库日志；副本复制是另一条数据路径</text>
+  <rect x="55" y="145" width="1090" height="205" rx="22" fill="#edf4fb" stroke="#9db0c4" stroke-width="2"/><text x="82" y="181" class="label">层次一：单机数据库恢复（SQLite WAL 示例）</text>
+  <rect x="100" y="215" width="240" height="85" rx="15" class="node blue"/><text x="220" y="250" text-anchor="middle" class="label">事务修改</text><text x="220" y="278" text-anchor="middle" class="small">按提交边界写入 WAL</text>
+  <rect x="480" y="215" width="240" height="85" rx="15" class="node amber"/><text x="600" y="250" text-anchor="middle" class="label">WAL + 主数据文件</text><text x="600" y="278" text-anchor="middle" class="small">重开时判定提交内容</text>
+  <rect x="860" y="215" width="240" height="85" rx="15" class="node green"/><text x="980" y="250" text-anchor="middle" class="label">恢复后的本地状态</text><text x="980" y="278" text-anchor="middle" class="small">读取完整提交的内容</text>
+  <path d="M340 257H475" class="line"/><path d="M720 257H855" class="line"/>
+  <rect x="55" y="390" width="1090" height="205" rx="22" fill="#f0f6ef" stroke="#9db0c4" stroke-width="2"/><text x="82" y="426" class="label">层次二：主副本传播与读取（可能暂时落后）</text>
+  <rect x="100" y="465" width="240" height="85" rx="15" class="node blue"/><text x="220" y="500" text-anchor="middle" class="label">主库提交</text><text x="220" y="528" text-anchor="middle" class="small">任务状态已完成</text>
+  <rect x="480" y="465" width="240" height="85" rx="15" class="node amber"/><text x="600" y="500" text-anchor="middle" class="label">复制传输 / 应用</text><text x="600" y="528" text-anchor="middle" class="small">存在传播延迟</text>
+  <rect x="860" y="465" width="240" height="85" rx="15" class="node green"/><text x="980" y="500" text-anchor="middle" class="label">只读副本</text><text x="980" y="528" text-anchor="middle" class="small">此刻仍显示运行中</text>
+  <path d="M340 507H475" class="line"/><path d="M720 507H855" class="line"/>
+  <text x="100" y="635" class="small">WAL 不负责跨机复制；副本延迟不等于本地事务未恢复。领取资格仍由权威写入路径判定。</text>
+</svg>

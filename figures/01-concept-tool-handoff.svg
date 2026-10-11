@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
+  <title id="title">工具调用由模型提出意图并由宿主校验执行</title>
+  <desc id="desc">通用教学流程：宿主把工具声明交给模型，模型返回带 ID 的调用意图，宿主解析并校验参数、检查授权后执行，再把同一 ID 的结果交回模型。无工具回复可在没有继续条件时结束运行。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#526579"/></marker>
+  </defs>
+  <rect width="1200" height="760" fill="#f5f8fc"/>
+  <style>
+    .title{font:700 28px 'Segoe UI','Microsoft YaHei',sans-serif;fill:#14283f}
+    .label{font:600 19px 'Segoe UI','Microsoft YaHei',sans-serif;fill:#18324d}
+    .small{font:17px 'Segoe UI','Microsoft YaHei',sans-serif;fill:#526579}
+    .node{fill:#fff;stroke:#9db0c4;stroke-width:2}
+    .blue{fill:#e7f1ff;stroke:#5b8cc9}
+    .green{fill:#e6f5ee;stroke:#4c9b72}
+    .amber{fill:#fff2d9;stroke:#c58a2b}
+    .line{fill:none;stroke:#526579;stroke-width:2.5;marker-end:url(#arrow)}
+    .dash{fill:none;stroke:#8a6a32;stroke-width:2.5;stroke-dasharray:8 7;marker-end:url(#arrow)}
+  </style>
+  <text x="48" y="58" class="title">工具调用是一轮有 ID 的宿主交接</text>
+  <text x="50" y="98" class="small">通用教学模型 · 展示责任边界，不表示 Pi 默认实现</text>
+
+  <rect x="55" y="145" width="220" height="92" rx="16" class="node blue"/>
+  <text x="165" y="181" text-anchor="middle" class="label">宿主发送声明</text>
+  <text x="165" y="211" text-anchor="middle" class="small">名称、用途、参数格式</text>
+
+  <rect x="400" y="145" width="220" height="92" rx="16" class="node blue"/>
+  <text x="510" y="181" text-anchor="middle" class="label">模型选择动作</text>
+  <text x="510" y="211" text-anchor="middle" class="small">只产生调用意图</text>
+
+  <rect x="790" y="145" width="300" height="92" rx="16" class="node amber"/>
+  <text x="940" y="181" text-anchor="middle" class="label">宿主解析调用</text>
+  <text x="940" y="211" text-anchor="middle" class="small">工具名 + JSON 参数 + call_1</text>
+
+  <rect x="790" y="315" width="300" height="92" rx="16" class="node"/>
+  <text x="940" y="351" text-anchor="middle" class="label">查找并校验参数</text>
+  <text x="940" y="381" text-anchor="middle" class="small">存在的工具 · 格式 · 类型 · 必填项</text>
+
+  <rect x="400" y="315" width="220" height="92" rx="16" class="node amber"/>
+  <text x="510" y="351" text-anchor="middle" class="label">检查权限</text>
+  <text x="510" y="381" text-anchor="middle" class="small">核对路径或动作范围</text>
+
+  <rect x="55" y="315" width="220" height="92" rx="16" class="node green"/>
+  <text x="165" y="351" text-anchor="middle" class="label">执行工具</text>
+  <text x="165" y="381" text-anchor="middle" class="small">宿主承担实际效果</text>
+
+  <rect x="55" y="500" width="300" height="92" rx="16" class="node green"/>
+  <text x="205" y="536" text-anchor="middle" class="label">记录工具结果</text>
+  <text x="205" y="566" text-anchor="middle" class="small">成功或错误都带回 call_1</text>
+
+  <rect x="400" y="500" width="260" height="92" rx="16" class="node blue"/>
+  <text x="530" y="536" text-anchor="middle" class="label">下一次请求</text>
+  <text x="530" y="566" text-anchor="middle" class="small">调用与结果一起交给模型</text>
+
+  <rect x="790" y="500" width="300" height="92" rx="16" class="node"/>
+  <text x="940" y="536" text-anchor="middle" class="label">无工具调用</text>
+  <text x="940" y="566" text-anchor="middle" class="small">无其他继续条件时运行结束</text>
+
+  <path d="M275 191H393" class="line"/>
+  <path d="M620 191H783" class="line"/>
+  <path d="M940 237V308" class="line"/>
+  <path d="M790 361H627" class="line"/>
+  <path d="M400 361H282" class="line"/>
+  <path d="M165 407V493" class="line"/>
+  <path d="M355 546H393" class="line"/>
+  <path d="M530 500H660V260H510V244" class="line"/>
+  <path d="M620 191H730V465H940V493" class="dash"/>
+
+  <rect x="55" y="640" width="1035" height="70" rx="16" fill="#edf2f7" stroke="#d5dee8"/>
+  <text x="82" y="670" class="label">校验不能互相替代</text>
+  <text x="82" y="696" class="small">JSON 可解析，不代表参数符合工具格式；参数合法，也不代表调用已获授权。</text>
+</svg>

@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
+  <title id="title">并发容量与背压如何共同限制负载</title>
+  <desc id="desc">生产速率超过两个 Worker 的完成速率时，待执行队列持续增长。并发槽限制在途工作，队列上限和拒绝或等待策略把容量不足反馈给生产者。</desc>
+  <defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#526579"/></marker></defs><rect width="1200" height="760" fill="#f5f8fc"/>
+  <style>.title{font:700 28px 'Segoe UI','Microsoft YaHei',sans-serif;fill:#14283f}.label{font:600 19px 'Segoe UI','Microsoft YaHei',sans-serif;fill:#18324d}.small{font:17px 'Segoe UI','Microsoft YaHei',sans-serif;fill:#526579}.node{fill:#fff;stroke:#9db0c4;stroke-width:2}.blue{fill:#e7f1ff;stroke:#5b8cc9}.green{fill:#e6f5ee;stroke:#4c9b72}.amber{fill:#fff2d9;stroke:#c58a2b}.line{fill:none;stroke:#526579;stroke-width:2.5;marker-end:url(#arrow)}</style>
+  <text x="48" y="58" class="title">并发上限之外，还要限制积压</text><text x="50" y="104" class="small">通用教学模型 · 容量数值仅作示意，不表示 Pi 默认配置</text>
+  <rect x="55" y="205" width="195" height="100" rx="16" class="node blue"/><text x="152" y="245" text-anchor="middle" class="label">生产者</text><text x="152" y="275" text-anchor="middle" class="small">每分钟到达 10 项</text>
+  <rect x="340" y="190" width="245" height="130" rx="18" class="node amber"/><text x="462" y="232" text-anchor="middle" class="label">有界等待队列</text><text x="462" y="263" text-anchor="middle" class="small">最多接收 N 项</text><text x="462" y="290" text-anchor="middle" class="small">满时拒绝或有限等待</text>
+  <rect x="680" y="170" width="440" height="320" rx="22" fill="#edf4fb" stroke="#9db0c4" stroke-width="2"/><text x="900" y="210" text-anchor="middle" class="label">执行容量：2 个并发槽</text>
+  <rect x="730" y="245" width="150" height="95" rx="16" class="node blue"/><text x="805" y="282" text-anchor="middle" class="label">Worker A</text><text x="805" y="312" text-anchor="middle" class="small">执行中</text>
+  <rect x="920" y="245" width="150" height="95" rx="16" class="node blue"/><text x="995" y="282" text-anchor="middle" class="label">Worker B</text><text x="995" y="312" text-anchor="middle" class="small">等待模型</text>
+  <rect x="790" y="390" width="220" height="65" rx="14" class="node green"/><text x="900" y="430" text-anchor="middle" class="label">完成速率约 4 项/分</text>
+  <rect x="340" y="410" width="245" height="80" rx="16" class="node amber"/><text x="462" y="445" text-anchor="middle" class="label">队列满 → 降速</text><text x="462" y="473" text-anchor="middle" class="small">拒绝、稍后重试或等待空位</text>
+  <path d="M250 255H335" class="line"/><path d="M585 255H675" class="line"/><path d="M900 345V385" class="line"/><path d="M462 320V405" class="line"/><path d="M340 450H260V315" class="line"/>
+  <rect x="55" y="565" width="1065" height="112" rx="18" fill="#edf2f7" stroke="#d5dee8"/><text x="85" y="608" class="label">两种限制回答不同问题</text><text x="85" y="642" class="small">并发槽保护正在使用的资源；队列上限保护等待空间。到达速率长期高于完成速率时，背压必须让上游减速。</text>
+</svg>

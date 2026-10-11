@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 820" role="img" aria-labelledby="title desc">
+  <title id="title">流式片段必须经过最终状态门控才能执行工具</title>
+  <desc id="desc">通用教学流程：delta 累积为 partial，只有响应完整且正常结束、工具参数齐全时才允许执行。取消、截断或错误跳过工具。消息结束、运行结束与会话收尾是依次更外层的边界。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#526579"/></marker>
+  </defs>
+  <rect width="1200" height="820" fill="#f5f8fc"/>
+  <style>
+    .title{font:700 28px 'Segoe UI','Microsoft YaHei',sans-serif;fill:#14283f}
+    .label{font:600 19px 'Segoe UI','Microsoft YaHei',sans-serif;fill:#18324d}
+    .small{font:17px 'Segoe UI','Microsoft YaHei',sans-serif;fill:#526579}
+    .node{fill:#fff;stroke:#9db0c4;stroke-width:2}
+    .blue{fill:#e7f1ff;stroke:#5b8cc9}
+    .green{fill:#e6f5ee;stroke:#4c9b72}
+    .amber{fill:#fff2d9;stroke:#c58a2b}
+    .red{fill:#fff0ef;stroke:#c76b63}
+    .line{fill:none;stroke:#526579;stroke-width:2.5;marker-end:url(#arrow)}
+    .dash{fill:none;stroke:#9b5c55;stroke-width:2.5;stroke-dasharray:8 7;marker-end:url(#arrow)}
+  </style>
+  <text x="48" y="58" class="title">流式进度不是可执行结果</text>
+  <text x="50" y="98" class="small">通用教学模型 · delta 与 partial 只供增量展示</text>
+
+  <rect x="55" y="150" width="210" height="92" rx="16" class="node blue"/>
+  <text x="160" y="187" text-anchor="middle" class="label">delta</text>
+  <text x="160" y="217" text-anchor="middle" class="small">新到达的片段</text>
+  <rect x="350" y="150" width="230" height="92" rx="16" class="node blue"/>
+  <text x="465" y="187" text-anchor="middle" class="label">partial</text>
+  <text x="465" y="217" text-anchor="middle" class="small">累计的临时消息</text>
+  <rect x="665" y="150" width="240" height="92" rx="16" class="node amber"/>
+  <text x="785" y="179" text-anchor="middle" class="label">最终响应状态</text>
+  <text x="785" y="205" text-anchor="middle" class="small">正常完成 / 取消</text>
+  <text x="785" y="230" text-anchor="middle" class="small">截断 / 错误</text>
+  <rect x="990" y="150" width="160" height="92" rx="16" class="node"/>
+  <text x="1070" y="187" text-anchor="middle" class="label">执行门</text>
+  <text x="1070" y="217" text-anchor="middle" class="small">done 且参数齐全</text>
+
+  <rect x="990" y="320" width="160" height="86" rx="16" class="node green"/>
+  <text x="1070" y="354" text-anchor="middle" class="label">执行工具</text>
+  <text x="1070" y="383" text-anchor="middle" class="small">正式参数</text>
+  <rect x="665" y="320" width="240" height="86" rx="16" class="node red"/>
+  <text x="785" y="354" text-anchor="middle" class="label">跳过工具</text>
+  <text x="785" y="383" text-anchor="middle" class="small">取消、截断或错误</text>
+
+  <path d="M265 196H343" class="line"/>
+  <path d="M580 196H658" class="line"/>
+  <path d="M905 196H983" class="line"/>
+  <path d="M1070 242V313" class="line"/>
+  <path d="M785 242V313" class="dash"/>
+
+  <text x="55" y="478" class="label">三种完成边界：结束一条消息后，循环仍可能继续</text>
+  <rect x="55" y="505" width="300" height="108" rx="16" class="node blue"/>
+  <text x="205" y="543" text-anchor="middle" class="label">消息结束</text>
+  <text x="205" y="575" text-anchor="middle" class="small">一条 assistant 消息已定稿</text>
+  <rect x="450" y="505" width="300" height="108" rx="16" class="node amber"/>
+  <text x="600" y="543" text-anchor="middle" class="label">运行结束</text>
+  <text x="600" y="575" text-anchor="middle" class="small">循环已决定停止或完成</text>
+  <rect x="845" y="505" width="300" height="108" rx="16" class="node green"/>
+  <text x="995" y="543" text-anchor="middle" class="label">会话收尾完成</text>
+  <text x="995" y="575" text-anchor="middle" class="small">重试、压缩与收尾处理已结束</text>
+
+  <rect x="55" y="675" width="1090" height="95" rx="16" fill="#edf2f7" stroke="#d5dee8"/>
+  <text x="82" y="711" class="label">不要从中间片段推断完成</text>
+  <text x="82" y="743" class="small">message_end 不必代表 run 已停止；agent_end 后，AgentSession 仍可能需要处理重试、压缩和扩展收尾。</text>
+</svg>

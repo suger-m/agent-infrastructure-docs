@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 820" role="img" aria-labelledby="title desc">
+  <title id="title">长期记忆治理检索与会话压缩分属两条支路</title>
+  <desc id="desc">通用教学模型：长期记忆候选需经过审核、归属和来源确认后保存；检索先授权，再检查时效和冲突，才按预算注入请求，并根据反馈更新。摘要与近期历史从独立的会话历史支路进入请求组装，不等同于长期记忆。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#526579"/></marker>
+  </defs>
+  <rect width="1200" height="820" fill="#f5f8fc"/>
+  <style>
+    .title{font:700 28px 'Segoe UI','Microsoft YaHei',sans-serif;fill:#14283f}
+    .label{font:600 19px 'Segoe UI','Microsoft YaHei',sans-serif;fill:#18324d}
+    .small{font:17px 'Segoe UI','Microsoft YaHei',sans-serif;fill:#526579}
+    .node{fill:#fff;stroke:#9db0c4;stroke-width:2}
+    .blue{fill:#e7f1ff;stroke:#5b8cc9}
+    .green{fill:#e6f5ee;stroke:#4c9b72}
+    .amber{fill:#fff2d9;stroke:#c58a2b}
+    .line{fill:none;stroke:#526579;stroke-width:2.5;marker-end:url(#arrow)}
+    .dash{fill:none;stroke:#8a6a32;stroke-width:2.5;stroke-dasharray:8 7;marker-end:url(#arrow)}
+  </style>
+  <text x="48" y="58" class="title">长期记忆要经过治理，摘要仍属于会话历史</text>
+  <text x="50" y="98" class="small">通用教学模型 · 不是 Pi 默认提供的长期记忆系统</text>
+
+  <rect x="40" y="150" width="190" height="100" rx="16" class="node blue"/>
+  <text x="135" y="187" text-anchor="middle" class="label">记忆候选</text>
+  <text x="135" y="218" text-anchor="middle" class="small">要求或已核实事实</text>
+  <rect x="270" y="150" width="190" height="100" rx="16" class="node amber"/>
+  <text x="365" y="187" text-anchor="middle" class="label">审核与归属</text>
+  <text x="365" y="218" text-anchor="middle" class="small">来源、用户、项目</text>
+  <rect x="500" y="150" width="190" height="100" rx="16" class="node"/>
+  <text x="595" y="187" text-anchor="middle" class="label">长期记忆库</text>
+  <text x="595" y="218" text-anchor="middle" class="small">保留版本与有效期</text>
+  <rect x="730" y="150" width="190" height="100" rx="16" class="node amber"/>
+  <text x="825" y="187" text-anchor="middle" class="label">授权后检索</text>
+  <text x="825" y="218" text-anchor="middle" class="small">先限定可访问范围</text>
+  <rect x="960" y="150" width="200" height="100" rx="16" class="node amber"/>
+  <text x="1060" y="187" text-anchor="middle" class="label">时效与冲突核验</text>
+  <text x="1060" y="218" text-anchor="middle" class="small">过期、矛盾要处理</text>
+
+  <path d="M230 200H263" class="line"/>
+  <path d="M460 200H493" class="line"/>
+  <path d="M690 200H723" class="line"/>
+  <path d="M920 200H953" class="line"/>
+
+  <rect x="960" y="315" width="200" height="96" rx="16" class="node green"/>
+  <text x="1060" y="351" text-anchor="middle" class="label">按预算注入</text>
+  <text x="1060" y="382" text-anchor="middle" class="small">带必要来源与时间</text>
+  <rect x="690" y="315" width="220" height="96" rx="16" class="node blue"/>
+  <text x="800" y="351" text-anchor="middle" class="label">组装模型请求</text>
+  <text x="800" y="382" text-anchor="middle" class="small">合并选定材料</text>
+  <path d="M1060 250V308" class="line"/>
+  <path d="M960 363H918" class="line"/>
+
+  <rect x="40" y="315" width="250" height="96" rx="16" class="node"/>
+  <text x="165" y="351" text-anchor="middle" class="label">较早历史摘要</text>
+  <text x="165" y="382" text-anchor="middle" class="small">压缩当前会话中的旧消息</text>
+  <rect x="350" y="315" width="250" height="96" rx="16" class="node"/>
+  <text x="475" y="351" text-anchor="middle" class="label">近期历史原文</text>
+  <text x="475" y="382" text-anchor="middle" class="small">继续保留的会话消息</text>
+  <path d="M290 363H320V445H630V345H683" class="line"/>
+  <path d="M600 363H683" class="line"/>
+
+  <rect x="690" y="500" width="220" height="96" rx="16" class="node green"/>
+  <text x="800" y="536" text-anchor="middle" class="label">反馈、更新或撤销</text>
+  <text x="800" y="567" text-anchor="middle" class="small">保留新来源和版本关系</text>
+  <path d="M800 411V493" class="line"/>
+  <path d="M910 548H1175V120H595V142" class="dash"/>
+
+  <rect x="40" y="665" width="1120" height="100" rx="16" fill="#edf2f7" stroke="#d5dee8"/>
+  <text x="70" y="705" class="label">两条材料支路在请求处汇合</text>
+  <text x="70" y="737" class="small">跨会话记忆先治理再检索；摘要和近期原文来自当前历史，不能把长期记忆当作压缩结果。</text>
+</svg>

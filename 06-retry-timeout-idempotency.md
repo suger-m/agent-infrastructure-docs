@@ -1,32 +1,98 @@
-# 06. 失败以后，究竟重做哪一步
+# 06. 重试、超时与幂等：失败后怎样安全继续
 
 [返回学习地图](README.md) · 前置：[Agent 循环](01-agent-runtime.md)、[历史与上下文](02-context-state.md)
 
-文件已经读完，模型解释到一半时断线，此时该重做解释，还是把文件再读一遍？如果换成付款工具，付款成功后进程却没来得及保存结果，问题又会不同。本篇沿源码提交 `96abe9a5ad45005cae34ed1c52d42f71fc88bedc` 区分这些失败位置，再看重试、取消与重启恢复各自能做什么。
+用户让 Agent 阅读一份故障报告，并在外部系统创建工单。正常情况下，Agent 读出报告，生成工单内容，向服务发送创建请求，收到工单编号，再把编号保存下来交给用户。若创建工单后连接断开，Agent 屏幕上的“请求失败”可能与服务端已经存在的工单同时成立。此时再创建一次，用户可能得到两张工单；直接结束，又无法告诉用户原工单在哪里。
 
-重试用于处理再次调用可能成功的失败，例如暂时断网；超时用于结束超过等待限制的调用；幂等用于约束重复调用的业务效果。三者要接在同一条失败处理流程里理解：先识别失败发生在哪一步，判断是否允许重做，再限制次数与等待时间；若重做会修改外部系统，还需要稳定的操作身份和去重协议。
+本章讨论的输入是一项未能正常结束的操作，以及调用方已经保存的执行证据。输出可能是成功结果、等待后再试、修改输入后再执行，也可能是需要核对的未知状态。要选择下一步，必须知道失败发生在哪里、重做会覆盖哪段工作，以及此前的外部效果能否确认。
 
-以模型解释断线为例，完整过程是：程序得到失败回复，判断错误是否可重试，保存并省略失败尝试，等待一段退避时间，再用此前成功的工具结果重新请求模型，最后保存成功回复或报告耗尽。等待期间用户可以取消。这条流程保留失败历史，重做的是模型回复。
+下面先用创建工单讲通用设计。示例中的操作记录、全局截止时间和服务端幂等协议是教学架构，不能直接当成 Pi 默认已有的功能。后半章再对照 Pi 的普通 Session 重试和实验 durable 路径。
 
-如果失败发生在付款结果返回前，程序连“付款失败”都不能确定。超时只说明客户端没有及时得到结果；远端付款可能已经成功。此时必须先判断工具的恢复策略，必要时查询外部操作状态。下面分别讲请求重试与这种未知效果的恢复，避免给所有错误套上同一个重试循环。
+## 失败信息能证明什么
 
-## 先认清重试与恢复各由谁处理
+假设工单服务第一次明确返回“当前过载，请稍后再试”，并且接口约定这类拒绝发生在创建之前。调用方知道本次没有创建工单，原参数也没有问题；负载下降后，相同请求有机会成功。这类原因可能自行消失的失败叫临时失败。重试（retry）就是再次尝试选定的操作，希望故障条件已经改变。
 
-| 对象或层次 | 负责什么 | 出错后能做什么 |
-| --- | --- | --- |
-| 模型服务请求层（provider request） | 建立一次模型服务请求并处理传输错误 | 按异常、响应头和状态码决定是否重建请求 |
-| 模型回复层（assistant response） | 检查最终模型回复中的错误 | 对可重试错误有限次退避后再生成 |
-| `AgentSession` | 连接多次低层运行，保存失败回复的 `context_edit`（上下文编辑） | 退避后用 `Agent.continue()` 重做模型回复 |
-| 实验 durable（持久执行运行时）的 `ToolTask` | 在工具执行前保存意图，执行后保存结果和任务终态 | 重启时按已提交阶段与重放策略决定是否再次运行 |
-| 外部工具效果 | 修改文件、付款或调用远程服务 | 是否只发生一次取决于工具与外部系统的幂等协议 |
+如果服务返回“项目不存在”，等待并不会让错误的项目编号变正确。调用方需要修正参数，或者让用户补充正确项目；在这些条件改变前，它属于永久失败。“永久”针对当前请求和当前条件，并不意味着服务永远不可用。权限不足、参数不合法、余额或配额耗尽也要根据实际原因处理，不能仅因它们带有错误码就反复发送。
 
-幂等表示同一操作重复执行时，最终业务效果与执行一次相同。外部系统必须参与去重或提供对应协议，单靠本地重试记录不能保证这一点。
+第三种情况更难：请求发出后，调用方一直没有收到响应。服务可能根本没收到，也可能已创建工单，只是响应丢失。调用方目前只能判定结果未知。未知描述的是证据不足；即使网络中断本身是临时故障，也不能由此推出重新创建是安全的。错误分类因此要回答两个问题：相同操作再做一次是否可能成功，以及前一次操作是否可能已经成功。
 
-所以要先找失败位置。请求没建立、回复没完成、外部效果已经发生但结果未保存，这几种状态能提供的证据不同。前两层可能再发模型请求；第三种不能仅凭本地存储判断副作用是否成功。一次用户输入也可能包含多次低层运行，各自的重试预算不会自动合成全局预算。
+状态码和错误文本能帮助判断，但应以接口协议和操作语义为依据。例如，一个服务明确拒绝创建，比一条笼统的“连接关闭”提供了更强的证据。调用方至少要保存操作标识、最终参数、尝试记录以及收到的结果，才能在进程退出后继续判断。只保存一条“失败”日志，会把“明确未执行”和“可能已执行”混在一起。
 
-## 先沿一次失败的请求走完恢复过程
+## 重试哪一段，决定了什么会重复
 
-以“读文件并解释”为例，网络在第二次模型回复时断开：
+创建工单这项任务包含读取报告、生成内容和调用外部接口。若读取暂时失败，可以重试读取；若模型生成解释时中断，可以重新生成；若工单创建的结果未知，就应先处理这个外部操作的状态。把整个任务从头再跑一遍，会让前面已经成功的步骤一起重做。
+
+因此，要先划定重试范围：一次网络请求、一轮模型生成、一个工具操作，或者一整项工作流。范围内的代码会再次执行，范围外的已知结果应当复用。重新生成模型输出也可能得到不同内容，所以“同一项创建工单操作”的参数最好在第一次发送前固定下来。若重试期间模型把标题或所属项目改了，就需要先判断这是否已经成为另一项业务操作。
+
+只读操作通常较容易重试，因为它不主动改变外部状态，但两次读取仍可能看到不同版本。写操作需要更严格地分析重复效果。“把状态设置为关闭”重复执行后可能仍是关闭；“增加一张工单”每次执行都会多出一张。是否安全取决于具体操作及服务协议，不能只看工具名或 HTTP 方法。
+
+## 给重试次数和等待时间共同设限
+
+即使临时失败值得重试，也必须有结束条件。假设教学示例允许初次尝试之外再试两次，单次请求最多等待 8 秒，并要求整项任务在开始后的 20 秒内结束。这里有三个不同限制：重试次数限制请求数量，单次超时（timeout）限制一次等待，总截止时间（deadline）限制整个任务持续多久。具体数字只是示例配置。
+
+假设前两次都等满 8 秒，中间退避用了 2 秒，那么最后一次开始前只剩 2 秒。调用方要把剩余时间传给下层请求，或判断剩余时间不足而结束，不能重新给最后一次完整的 8 秒。总截止时间也应覆盖排队、退避和子调用；否则每一小步都遵守自己的超时，整项任务仍可能让用户等很久。
+
+次数预算和时间预算各有用途。响应很快的错误可能在短时间内产生大量请求，次数上限可以限制这种消耗；次数很少但每次都很慢，则需要截止时间约束。新一次尝试开始前应重新检查错误是否仍可重试、次数是否有余量、截止时间是否已到，以及任务是否被取消。任务跨进程恢复时，需要保存这些预算的有关状态，否则重启会把预算重置。
+
+等待本身也需要设计。服务因过载拒绝请求时，所有客户端立即重发，会进一步增加负载。退避（backoff）是在失败后等待再发；指数退避让等待逐次增大，例如等待约 1 秒、2 秒、4 秒，并设置最大等待值。较短的第一次等待有利于尽快恢复，后续更长的间隔给持续故障留出恢复时间。
+
+如果大量客户端都按相同节奏等待，它们还会在下一秒一起醒来。随机抖动（jitter）会在等待时间中加入随机差异，分散再次到达的请求。服务给出等待提示时，应结合提示和剩余截止时间决定下一步：若建议等待的时间已经超过预算，就结束本次自动恢复。退避让恢复变慢，换来更低的额外负载；它无法修复持续超出服务能力的请求量。
+
+多个重试层还会放大次数。若外层允许总共 3 次尝试，每次里面的请求层也允许 3 次，持续失败时就可能发出 9 次请求。更多层都这样做，就会形成重试风暴：服务越慢，客户端制造的额外请求越多。设计时应明确由哪层负责哪些故障，把总截止时间向下传递，并对总请求数或整体重试流量设限。局部重试便于处理局部错误，但不能从各层都有上限推导出全局消耗很小。
+
+总截止时间覆盖排队、退避和子调用，各层应使用剩余时间并共享重试预算。下图用示例时长说明预算如何逐步耗尽，不代表 Pi 默认设置。
+
+![通用教学图：排队、请求和退避共同消耗 deadline，剩余预算控制下一次调用](figures/06-concept-deadline-budget.svg)
+
+## 超时和取消为什么不能证明操作没发生
+
+回到工单创建：客户端在第 8 秒超时，而服务在第 7 秒已经保存工单。超时描述的是客户端没有及时拿到结果，服务端的保存不会因为客户端停止等待而自动撤销。即使服务尚未完成，它也可能在客户端超时后继续处理。
+
+取消是调用方主动要求停止当前工作。它可以来自用户点击停止，也可以来自总截止时间到期。为了尽快停止无用工作，取消信号应从任务传到等待退避的代码、模型请求和正在执行的工具。等待函数收到信号后不再启动下一次尝试；本地工具应停止运行并清理资源；下层服务只有在协议和实现支持时才会响应取消。
+
+取消需要每层配合。丢弃一个等待结果，并不一定终止产生该结果的工作；终止 shell 进程，也无法收回它此前已经发出的邮件或写入的文件。远端可能在取消到达前提交结果，取消响应与成功响应也可能交错到达。因此，用户不再等待之后，系统仍可能需要保存迟到结果，或者把操作交给恢复与核对流程。
+
+这时应该向用户报告“停止等待，创建结果待确认”，而不是凭超时把它记成“确定没有创建”。明确保留未知状态，才能避免后续执行者将它当成一项全新的创建请求。
+
+## 同一项操作重试时，怎样避免重复创建
+
+幂等（idempotency）指同一操作重复请求后，业务效果与只执行一次相同。工单创建本来会不断新增记录；若服务支持幂等键，调用方可以为这次业务操作生成稳定标识，例如 `create-incident-42`，并在第一次发送之前把它和最终参数保存下来。此后因为断线而再次尝试时，仍使用同一个键。用户确实要创建另一张工单时，才生成新键。
+
+键要标识业务意图，不能每次网络尝试都重新生成。否则服务看到的每次请求都像新操作，无法去重。反过来，把某个用户的所有请求都固定为一个键，也会把后续合法的新工单误当成重复。操作标识的生命周期需要跟随业务操作，而不是连接、进程或模型回复。
+
+服务收到键后，要在约定的去重范围内检查它是否已经处理过。例如，键可以只在同一租户、同一种接口中唯一，不能假定它在所有账户和所有服务间通用。服务还要比较参数：同一个键携带不同项目或不同工单内容时，应拒绝或明确报告冲突，不能悄悄复用一个语义不同的旧结果。
+
+对于由服务自己保存的工单，常见做法是在同一原子提交中登记键、创建工单并保存返回结果。原子提交表示这些关联更新要么一起生效，要么一起不生效。重复请求发现该键已完成，就返回原工单编号；发现它仍在处理中，则等待或返回可查询的处理中状态。两个相同键的并发请求也必须由服务协调，不能都先查到“没有”，然后分别创建。
+
+去重记录和业务效果若各自提交，仍会留下崩溃窗口：先创建后记键，进程可能在两步之间退出，下一次又创建；先记键后创建，进程退出后可能永远没有实际工单。若业务效果还要交给另一个外部系统执行，同一数据库事务也包不住那次外部请求，必须继续依靠下游协议或结果核对。幂等能力的保证只覆盖真正参与协议的范围。
+
+结果缓存也有用途。服务保留原工单编号和返回内容后，重试不仅避免再创建，还能取得第一次操作的结果。调用方需要知道这些记录保存多久；若去重记录已经过期，过了很久再用旧键重试也可能重新创建。保留期限应覆盖业务允许的重试与恢复窗口，超出窗口时改为查询或人工核对。
+
+在开头的故障中，调用方先保存键和参数，再发送创建请求；服务提交工单与该键的结果，但返回途中连接断开。调用方超时后仍保留同一键，检查重试预算并退避，然后查询操作状态，或按照服务协议带同一键重新提交。服务返回已经创建的工单编号，调用方保存结果并向用户完成交付。服务端保存的去重与结果记录，为这次恢复提供了依据。
+
+下图把“响应丢失”与“创建失败”区分开：相同业务键让服务返回第一次保存的结果，不再创建第二张工单。这是通用幂等协议示意。
+
+![通用教学图：使用稳定幂等键重试创建请求，服务复用原工单结果](figures/06-concept-idempotent-retry.svg)
+
+## 没有可靠去重接口时，怎样结束未知状态
+
+有些服务没有幂等键，但允许用调用方提供的唯一业务编号查询。恢复者可以先查询，找到匹配结果就复用。查不到时仍需理解查询的保证：如果读取会延迟看到新记录，“暂时没查到”不能证明原请求没有执行；若原请求还在处理中，此刻重新创建也可能和它同时成功。只有服务协议能提供足够证据时，才自动重做。
+
+邮件就是需要明确范围的例子。邮件服务若按稳定发送 ID 去重并保存结果，调用方可以依约恢复；仅在本地记一条“准备发送”，无法证明收件人是否已经收到。结果未知时再次发送可能产生重复邮件，应该先查服务侧记录。查询仍不能消除疑问时，保留收件人、内容摘要、发送 ID 和时间，交给人工核对是否需要补发。
+
+`git push` 也要按具体结果判断。将同一个提交推到同一个远端引用，在引用已到达目标时，再次推送通常不会再创建一份提交。但连接中断后，仍需读取远端引用，核对预期提交是否已经到达；远端引用也可能又被其他人推进。发布脚本如果还会创建资源、发通知或触发外部动作，应分别核对这些效果，不能从引用更新的状态推出整段脚本都安全完成。创建云资源同样应优先按操作 ID 或唯一标识查找原资源，避免换一个随机名字再创建。
+
+当预算耗尽、去重记录失效，或者查询证据不足以排除重复效果时，可以停止自动重试并进入人工对账。对账是把本地操作记录与外部事实逐项核对，决定是否复用结果、补做或处理重复。它需要保留原操作和证据，而不只是报一个“失败”。若已经产生重复，撤销或删除也是新的业务操作，需要单独确认是否允许以及会造成什么后果。
+
+## Pi 案例：文件已经读到了，解释中断后怎样接着完成
+
+Pi 的默认 CLI 可以演示模型生成层的重试。模型先调用读取文件的 read 工具，成功后，Agent 把读取结果（`toolResult`）加入会话；下一次模型请求开始解释文件，连接却在输出中途断开。Agent 的执行循环收到一条以 error 结束的模型回复（assistant 消息），于是结束本次运行。它不会执行这条错误回复中的工具调用。
+
+Session 接着检查这条回复是否属于可重试错误，以及预算是否还有余量。此时已有的成功证据是 read 的结果，失败范围是后一轮模型生成。Session 保留失败回复在会话历史中，并追加 `context_edit`，把它从下一次模型请求的上下文投影中省略。投影是从保存的历史中选出本次要发送给模型的内容；失败经过仍可查看，半截解释则不再作为有效回答传入下一次请求。
+
+准备重试后，Session 记录尝试并退避等待，避免服务还在过载时立即连续请求。等待期间可以取消；错误不可重试、预算耗尽或等待被取消时，都不会开始新请求。等待结束且运行仍有效，外围循环调用 `Agent.continue()`，重新请求模型。read 的成功结果仍在上下文中，所以模型可以直接完成解释。自动重试不会重跑 read；新模型回复仍可主动要求再次读取。
+
+新请求成功后，这条恢复路径结束；若又收到可重试错误，Session 会按同一规则继续，直到成功、取消或耗尽预算。一次恢复的记录顺序如下：
 
 ```text
 模型 #1 → read 调用 → read 成功 → toolResult 已保存
@@ -36,151 +102,98 @@ Session 追加 context_edit，省略失败的 assistant #2
 模型 #3 读取已有 read 结果，重新生成解释
 ```
 
-此前成功的 `read` 结果仍在上下文里，Session 只需让模型重新生成失败的解释。低层循环在 `error/aborted` 后结束本次运行，不执行错误回复中的工具；Session 追加 `context_edit` 让失败回复退出投影，等待后继续。这次过程说明模型重试重做的是解释。
-
-换成“付款”工具，假设进程在付款成功、结果保存之前退出。重新打开任务时，存储只知道执行意图已经提交，无法确认外部付款是否成功。这个未知结果窗口需要 durable 的重放策略和业务去重机制，普通模型重试处理不了它。
-
-## 根据失败位置选择重做点
-
-| 机制 | 已有实现 | 归类 |
-| --- | --- | --- |
-| 模型请求重试 | 按 HTTP 异常结构、响应头和状态码判断；可取消的等待 | 稳定库 |
-| 模型回复重试 | 分类错误消息、有限次数、指数退避、回调 | 稳定库 |
-| coding-agent 的会话重试 | 保存失败历史，追加省略条目，等待后调用 `Agent.continue()` | 常规集成 |
-| 上下文恢复 | 溢出或可恢复截断走压缩后重试，和普通重试分开 | 常规集成 |
-| 请求和 shell 超时 | 模型服务选项；shell 工具的可选超时和进程树终止 | 常规集成，语义由具体适配器决定 |
-| 工具意图、结果与重启恢复 | durable 任务检查点、safe/unsafe 重放、嵌套调用复用 | 实验实现 |
-| 任意外部副作用只发生一次（exactly-once） | 没有通用保证 | 需要具体工具与外部系统协议支持 |
-
-表中“重试”是已知调用失败后再调用，“恢复”是重新打开持久存储，按已提交的任务状态继续处理。两者都可能再次执行代码，但业务效果能否只发生一次，要看工具与外部系统的协议。仅保存会话、只留下一个最终结果或成功恢复任务，都无法证明该协议已经保证 exactly-once。
-
-## 请求没建立，与回复没完成
-
-请求建立层和最终回复层都能重试模型调用，但它们看到的失败信号不同，次数预算与等待规则也不同。
-
-### 模型请求建立失败时
-
-Provider 是模型服务提供方；HTTP 状态码是服务对请求处理结果的编号，响应头可以携带重试指示或建议等待时间。请求建立层看到的是这些通信信息，因此能区别暂时过载、服务错误与某些不可重试响应。它还需要限制次数，否则长期故障会变成一直等待。
-
-退避让连续重试之间留出时间，避免故障期间马上发出大量相同请求。指数退避按尝试次数增加等待，随机抖动让多个客户端的重试时间错开。服务端给出的 `Retry-After` 则表示它希望客户端等待多久。它们决定下一次何时发生，不证明下一次一定成功。
-
-稳定库的 `retryProviderRequest()` 根据异常决定是否重新建立请求：这个判断面向带 `status`、`headers` 的 Error，先看 `x-should-retry` 是否明确指示重试与否；没有该指示时，无状态码的网络错误以及 408、409、429、5xx 都可重试，调用方还可排除指定状态码。判断逻辑见 [packages/ai/src/utils/provider-retry.ts:11-37](../../packages/ai/src/utils/provider-retry.ts#L11-L37)、[packages/ai/src/utils/provider-retry.ts:107-128](../../packages/ai/src/utils/provider-retry.ts#L107-L128)。
-
-重试前要等待一段时间，这就是退避。这里优先读 `retry-after-ms`，其次读 `retry-after` 的秒数或日期；服务端没有指示时，等待从 0.5 秒增长到最高 8 秒，再乘 0.75 到 1 的随机系数。如果服务端要求的等待超过上限，函数直接抛错交给上层。默认上限为 60 秒，设为 0 则禁用这个限制。等待算法见 [packages/ai/src/utils/provider-retry.ts:39-69](../../packages/ai/src/utils/provider-retry.ts#L39-L69)。
-
-OpenAI Responses 能展示这层重试的范围。SDK 设置 `maxRetries: 0`，由项目函数包住 `responses.create(...).withResponse()`；收到响应后才开始读取响应体。读取途中出错会生成最终 assistant error，交给上层处理，不再回到请求建立函数。因此，完全没收到响应与已经输出部分文本，可能采用不同的重试路径。对应适配器见 [packages/ai/src/api/openai-responses.ts:178-231](../../packages/ai/src/api/openai-responses.ts#L178-L231)。
-
-还有一个默认值需要单独核对：这个函数未收到 `maxRetries` 时取 0，类型注释所说的 SDK 原生默认“两次”并不适用于这一层。阅读宿主配置时，要继续沿选项的传递路径查实际值；函数初始化见 [packages/ai/src/utils/provider-retry.ts:99-117](../../packages/ai/src/utils/provider-retry.ts#L99-L117)。
-
-### 已经收到最终错误回复时
-
-请求建立成功不代表回复一定完整。连接可能在输出中途断开，模型适配器把这个故障表达为最终 assistant 错误消息。此时重试层拿到的是消息里的结束原因和错误文本，未必仍有最初的 HTTP 状态码。源码因而提供另一套分类入口；这些规则属于不同失败位置，不能把次数和默认值混在一起。
-
-当错误已经变成最终回复，稳定库用 `isRetryableAssistantError()` 判断：先要求 `stopReason=error` 且有 errorMessage，再按文本分类。配额、账单和订阅额度耗尽等被优先排除；过载、速率限制、5xx、DNS、连接中断、超时、提前 EOF 及明确要求重试的文本等可以匹配。它依靠错误文本启发式判断，无法保证所有模型服务都采用标准分类。模式与入口见 [packages/ai/src/utils/retry.ts:7-107](../../packages/ai/src/utils/retry.ts#L7-L107)、[packages/ai/src/utils/retry.ts:243-257](../../packages/ai/src/utils/retry.ts#L243-L257)。
-
-`retryAssistantCall()` 只处理最终 AssistantMessage 中被判定可重试的错误，正常响应、aborted 和确定性错误直接返回。`maxRetries=3` 允许一次初始调用加三次重试；安排重试后，依次执行 `onRetryScheduled → sleep → onRetryAttemptStart → produce`，而 `onRetryFinished` 只在确实安排过重试时触发。若 `produce()` 本身抛异常，这个函数会让异常向外传播，没有通用捕获来把它转成消息后再试。控制流程见 [packages/ai/src/utils/retry.ts:191-241](../../packages/ai/src/utils/retry.ts#L191-L241)。
-
-`length` 同样作为非 error 结果返回。到了摘要层，它会被判为不完整并拒绝保存，这个重试函数自身不会重新生成截断摘要。摘要检查见 [packages/coding-agent/src/core/compaction/compaction.ts:581-593](../../packages/coding-agent/src/core/compaction/compaction.ts#L581-L593)。
-
-这层退避按次数增长，公式为 `baseDelayMs * 2^(attempt-1)`，每次等待不超过 `maxAgentDelayMs`，默认 60 秒。它没有请求层的随机抖动，上限设为 0 时也直接等待 0 秒；请求层的上限 0 则表示禁用限制。两个选项虽然都限制等待，具体语义要分别看。这里的计算见 [packages/ai/src/utils/retry.ts:109-132](../../packages/ai/src/utils/retry.ts#L109-L132)。
-
-## Session 怎样重做解释并保留失败记录
-
-Session 层把一次失败记入持久历史，再在下一次请求中省略失败回复并继续。
-
-回到开头的网络中断例子，低层循环收到 error/aborted 后会结束本次运行，不执行这份错误回复中的工具。接着 `AgentSession._handlePostAgentRun()` 判断能否准备重试，准备成功后由外围循环调用 `agent.continue()`。所以一次 Session 输入可以跨过多次低层运行，先后收到多个 `agent_end`，最后才到 `agent_settled`。这两层的衔接见 [packages/agent/src/agent-loop.ts:245-270](../../packages/agent/src/agent-loop.ts#L245-L270)、[packages/coding-agent/src/core/agent-session.ts:1822-1891](../../packages/coding-agent/src/core/agent-session.ts#L1822-L1891)。
-
-准备重试时，`_prepareRetry()` 增加尝试计数、检查预算、发出 `auto_retry_start`，再调用 `_omitRecoveryAttempt()` 并进入可取消的等待。省略操作会追加 `context_edit(targetId, null)`：失败回复留在 Session 树中，但退出模型投影。这份编辑也是持久历史的一部分，重新加载会话仍能重建同样的省略关系。准备与省略代码见 [packages/coding-agent/src/core/agent-session.ts:1237-1253](../../packages/coding-agent/src/core/agent-session.ts#L1237-L1253)、[packages/coding-agent/src/core/agent-session.ts:3758-3802](../../packages/coding-agent/src/core/agent-session.ts#L3758-L3802)。
-
-摘要生成沿用同一套 Agent 重试策略。`completeSummarization()` 用 `retryAssistantCall()` 包住摘要调用，关闭摘要缓存写入，并转发摘要重试事件。不过，每次函数调用使用自己的局部预算，与对话这一轮的重试计数并不共享全局尝试次数。摘要调用与事件转发见 [packages/coding-agent/src/core/compaction/compaction.ts:612-639](../../packages/coding-agent/src/core/compaction/compaction.ts#L612-L639)、[packages/coding-agent/src/core/agent-session.ts:3715-3744](../../packages/coding-agent/src/core/agent-session.ts#L3715-L3744)。
-
-### 请求过大时，要先改变上下文
-
-重试需要针对错误原因改变条件。上下文过大意味着同一份输入已经超过模型允许的大小，等待再久也不会缩短它。这里先压缩消息，留下摘要与近期内容，再尝试新请求。失败尝试同时从模型投影中省略，防止不完整回复继续占用上下文或影响判断。正常回答后的阈值压缩则服务于下一次请求，已经完成的回答没有因此变成失败。
-
-对上下文溢出，`_isRetryableError()` 会先排除普通重试，因为重复发送相同内容仍然过大。`_checkCompaction()` 改为对溢出或可恢复的 length 执行一次“压缩后重试”，并持久省略选定的失败 assistant 及其工具结果。再失败就报告恢复失败；如果回答已成功完成，只是 usage 越界，则仅压缩后续上下文，保留已经完成的回答。分类与恢复分支见 [packages/coding-agent/src/core/agent-session.ts:3705-3713](../../packages/coding-agent/src/core/agent-session.ts#L3705-L3713)、[packages/coding-agent/src/core/agent-session.ts:2977-3046](../../packages/coding-agent/src/core/agent-session.ts#L2977-L3046)。
-
-工具失败则通常变成 `toolResult.isError=true`，交给模型决定后续行为。即使错误文本含“timeout”，它也不会因此进入 assistant 的错误分类；默认执行器将工具抛错转成结果，没有自动反复调用同一工具的机制。见 [packages/agent/src/agent-loop.ts:821-857](../../packages/agent/src/agent-loop.ts#L821-L857)。
-
 ![Session 先检查取消，再区分上下文压缩恢复与普通 assistant 错误重试的流程](figures/06-session-retry-flow.svg)
 
-图里的省略、等待与继续属于普通 Session 的恢复流程；durable 调度器另有持久任务状态。
+图中还画了取消和上下文压缩分支；上面的 read 例子对应其中普通 assistant 错误重试的路径。压缩恢复的条件见源码补充。
 
-## 超时和取消会留下什么
+## Pi 的三种错误由不同层处理
 
-超时达到配置限制后结束当前等待或请求；主动取消则向执行代码发出信号，需要对方配合。两者都无法说明外部操作是否已经发生。
+一次 Agent 运行会经历建立请求、接收模型回复和执行工具。相同的“超时”字样出现在不同结果里，会交给不同代码处理；由谁处理又决定了哪一段会被重做。下面的三层不能合并成一个“发生错误就重试”的规则。
 
-| 位置 | 已有行为 | 仍需注意的限制 |
+### 请求没有建立成功
+
+Provider 是模型服务提供方。请求层在拿到模型回复之前就可能遇到网络错误或服务端状态码。`retryProviderRequest()` 会按状态和响应头决定是否重新建立请求，并在尝试之间退避。这个重试发生在一次 assistant 回复形成之前，具体状态码、头字段顺序与等待上限见源码补充。
+
+如果连接在响应到达前断开，本地没有收到回复；服务端是否已经处理请求，取决于断开时请求传到了哪一步。请求层重试能处理短暂故障，不能单凭本地错误证明服务端没有收到请求。
+
+请求一旦收到响应，读取响应体时再发生的中断会变成最终 assistant error，交给上一节所说的 Session 路径。OpenAI Responses 适配器会关闭 SDK 自带重试，由项目的请求重试函数处理建立请求阶段；响应体读取失败不会返回给该函数，因此不会继续走同一层请求重试。
+
+### 模型回复以错误结束
+
+assistant 回复中的可重试错误由 assistant 重试策略分类。Session 在整次运行结束后再检查这条错误，必要时记录失败、从后续投影中省略并继续请求。配额或账单耗尽等确定性问题会被排除；错误文本启发式可能识别过载、限速、5xx、DNS、连接中断、超时和提前 EOF。错误描述因服务而异，所以文本分类不保证覆盖所有服务。
+
+这条路径重做模型生成，不会自动重放之前成功的工具。请求层和 assistant 层各有预算，一次 Session 恢复可能在每次生成中再触发多次底层请求；项目没有统一的整项用户任务时限或总重试预算。
+
+### 工具返回 `isError`
+
+普通工具失败会作为 `toolResult.isError=true` 交给模型。模型可以根据错误结果选择解释、修正参数或提出新的工具调用；常规 Agent 循环不会因此自动重复执行同一工具。错误文本里即使有“timeout”，它仍是工具结果，不会因此变成 assistant 错误。
+
+## 普通 Session 保存历史，但不会接管崩溃中的重试
+
+Pi 的取消信号可以中止等待和正在配合取消的执行路径。Shell 超时可以终止进程树，但进程退出之前可能已经写文件或调用服务。因而这里也需要前面讲过的证据边界：本地停止后，外部效果仍可能需要查询。
+
+普通 `AgentSession` 的重试计数和等待中的 AbortController 属于运行时内存状态。重新打开 JSONL 会话可以重建历史及省略关系，却不会恢复原来的退避计时或接管未完成的工作流。超时与取消也没有统一的“整项用户任务最多 N 秒”设置。
+
+## 实验 durable 怎样处理执行结果未知
+
+若需要进程重启后恢复工具任务，可以对照 Pi 的实验 durable 路径；它与重新打开普通 JSONL 会话是不同机制。沿用创建工单的例子，服务已经完成创建，本地进程却在保存工具结果前退出。恢复者看到的执行记录，必须把“想要执行”和“已经取得结果”区分开。付款工具也有相同窗口：付款成功后、本地保存结果前退出，重跑可能重复付款，直接跳过又可能漏付。此类业务仍需要稳定操作 ID、外部服务去重或对账接口。
+
+durable（持久执行运行时）把工具调用拆成执行意图 `intent` 和执行结果 `outcome`。意图记录说明运行时准备按哪些最终参数执行，结果记录说明它已经拿到什么。运行时先保存最终参数与重放策略，再执行工具，完成后保存结果和任务终态。崩溃后系统根据最后一个已提交的阶段判断能做什么：
+
+| 崩溃位置 | 本地存储能证明什么 | 恢复时的行为 |
 | --- | --- | --- |
-| 模型请求 `timeoutMs` | 传给支持该选项的 SDK 或适配器 | 各种传输未采用统一的绝对截止时间 |
-| 请求重试的等待 | AbortSignal 可以清掉等待计时器 | 无法证明原始请求尚未在服务端发生 |
-| `Agent.abort()` | 触发当前运行信号 | 不配合信号的工具未必停止 |
-| `AgentSession.abort()` | 标记取消，停止重试、压缩和分支摘要，等待空闲 | 不会回滚已完成的文件写入或远程调用 |
-| shell `timeout` | 可选秒数，无默认超时；到时终止进程树并报告错误 | 终止前可能已产生外部效果 |
+| intent 提交之前 | 仍在 `call` 阶段 | 可重新准备参数和运行 beforeTool；hook 自身副作用也可能重复 |
+| intent 之后、execute 之前 | 只知道计划执行 | safe 可重跑；unsafe 报告未知，即使工具可能尚未开始 |
+| execute 产生效果后、outcome 之前 | 仍只有 execute intent | safe 可能重复效果；unsafe 不重跑，但无法确认效果是否成功 |
+| outcome 已提交 | 结果和任务终态已保存 | 复用已保存结果，不再执行已结束的任务 |
 
-这些行为对应 [packages/ai/src/types.ts:156-210](../../packages/ai/src/types.ts#L156-L210)、[packages/ai/src/utils/provider-retry.ts:77-97](../../packages/ai/src/utils/provider-retry.ts#L77-L97)、[packages/agent/src/agent.ts:335-352](../../packages/agent/src/agent.ts#L335-L352)、[packages/coding-agent/src/core/agent-session.ts:2431-2451](../../packages/coding-agent/src/core/agent-session.ts#L2431-L2451)、[packages/coding-agent/src/core/tools/bash.ts:27-43](../../packages/coding-agent/src/core/tools/bash.ts#L27-L43)、[packages/coding-agent/src/core/tools/bash.ts:124-163](../../packages/coding-agent/src/core/tools/bash.ts#L124-L163)。
+恢复到 `phase=execute` 时，只有已保存的重放策略和当前工具策略都为 `safe`，durable 才会重跑。两份策略分别来自原执行意图和恢复时的工具定义；检查两者可以避免仅凭后来放宽的策略去重跑原先没有承诺安全的操作，也避免在当前策略已收紧时沿用旧许可。默认策略是 `unsafe`，此时会返回 interrupted 错误并提示效果可能已经部分发生。即使真实情况是工具尚未开始，只有 intent 的本地记录也无法证明这一点。
 
-同样，两层重试一起开启时，每次上层尝试都可能再次经历下层请求重试，总请求数不能直接拿任何一层的 `maxRetries` 计算。练习时可以分别记逻辑上的 assistant 尝试和实际请求尝试，再判断整体预算是否符合宿主需要。
+`safe` 是工具作者允许重放的声明，运行时据此决定是否再次调用。要把创建工单声明为安全，工具作者仍须保证重复执行不会多建工单，例如把原来保存的业务操作键继续传给支持去重的服务。声明本身不会创建服务端幂等协议；错误地标为 `safe` 仍可能产生重复效果。
 
-## 付款结果没保存，重启后该不该再执行
+结果和任务终态在 `settle()` 的同一次本地提交中写入，但 `tool.execute()` 以及外部 HTTP 或 shell 效果发生在这次提交之前。事务只保护本地结果记录，不会把外部操作纳入本地事务。工程讨论中的 exactly-once 通常要求在声明的范围内只有一次业务效果；调用尝试仍可能发生多次，要说明重复效果由哪一层排除。Pi durable 不提供通用 exactly-once 保证，未知的外部效果仍要按业务协议恢复。
 
-操作 ID 用来识别“这是同一项付款的再次尝试”。如果每次重试都新建一个付款 ID，外部服务就可能认为这是两项不同付款；稳定 key 必须跨重试保持相同，并由服务用它去重。本地任务 ID 与外部业务 key 也要明确如何对应，单独保存一个本地结果无法控制另一系统的写入。
+## 源码补充
 
-幂等和 exactly-once 的含义也不同。幂等调用允许请求发生多次，但约定最终业务效果等同一次；exactly-once 是业务效果只发生一次的保证。运行时可以保存“已提交结果，直接复用”，却不能仅凭自己的数据库消除“外部成功，本地结果未保存”的未知窗口。safe/unsafe 正是工具作者为恢复时能否重跑提供的声明，下面按保存阶段解释其判断。
+### 请求重试的判断与退避
 
-durable 通过执行意图与结果的提交边界记录重启时掌握的证据，再按重放策略决定是否重新运行工具。
+`retryProviderRequest()` 先检查 `x-should-retry` 的明确指示；没有该指示时，无状态码网络错误以及 408、409、429、5xx 可重试，调用方还可排除状态码。退避优先采用 `retry-after-ms`，再看 `retry-after` 的秒数或日期；没有服务端提示时，从 0.5 秒指数增长到 8 秒，并乘以 0.75 到 1 的随机系数。服务端等待超过默认 60 秒上限会直接抛错；将上限设为 0 会禁用这个限制。
 
-实验 durable 把执行前的操作意图称为 intent，把执行后的结果与任务终态称为 outcome。`ToolTask` 从 `call` 开始：解析工具，准备并验证参数，运行 beforeTool，再提交 `phase=execute`、最终参数和重放策略。这个意图提交成功后，才真正执行工具。恢复时若已经处于 `execute`，保存的策略与当前工具策略必须同时为 `safe` 才会重跑，默认值为 `unsafe`；其他情况生成 interrupted 错误结果，提示工具可能已经部分运行。阶段切换见 [packages/durable/src/harness/tool.ts:64-67](../../packages/durable/src/harness/tool.ts#L64-L67)、[packages/durable/src/harness/tool.ts:123-185](../../packages/durable/src/harness/tool.ts#L123-L185)。
+OpenAI Responses 适配器将 SDK 的 `maxRetries` 设为 0，再由项目函数包住 `responses.create(...).withResponse()`。收到响应后才读取响应体；读取中途失败会成为最终 assistant error，而不会返回请求建立函数。函数未收到 `maxRetries` 时取 0；类型注释提到的 SDK 原生默认两次不适用于这一层。
 
-| 崩溃位置 | 存储知道什么 | 恢复行为与风险 |
-| --- | --- | --- |
-| intent 提交之前 | checkpoint 仍为 call | 可重跑准备和 beforeTool；hook 自己的外部效果也要考虑重复 |
-| intent 后、execute 前 | 只知道打算执行 | safe 可重跑；unsafe 会报告未知，可能实际尚未执行 |
-| execute 产生效果后、outcome 前 | 同样只有 execute intent | safe 可能再次执行；unsafe 不重跑，但无法判定效果是否成功 |
-| outcome 提交之后 | 结果条目和任务终态已提交 | 恢复读取已保存结果，无需再执行这个已结束任务 |
+### assistant 重试预算与上下文压缩
 
-从存储看，最终工具结果与任务终态确实在 `settle()` 的同一次运行时提交中写入。不过，实际 `tool.execute()` 已经在此前执行，远程 HTTP 调用和 shell 效果没有包含在这次存储事务中。表格最后一行保证的是恢复复用已保存结果，无法把外部效果也变成 exactly-once。执行与提交的位置见 [packages/durable/src/harness/tool.ts:391-428](../../packages/durable/src/harness/tool.ts#L391-L428)、[packages/durable/src/harness/tool.ts:570-630](../../packages/durable/src/harness/tool.ts#L570-L630)。
+`retryAssistantCall()` 只处理最终 `AssistantMessage` 中被判为可重试的错误。正常回复、aborted 和确定性错误直接返回。`maxRetries=3` 表示一次初始调用加最多三次重试；每次重试依次触发 `onRetryScheduled → sleep → onRetryAttemptStart → produce`。只有确实安排过重试时才触发 `onRetryFinished`。若 `produce()` 本身抛异常，函数会向外传播，不会把异常变成消息再试。退避为 `baseDelayMs * 2^(attempt-1)`，每次不超过 `maxAgentDelayMs`，默认 60 秒；这里没有请求层的随机抖动。此处上限设为 0 表示等待 0 秒，与请求层的 0 不同。
 
-嵌套调用会按父任务下的 key 复用此前创建的工具任务。相同 key 必须对应相同工具和参数，否则报错；默认 key 来自调用序号，如果重跑时控制流可能改变调用顺序，显式稳定 key 更便于表达操作身份。这能避免重复创建已有子调用，外部效果仍需要子工具自身具备幂等性，也就是同一个操作重复执行时，最终业务效果与执行一次相同。复用规则见 [packages/durable/src/harness/tool.ts:281-285](../../packages/durable/src/harness/tool.ts#L281-L285)、[packages/durable/src/harness/tool.ts:360-387](../../packages/durable/src/harness/tool.ts#L360-L387)、[packages/durable/src/harness/tool.ts:656-718](../../packages/durable/src/harness/tool.ts#L656-L718)。
+上下文过大时，重复发送相同输入仍会失败。Session 会改走一次压缩后重试，失败 assistant 及其工具结果会按恢复分支省略；再失败则报告恢复失败。若回答已经成功，只是 usage 越界，压缩的是后续上下文，已完成回答仍保留。普通 `length` 结果不是 assistant error；摘要层会判定它不完整并拒绝保存，assistant 重试函数本身不会重新生成截断摘要。
 
-配置时还要分清两套 API：durable 使用 `safe/unsafe`，AgentTool 类型使用 `safe/never`。常规 agent-loop 不会读取重放策略来做崩溃恢复，所以后一套类型不能直接控制上面的恢复流程。AgentTool 定义可对照 [packages/agent/src/types.ts:479-498](../../packages/agent/src/types.ts#L479-L498)。
+### Session 历史与事件
 
-## 边界与未实现
+低层循环遇到 error 或 aborted 后结束本次运行，不执行错误回复中的工具。`AgentSession._handlePostAgentRun()` 决定是否重试；外围循环准备成功后调用 `agent.continue()`。因此，同一个 Session 输入可以经历多次 `agent_end`，最后才发出 `agent_settled`。
 
-以上机制覆盖了模型与会话层的重做；以下部分仍需宿主或业务层另行安排：
+`_prepareRetry()` 增加尝试计数、检查预算、发出 `auto_retry_start`，调用 `_omitRecoveryAttempt()`，再进入可取消等待。省略操作追加 `context_edit(targetId, null)`：失败回复仍在 Session 树中，但退出模型投影。摘要生成也使用 assistant 重试策略，不过有自己的局部预算，不与对话尝试合并。
 
-- 会话重试的运行状态只在内存。省略关系可以持久重建，尝试计数和等待中的 AbortController 却仍是内存字段；重新打开普通 JSONL 会话能重建上下文，无法自动恢复当时的退避计时，也无法据此接管未完成工作流。相关运行字段见 [packages/coding-agent/src/core/agent-session.ts:402-417](../../packages/coding-agent/src/core/agent-session.ts#L402-L417)。
-- 超时与取消各管一段时间，目前没有统一的“整个用户任务最多 N 秒”机制，全链路总重试预算也尚未实现。
-- 付款、发信或部署工具要允许重放，具体实现就得定义操作 ID、外部去重、状态查询和未知结果对账。当前代码没有通用的业务幂等键生成与对账层，也无法把远程效果纳入同一个本地事务；仅设置 replay=safe 无法补上这些能力。这些业务协议是重放有副作用工具所需的正确性条件，普通只读练习无需先实现完整分布式事务。
+### durable 嵌套调用
 
-## 源码位置与术语速查
+嵌套工具按父任务下的 key 复用已有子任务。例如，父任务准备完报告后调用一个创建工单的子工具；父任务恢复时用相同 key 找回这个子任务，就能复用已保存的完成结果。相同 key 必须始终对应相同工具和参数；默认 key 来自调用顺序，若重试时控制流可能变化，显式稳定 key 更可靠。
 
-### 文中术语
-
-| 术语 | 在这个项目中的含义 |
-| --- | --- |
-| 重试 | 已知调用失败后再次调用 |
-| 恢复 | 重新打开持久存储，按已提交的任务状态继续处理 |
-| 退避 | 重试前的等待；请求层带随机抖动，assistant 层按次数指数增长 |
-| exactly-once | 业务效果只发生一次的保证；需要工具与外部系统协议支持 |
-| 幂等 | 同一个操作重复执行时，最终业务效果与执行一次相同 |
-| intent / outcome | durable 中执行前提交的操作意图 / 执行后提交的结果与任务终态 |
-| replay policy | durable 工具的可重放策略，safe/unsafe；AgentTool 类型另有 safe/never 一套 |
-| `context_edit` | 会话重试时追加的省略条目，让失败回复退出模型投影但保留在历史树中 |
+这个 key 的去重范围是父任务内的子任务记录。若子任务只有执行意图、尚未保存工单编号，找回子任务仍然会遇到外部创建结果未知的问题，需要继续按重放策略和外部服务协议处理。因此它避免重复创建同一子调用，不能替代外部服务的幂等协议。durable 的 `safe/unsafe` 重放策略也不同于 `AgentTool` 类型的 `safe/never`；常规 Agent 循环不会读取后者来做崩溃恢复。
 
 ## 测试与练习
 
-| 目标 | 已有测试 |
-| --- | --- |
-| quota 不重试，取消和次数预算正确 | [packages/ai/test/retry.test.ts:137-285](../../packages/ai/test/retry.test.ts#L137-L285) |
-| 服务端等待超限与 AbortSignal | [packages/ai/test/provider-retry.test.ts:48-88](../../packages/ai/test/provider-retry.test.ts#L48-L88) |
-| Session 多次 agent_end、最终成功或耗尽 | [packages/coding-agent/test/suite/agent-session-retry-events.test.ts:33-123](../../packages/coding-agent/test/suite/agent-session-retry-events.test.ts#L33-L123) |
-| 重试后返回工具调用，prompt 等到整条循环完成 | [packages/coding-agent/test/suite/agent-session-retry-events.test.ts:196-227](../../packages/coding-agent/test/suite/agent-session-retry-events.test.ts#L196-L227) |
-| unsafe 不重跑、safe 必须同时符合保存与当前策略 | [packages/durable/test/harness-tools-recovery.test.ts:108-163](../../packages/durable/test/harness-tools-recovery.test.ts#L108-L163) |
-| intent 前 hook 可重复，但 memo 决策复用 | [packages/durable/test/harness-tools-recovery.test.ts:213-250](../../packages/durable/test/harness-tools-recovery.test.ts#L213-L250) |
+先不用源码，推演一次工单恢复：服务已创建工单，本地只有键和参数，响应丢失后还剩一次尝试。分别假设服务支持幂等键、只支持延迟可见的查询、完全没有查询接口，说明每种情况下谁能提供什么证据，以及何时应停止自动执行。再把服务建议的等待时间设为超过任务剩余时间，判断是否还应该发起下一次请求。能够回答这些问题后，再对照 Pi 的具体恢复边界。
 
-把网络中断例子改成“read 成功、下一条 assistant 连续两次失败、第三次成功”，先预测原始历史、投影与调用次数，再用 suite/harness 的 faux responses 验证，观察两次省略是否都保留在原始 Session 树里。随后读 durable 恢复测试，把 `started → close → reopen` 画到提交边界上，解释 runs=1 与 runs=2 分别怎样对应 safe/unsafe 策略。练习无需真实模型服务。
+可检查 quota 不重试、取消与次数预算、服务端等待上限、Session 多次 `agent_end`、safe/unsafe 恢复及 intent 前 hook。练习时把“read 成功、assistant 连续两次失败、第三次成功”代入历史树和模型投影，再用 faux responses 验证省略记录；随后对照 durable 的 `started → close → reopen` 与提交边界，判断 `runs=1` 和 `runs=2` 分别意味着什么。无需真实模型服务。
 
-若要运行，在 `packages/ai` 下使用 `node ../../node_modules/vitest/dist/cli.js --run test/retry.test.ts test/provider-retry.test.ts`；在 `packages/coding-agent` 下指定 `test/suite/agent-session-retry-events.test.ts`，在 `packages/durable` 下指定 `test/harness-tools-recovery.test.ts -t "reruns a tool only"`。这些定向用例使用模拟错误、faux provider 或本地 SQLite，不会向真实模型 API 发送请求。
+在 `packages/ai` 下运行原定向命令 `node ../../node_modules/vitest/dist/cli.js --run test/retry.test.ts test/provider-retry.test.ts`；在 `packages/coding-agent` 指定 `test/suite/agent-session-retry-events.test.ts`，在 `packages/durable` 指定 `test/harness-tools-recovery.test.ts -t "reruns a tool only"`。这些用例使用模拟错误、faux provider 或本地 SQLite，不需要真实模型服务。
 
-继续读[持久执行](05-durable-execution.md)看任务检查点与恢复，读[执行环境与隔离](08-sandbox-environment.md)看执行效果的边界，读[评估与回放](12-evaluation-replay.md)学习如何验证失败窗口。
+## 源码位置与延伸阅读
+
+- 请求重试判断：[provider-retry.ts 判断](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/ai/src/utils/provider-retry.ts#L11-L37)、[状态码判断](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/ai/src/utils/provider-retry.ts#L107-L128)、[退避](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/ai/src/utils/provider-retry.ts#L39-L69)、[初始化默认值](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/ai/src/utils/provider-retry.ts#L99-L117)、[等待与取消](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/ai/src/utils/provider-retry.ts#L77-L97)
+- Provider 实例：[OpenAI Responses](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/ai/src/api/openai-responses.ts#L178-L231)、[模型请求选项](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/ai/src/types.ts#L156-L210)
+- assistant 重试：[错误分类](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/ai/src/utils/retry.ts#L7-L107)、[分类入口](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/ai/src/utils/retry.ts#L243-L257)、[控制流程](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/ai/src/utils/retry.ts#L191-L241)、[退避计算](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/ai/src/utils/retry.ts#L109-L132)
+- Session 与压缩：[低层循环](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/agent/src/agent-loop.ts#L245-L270)、[Session 继续](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/core/agent-session.ts#L1822-L1891)、[准备重试](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/core/agent-session.ts#L1237-L1253)、[省略历史](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/core/agent-session.ts#L3758-L3802)、[摘要重试](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/core/compaction/compaction.ts#L612-L639)、[事件转发](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/core/agent-session.ts#L3715-L3744)、[摘要长度检查](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/core/compaction/compaction.ts#L581-L593)、[错误分类](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/core/agent-session.ts#L3705-L3713)、[压缩恢复](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/core/agent-session.ts#L2977-L3046)、[普通工具结果](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/agent/src/agent-loop.ts#L821-L857)、[运行时字段](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/core/agent-session.ts#L402-L417)
+- durable 与工具：[类型策略](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/agent/src/types.ts#L479-L498)、[工具阶段](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/harness/tool.ts#L64-L67)、[意图提交](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/harness/tool.ts#L123-L185)、[执行与结果](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/harness/tool.ts#L391-L428)、[settle](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/harness/tool.ts#L570-L630)、[嵌套调用 key](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/harness/tool.ts#L281-L285)、[key 复用](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/harness/tool.ts#L360-L387)、[子任务复用](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/harness/tool.ts#L656-L718)
+- 超时实现：[Agent 取消](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/agent/src/agent.ts#L335-L352)、[Session abort](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/core/agent-session.ts#L2431-L2451)、[shell 默认与设置](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/core/tools/bash.ts#L27-L43)、[shell 进程终止](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/core/tools/bash.ts#L124-L163)
+- 测试：[retry](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/ai/test/retry.test.ts#L137-L285)、[provider retry](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/ai/test/provider-retry.test.ts#L48-L88)、[Session retry](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/test/suite/agent-session-retry-events.test.ts#L33-L123)、[重试后工具调用](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/test/suite/agent-session-retry-events.test.ts#L196-L227)、[durable 恢复](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/test/harness-tools-recovery.test.ts#L108-L163)、[intent 前 hook](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/test/harness-tools-recovery.test.ts#L213-L250)
+- 相关章节：[持久执行](05-durable-execution.md)、[执行环境与隔离](08-sandbox-environment.md)、[评估与回放](12-evaluation-replay.md)

@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
+  <title id="title">身份认证、按动作授权与审计</title>
+  <desc id="desc">通用教学流程先认证主体，再按动作、资源和上下文检查策略。允许时按需取用秘密并调用目标；拒绝时停止执行。两种决定及执行结果都进入审计。</desc>
+  <defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#526579"/></marker></defs><rect width="1200" height="760" fill="#f5f8fc"/>
+  <style>.title{font:700 28px 'Segoe UI','Microsoft YaHei',sans-serif;fill:#14283f}.label{font:600 19px 'Segoe UI','Microsoft YaHei',sans-serif;fill:#18324d}.small{font:17px 'Segoe UI','Microsoft YaHei',sans-serif;fill:#526579}.node{fill:#fff;stroke:#9db0c4;stroke-width:2}.blue{fill:#e7f1ff;stroke:#5b8cc9}.green{fill:#e6f5ee;stroke:#4c9b72}.amber{fill:#fff2d9;stroke:#c58a2b}.red{fill:#fff0ef;stroke:#c66a62}.line{fill:none;stroke:#526579;stroke-width:2.5;marker-end:url(#arrow)}</style>
+  <text x="48" y="58" class="title">先确认身份，再逐次判断动作与资源</text><text x="50" y="104" class="small">通用教学流程 · 不表示 Pi 默认提供统一策略或审计服务</text>
+  <rect x="55" y="175" width="190" height="92" rx="16" class="node blue"/><text x="150" y="213" text-anchor="middle" class="label">认证主体</text><text x="150" y="243" text-anchor="middle" class="small">用户 / 执行身份</text>
+  <rect x="310" y="175" width="250" height="92" rx="16" class="node blue"/><text x="435" y="213" text-anchor="middle" class="label">提出访问请求</text><text x="435" y="243" text-anchor="middle" class="small">动作 · 资源 · 上下文</text>
+  <polygon points="700,157 815,221 700,285 585,221" fill="#fff2d9" stroke="#c58a2b" stroke-width="2"/><text x="700" y="216" text-anchor="middle" class="label">策略检查</text><text x="700" y="243" text-anchor="middle" class="small">默认拒绝</text>
+  <rect x="890" y="145" width="245" height="92" rx="16" class="node green"/><text x="1012" y="183" text-anchor="middle" class="label">按需取得凭据</text><text x="1012" y="213" text-anchor="middle" class="small">秘密服务检查调用者</text>
+  <rect x="890" y="300" width="245" height="92" rx="16" class="node blue"/><text x="1012" y="338" text-anchor="middle" class="label">调用目标资源</text><text x="1012" y="368" text-anchor="middle" class="small">服务端仍验证权限</text>
+  <rect x="595" y="385" width="210" height="88" rx="16" class="node red"/><text x="700" y="421" text-anchor="middle" class="label">拒绝并停止</text><text x="700" y="451" text-anchor="middle" class="small">不执行后续调用</text>
+  <rect x="350" y="535" width="500" height="92" rx="16" class="node amber"/><text x="600" y="572" text-anchor="middle" class="label">审计决定与实际结果</text><text x="600" y="602" text-anchor="middle" class="small">允许 / 拒绝、规则、结果；不记录秘密值</text>
+  <path d="M245 221H305" class="line"/><path d="M560 221H580" class="line"/><path d="M815 202H884" class="line"/><path d="M1012 242V294" class="line"/><path d="M700 286V379" class="line"/><path d="M1012 393V465H850V530" class="line"/><path d="M595 430H510V530" class="line"/>
+  <text x="836" y="184" class="small">允许</text><text x="720" y="331" class="small">拒绝</text>
+</svg>

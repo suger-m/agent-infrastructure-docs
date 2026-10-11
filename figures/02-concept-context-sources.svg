@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
+  <title id="title">持久历史、执行状态和文件需经组装才进入模型上下文</title>
+  <desc id="desc">通用教学模型展示会话历史、运行与应用状态、项目文件产物及系统指令和工具定义各自有不同保存位置。请求组装阶段选取并转换所需内容，只有组成请求载荷的内容才会发送给模型。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#526579"/></marker>
+  </defs>
+  <rect width="1200" height="760" fill="#f5f8fc"/>
+  <style>
+    .title{font:700 28px 'Segoe UI','Microsoft YaHei',sans-serif;fill:#14283f}
+    .label{font:600 19px 'Segoe UI','Microsoft YaHei',sans-serif;fill:#18324d}
+    .small{font:17px 'Segoe UI','Microsoft YaHei',sans-serif;fill:#526579}
+    .node{fill:#fff;stroke:#9db0c4;stroke-width:2}
+    .blue{fill:#e7f1ff;stroke:#5b8cc9}
+    .green{fill:#e6f5ee;stroke:#4c9b72}
+    .amber{fill:#fff2d9;stroke:#c58a2b}
+    .line{fill:none;stroke:#526579;stroke-width:2.5;marker-end:url(#arrow)}
+  </style>
+  <text x="48" y="58" class="title">存储位置不同，模型可见范围由组装决定</text>
+  <text x="50" y="98" class="small">通用教学模型 · 本地图示说明概念，不代表 Pi 默认持久化策略</text>
+
+  <rect x="55" y="145" width="300" height="100" rx="16" class="node blue"/>
+  <text x="205" y="183" text-anchor="middle" class="label">会话历史</text>
+  <text x="205" y="214" text-anchor="middle" class="small">会话文件、数据库或内存</text>
+  <rect x="55" y="280" width="300" height="100" rx="16" class="node amber"/>
+  <text x="205" y="318" text-anchor="middle" class="label">执行与应用状态</text>
+  <text x="205" y="349" text-anchor="middle" class="small">进程内存，恢复数据另存</text>
+  <rect x="55" y="415" width="300" height="100" rx="16" class="node green"/>
+  <text x="205" y="453" text-anchor="middle" class="label">文件产物</text>
+  <text x="205" y="484" text-anchor="middle" class="small">项目文件系统</text>
+  <rect x="55" y="550" width="300" height="100" rx="16" class="node"/>
+  <text x="205" y="588" text-anchor="middle" class="label">当前指令与工具定义</text>
+  <text x="205" y="619" text-anchor="middle" class="small">应用配置或请求准备逻辑</text>
+
+  <rect x="470" y="280" width="300" height="160" rx="18" class="node amber"/>
+  <text x="620" y="326" text-anchor="middle" class="label">组装本次上下文</text>
+  <text x="620" y="360" text-anchor="middle" class="small">选择、裁剪、转换并保留来源</text>
+  <text x="620" y="390" text-anchor="middle" class="small">文件需先读取，状态需显式表达</text>
+  <rect x="860" y="315" width="270" height="100" rx="16" class="node blue"/>
+  <text x="995" y="353" text-anchor="middle" class="label">模型请求载荷</text>
+  <text x="995" y="384" text-anchor="middle" class="small">模型只收到这里的内容</text>
+
+  <path d="M355 195H430V315H463" class="line"/>
+  <path d="M355 330H463" class="line"/>
+  <path d="M355 465H430V405H463" class="line"/>
+  <path d="M355 600H430V425H463" class="line"/>
+  <path d="M770 360H853" class="line"/>
+
+  <rect x="470" y="530" width="660" height="100" rx="16" fill="#edf2f7" stroke="#d5dee8"/>
+  <text x="500" y="570" class="label">“保存过”不等于“模型看过”</text>
+  <text x="500" y="602" class="small">历史、状态和磁盘文件都留在各自位置，必须选入并转换后才进入请求。</text>
+</svg>

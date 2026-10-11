@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 680" role="img" aria-labelledby="title desc">
+  <title id="title">租约换代与 fencing 拒绝迟到写入</title>
+  <desc id="desc">A 以代次 7 领取并续租失败；租约到期后 B 原子接管为代次 8。资源接受 8 后拒绝 A 携带 7 的迟到写入。</desc>
+  <defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#526579"/></marker></defs>
+  <rect width="1200" height="680" fill="#f5f8fc"/>
+  <style>.title{font:700 28px 'Segoe UI','Microsoft YaHei',sans-serif;fill:#14283f}.label{font:600 19px 'Segoe UI','Microsoft YaHei',sans-serif;fill:#18324d}.small{font:17px 'Segoe UI','Microsoft YaHei',sans-serif;fill:#526579}.node{fill:#fff;stroke:#9db0c4;stroke-width:2}.blue{fill:#e7f1ff;stroke:#5b8cc9}.green{fill:#e6f5ee;stroke:#4c9b72}.amber{fill:#fff2d9;stroke:#c58a2b}.red{fill:#fde9e7;stroke:#c86c61}.line{fill:none;stroke:#526579;stroke-width:2.5;marker-end:url(#arrow)}.dash{fill:none;stroke:#bd665b;stroke-width:2.5;stroke-dasharray:8 7;marker-end:url(#arrow)}</style>
+  <text x="48" y="58" class="title">租约决定接管时机，资源校验代次隔离旧写入</text><text x="50" y="98" class="small">通用教学模型 · 代次与秒数仅作示意，不表示 Pi 默认能力</text>
+  <rect x="55" y="165" width="220" height="100" rx="16" class="node blue"/><text x="165" y="205" text-anchor="middle" class="label">A 领取任务</text><text x="165" y="235" text-anchor="middle" class="small">owner=A · 代次 7</text>
+  <rect x="335" y="165" width="220" height="100" rx="16" class="node amber"/><text x="445" y="205" text-anchor="middle" class="label">续租失败</text><text x="445" y="235" text-anchor="middle" class="small">失联或代次已变化</text>
+  <rect x="615" y="165" width="220" height="100" rx="16" class="node amber"/><text x="725" y="205" text-anchor="middle" class="label">权威库确认到期</text><text x="725" y="235" text-anchor="middle" class="small">条件更新仍需原子检查</text>
+  <rect x="895" y="165" width="250" height="100" rx="16" class="node green"/><text x="1020" y="205" text-anchor="middle" class="label">B 原子接管</text><text x="1020" y="235" text-anchor="middle" class="small">owner=B · 代次 8</text>
+  <path d="M275 215H330" class="line"/><path d="M555 215H610" class="line"/><path d="M835 215H890" class="line"/>
+  <rect x="355" y="390" width="245" height="105" rx="16" class="node red"/><text x="477" y="430" text-anchor="middle" class="label">A 恢复并提交</text><text x="477" y="461" text-anchor="middle" class="small">迟到请求携带代次 7</text>
+  <rect x="700" y="375" width="340" height="135" rx="18" class="node blue"/><text x="870" y="416" text-anchor="middle" class="label">受保护资源校验</text><text x="870" y="448" text-anchor="middle" class="small">保存已接受的最高代次</text><text x="870" y="477" text-anchor="middle" class="small">或原子核验当前授权</text>
+  <rect x="895" y="555" width="250" height="78" rx="16" class="node red"/><text x="1020" y="589" text-anchor="middle" class="label">拒绝代次 7</text><text x="1020" y="616" text-anchor="middle" class="small">前提：资源已接受 8</text>
+  <path d="M477 270V382" class="dash"/><text x="490" y="330" class="small">迟到写</text><path d="M600 442H695" class="line"/>
+  <path d="M1020 270V320H870V370" class="line"/><text x="895" y="352" class="small">先接受携带 8 的写入</text>
+  <path d="M870 515V535H1020V550" class="line"/>
+  <rect x="55" y="555" width="740" height="78" rx="16" fill="#edf2f7" stroke="#d5dee8"/><text x="82" y="588" class="label">接受新代次的边界很关键</text><text x="82" y="616" class="small">接收写入的一方必须校验；校验与写入须处于同一安全边界。</text>
+</svg>

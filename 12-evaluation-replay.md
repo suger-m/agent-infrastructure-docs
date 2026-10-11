@@ -2,96 +2,155 @@
 
 [返回学习地图](README.md) · 前置：[Runtime](01-agent-runtime.md)、[可观测性](11-observability-debugging.md)
 
-一个案例要求 Agent 为当前 Pi 安装增加模型。Agent 最后回复“已完成”，仍可能把配置写进错误目录，或覆盖掉原 provider 的模型。要判断任务是否成功，需要查看安装实际加载了什么。
+用户让 Agent 为当前安装增加一个模型，保留已有模型。Agent 修改了一个配置文件，回复“已完成”。这时仍有几个待验证的问题：它写的是当前安装会读取的目录吗？配置能加载吗？新模型参数正确吗？原模型是否被覆盖？一次回答正常结束，只能说明交互走到了结束；任务是否完成，要检查运行后的实际产物。
 
-Evaluation（评估）是给 Agent 明确任务，观察实际行为与产物，再按预先定义的规则判断结果。例如本章的任务要保留原模型并增加新模型，检查对象就应该是重新加载后的配置和运行时；最终回答可以辅助诊断，却不能独自证明配置正确。
+Evaluation（评估）把这类检查组织成可重复的实验。输入是一组任务、每项任务的初始环境和验收规则，输出是逐项结果、失败证据及汇总指标。开发者用它比较提示词、工具、模型或实现版本，决定某项改动是否值得保留。下面先讲怎样建立这样的实验，再对照 Pi 中“提供文档是否有助于完成配置任务”的内部评估。
 
-一次评估的完整流程是“定义案例与成功规则 → 生成运行计划 → 准备独立环境 → 运行 Agent → 读取实际产物 → 评分并归档 → 核对数据并生成报告”。先约定检查什么，才知道执行后收集什么；先保存完整计划，才知道哪些结果没有回来。后面的 Dataset、Rubric、Harness 和 Report 都是这条流程中承担具体工作的对象。
+## 先确定要检验哪些任务
 
-同一个案例可以重复运行，因为模型与环境带来的变化可能让一次成功不足以代表稳定表现。也可以比较两组条件，例如是否提供文档。两组应使用可核对的案例身份与运行计划，再比较完整配对；这里学习的是仓库已有的内部评估实现，不把它当成覆盖任意任务的通用平台。
+只检查“新增一个模型”这一个顺利案例，很难判断 Agent 能否处理真实配置工作。用户可能已有自定义模型，可能有同名项目配置，也可能要求保留已有 provider 的其他设置。评估设计者应从目标使用场景中选出这些差异，形成 dataset（案例集）。每个案例包含给 Agent 的任务和检查所需的信息；案例集的覆盖范围决定结论能推广到哪里。
 
-本文依据提交 `96abe9a5ad45005cae34ed1c52d42f71fc88bedc`，`evals` 为 private 包，见 [package.json:1-20](../../packages/evals/package.json#L1-L20)。
+代表性并不等于把困难案例尽量堆在一起。若实际任务大部分是简单新增，评估却全部采用冲突配置，报告测量的就是冲突处理能力。反过来，只有空目录下的新增也会漏掉破坏旧配置的问题。可以按任务类型分别报告结果，再说明总体汇总的权重。重复运行同一个案例能观察波动，但不能替代增加不同类型的案例。
 
-`packages/evals` 用 `vitest-evals` 实现内部评估：任务案例交给 Agent harness 执行，输出检查负责评分，运行可以重复，并在 Docker 中隔离。每次运行还会归档原生 Session，有文档和无文档两组的结果用配对报告比较。这样，“Agent 宣称完成”就有了可以核对的实际任务结果。
+开发过程中反复查看失败并调整提示词的案例，属于开发集。应另留一部分测试集，在方案确定后再运行，避免把“记住这些题目的解法”误判为能力提升。这里的隔离指案例和答案不参与调参；后面会讲的容器隔离则限制运行环境，两者解决不同问题。案例来自真实用户任务时，进入评估前还要去除凭证和不必要的私人数据。
 
-评估用实际任务产物检验 Agent 是否完成目标。参与者分工如下：
+一项任务要重复运行，还需要 fixture（固定的初始材料）。配置案例的 fixture 可以包含已有配置文件、安装目录结构、当前模型列表以及允许使用的工具。Harness（运行框架）为每次试验复制这些材料，创建独立工作目录，并把任务交给 Agent。否则第一次成功写入的模型可能让第二次不做任何修改也通过，测到的就不再是新增能力。
 
-| 对象 | 含义与职责 | 怎样配合 |
+## 把“完成”写成可检查的规则
+
+Rubric（验收与评分规则）说明检查什么证据、怎样打分以及何时算成功。对配置任务，应先规定读取重新加载后的模型列表，核对目标模型的参数，再对比运行前后的已有模型。只找文件中的目标名称会接受无法解析或写错位置的配置；只看最终回复则连文件是否存在都不知道。
+
+规则还要区分硬约束和可分级的质量。比如“原有模型不得丢失”可以是硬约束，违反就不能算成功；说明文字是否完整可以另行打分。若把两者简单平均，写得流畅的解释可能抵消破坏配置的行为。分数用于表达完成程度，成功条件用于决定是否达到交付要求，两者的关系必须提前规定。不要看完新旧版本的输出后，才挑一个有利于新版的阈值。
+
+Judge（评分器）拿到产物后执行这份规则。选择哪种评分器，取决于成功条件能否直接计算：
+
+| 待判断的内容 | 合适的检查方式 | 使用条件 |
 | --- | --- | --- |
-| Dataset（案例集） | 一组任务案例，主要定义在 `evals/*.eval.ts` | 给每次运行提供 prompt、预期行为和成功规则 |
-| Rubric（评分规则） | 判断任务是否成功的规则，例如配置已加载且原模型保留 | 由 Judge 应用于任务的实际结果 |
-| Harness（运行框架） | 为计划中的任务建立 Agent、Workspace 和 Session，并收集产物 | 在隔离容器里执行一个计划项 |
-| Judge（评分器） | 按 Rubric 读取结构化结果并产生 score；可以是程序 | 结果写入 observation（一次运行的观测记录） |
-| Report（报告） | 核对实际记录与计划身份，按完整配对计算统计 | 输出成功率、成本和延迟等比较结果 |
+| 新模型是否可加载，字段是否正确，旧模型是否保留 | 程序 Judge 读取结构化状态并断言 | 需要能可靠取得真实状态；不要只验收 Agent 自报的结果 |
+| 配置说明是否准确、是否解释了用户需要的限制 | LLM judge，即让另一个模型按规则评审 | 需要明确证据、评分提示和校准；模型意见仍可能有偏差 |
+| 验收规则本身含糊，或自动裁判与证据冲突 | 人工评审产物和记录 | 成本较高，适合建立标准、抽查与处理争议 |
 
-以“为当前 Pi 安装增加模型”的案例为例，完整链路如下：
+同一次评估可以组合这些方法。配置正确性由程序检查，说明质量交给模型，边界案例由人复核。模型裁判的评审输入应包含任务要求和实际产物；只有一段“我已经保留原模型”的回复，不足以证明保留发生过。还应把候选回答当作待审材料，不能让其中的文字改写裁判规则。
 
-1. 计划器把案例、`with_docs` / `without_docs` 文档条件、模型和运行序号组合成任务清单。
-2. 每项任务在独立 Docker 容器运行，Harness 建立本次专用 Workspace、HOME、AgentDir 和 Session。
-3. Agent 按 prompt 修改配置，Harness 执行 reload 重新加载；评估材料不会提供给 Agent 读取。
-4. Harness 从重新加载后的实际运行状态提取结构化结果，Judge 按 Rubric 检查新模型已加载且原模型保留，再产生 score。
-5. 运行结果与 Session 归档；Report 按计划身份配对两种文档条件，只有完整且有效的配对才进入比较。
-6. Report 按 `score >= 1` 计算成功率并报告成本、延迟等指标；若配对不完整或状态异常，该 eval set 不发布 headline。
+使用 LLM judge 前，先请人按同一 rubric 标注一批样本，覆盖成功、失败和容易混淆的边界情况。让模型独立评分，逐项检查它与人的分歧：它是否忽略了旧模型丢失？是否把更长的解释当作更好的结果？发现问题后修订规则或评审提示，并用另一批人工样本验证。更换裁判模型或提示也需要重新校准，否则分数变化可能来自裁判。
 
-下面的图把任务从计划到报告的路径画在一起。箭头表示数据从计划、运行产物到报告的流向；它不表示 Session 文件本身可以确定性重放。
+比较两个回答时，模型可能偏好先出现的位置，也可能偏好更长、更像标准答案的文字。隐藏版本名称、交换展示顺序并检查判断是否变化，可以帮助发现这些偏差；人工抽查仍有必要。裁判输出最好同时给出对应证据和未满足的条款，便于复核。这些措施增加评审成本，所以能由程序直接验证的硬约束通常先交给程序。
+
+![通用教学评估流程：固定案例、初始材料与规则，隔离运行后检查产物，并核验计划与观测完整性](figures/12-concept-evaluation-pipeline.svg)
+
+完整性核验保留基础设施错误与任务低分的区别，缺失观测不等于零分。
+
+## 从实验计划到一份可解释的结果
+
+假设要比较修改提示词前后的 Agent。实验负责人先冻结案例集和 rubric，再登记两种条件、重复次数、模型版本以及运行环境。除要研究的提示差异外，工具定义、初始文件和运行预算应保持一致。模型服务版本、采样参数、文档版本与依赖版本也要记录；无法固定的外部变化要在报告里说明。固定随机 seed 有助于控制部分随机来源，但不能保证远端模型服务或整个执行过程确定性相同。
+
+每次计划运行都需要一个稳定身份，例如“配置案例A、新提示、第2次”。Harness 按身份准备新的 fixture，启动 Agent，记录消息、模型调用和工具执行。任务结束后，Harness 读取产物并交给 Judge；Judge 保存分数、成功与否及依据；报告程序最后按计划核对实际结果。先有计划，才能发现“本来应该跑、实际却没有结果”的任务。
+
+下面是通用教学流程，图中没有 Pi 专用对象。产物快照需要在工作目录清理之前保存。
+
+```mermaid
+flowchart TD
+    A[任务样本与初始材料] --> B[冻结案例集和验收规则]
+    B --> C[登记条件、版本与重复运行计划]
+    C --> D[运行框架创建独立环境]
+    D --> E[Agent执行任务]
+    E --> F[保存实际产物和过程记录]
+    F --> G[评分器检查证据]
+    G --> H[逐项分数与失败原因]
+    D --> I[基础设施错误记录]
+    E --> I
+    C --> J[核对计划与实收结果]
+    H --> J
+    I --> J
+    J --> K[比较版本并检查回归]
+```
+
+同一案例应重复运行，因为模型可能这次找对目录、下次又写到项目目录。成对比较让旧版和新版在同一个案例、同一初始材料上各运行一次，再重复若干轮。交替或随机安排运行顺序能减少固定顺序的影响，例如新版总在服务较空闲时运行；它不能消除所有时间变化，也不能让两次模型采样完全相同。
+
+报告首先区分两类失败。Agent 完成运行，但加载出的配置不合格，这是任务失败，可以评分。容器没有启动、模型服务不可用、产物采集程序崩溃，则可能根本没有取得可评分证据，需要记为基础设施失败。两者都影响用户体验，但对“Agent 会不会完成配置”这个问题提供的证据不同。
+
+Success rate（成功率）必须写清分母。假设计划运行10次，其中8次有可评分产物，6次成功，2次环境启动失败。可评分运行的成功率是6/8，评估完成覆盖率是8/10；若另报整个流程的交付成功率，则是6/10。只写“成功率75%”会隐藏那两次缺失。比较版本时，还要说明双方是否使用同一批案例：若新版恰好缺了最难的两个案例，直接比较剩余结果会偏向新版。
+
+成本与耗时也有各自的覆盖范围。模型价格元数据缺失时，成本未知；把它补成零会让缺测版本看起来更便宜。报告应同时给出有成本记录的运行数，并说明是否包括失败运行和重试的消耗。成功率完整，不代表成本记录也完整。
+
+## 怎样判断改动造成了回归
+
+Regression（回归）指改动后原本满足的行为不再满足。例如新版新增模型成功，却开始覆盖已有模型。汇总成功率可能掩盖这件事：新版在其他简单案例多成功一次，平均值就能抵消这个失败。因此应同时查看硬约束、各类案例的结果以及逐项新旧差异。
+
+回归门槛应在实验前确定。团队可以规定：破坏已有配置的硬约束失败必须人工复核；普通成功率下降超过预设幅度时暂停发布并扩大样本；低于幅度也要检查关键案例。具体幅度取决于任务风险和预算，没有适用于所有 Agent 的统一数字。门槛是行动规则，并不能自动证明差异由代码导致。
+
+少量运行尤其需要谨慎。两次里从一次成功变成两次成功，观测值提高了50个百分点，但不足以断言长期能力提高同样幅度。报告可以给出与抽样设计相符的不确定区间，并增加独立案例或重复运行。一个案例重复很多次主要减少该案例成功概率的估计误差；把这些运行都视作互不相关的新任务，会夸大对整体任务分布的把握。
+
+发现退化后，先查对应运行的初始材料、工具结果和最终产物。若只有新版缺失模型服务响应，先处理实验环境；若两边均正常完成，而新版把配置写到错误目录，则继续定位提示或实现差异。修正后重跑失败类别，并保留隔离测试集检查更广泛影响。由此完成“定义任务、执行、验收、比较、诊断、再验证”的评估周期。
+
+## 为诊断重现什么：回放、重新运行与恢复
+
+上面的诊断需要历史证据。Session 或轨迹记录能帮助阅读当时发生的消息和工具调用，但“看见过去”与“让程序再次按过去的输入执行”需要不同机制。
+
+录制式 replay（回放）先保存模型请求及响应、工具参数及结果，并标记调用次序或稳定身份。回放执行器再在模型和工具边界返回录制值，让待检查的程序走过同样的输入。例如模型当时请求读取配置，回放器直接返回当时录下的内容，可以检查新版上下文处理是否仍正确。遇到请求不匹配应报告差异，不能悄悄发起真实调用，否则固定输入的前提已经改变。
+
+只录工具的返回文字仍有缺口。写文件工具可能只返回“成功”，后续程序却要读取被修改的文件。若回放器没有重建文件状态，后续检查无法得到原来的产物。因此复现还需要代码和工具版本、初始 fixture，以及相关文件或产物的版本快照；必要时由受控模拟器重建副作用。录制外部写入时，回放应复用记录而不再次发送真实写入。记录含有敏感内容时还需限制其保存与访问。
+
+Live rerun（真实重新运行）则从初始 fixture 再发起模型请求和工具调用，用于测量当前 Agent 的行为。即使输入、seed 和版本相同，外部服务状态与模型输出仍可能改变，所以它通常不能逐字复现旧轨迹。它适合回归评估，代价是再次耗费时间、模型费用，并可能重新产生外部副作用；这类案例应使用可重置的测试环境。
+
+Resume（恢复执行）从一个已保存的任务检查点继续未完成工作。它要判断哪些步骤已经完成、哪些结果未知，目标是交付原任务；不会自然产生一份从同一初始条件开始的新实验。读取 Session 重建对话上下文又是更窄的操作，只恢复可读消息不代表外部配置和服务状态也恢复。关于检查点和副作用恢复的机制可接着阅读后文链接的 Durable Execution 章节。
+
+选择方法要跟问题对应：检查程序对固定历史输入的处理，用录制回放；测量当前版本成功率，用真实重新运行；中断后继续交付同一任务，用恢复执行。保存运行记录是这些工作的证据来源，完整执行器和环境快照仍需单独设计。
+
+![通用教学对照：回放使用录制输入，真实重跑从初始 Fixture 再调用服务，恢复从检查点继续原任务](figures/12-concept-replay-rerun-resume.svg)
+
+这三种方式的输入边界不同，因此产物分别代表固定输入回归、新一轮观测和原任务续接。
+
+## Pi 对照：文档提升实验怎样运行
+
+Pi 的这个内部实验研究 `with_docs` / `without_docs` 两种条件是否影响任务表现，基于 `vitest-evals`，不属于默认 CLI 每次对话都会执行的流程。下面的模型配置案例采用程序 Judge；前面介绍的通用 LLM judge 校准、回归发布门槛和录制执行器，并没有因此自动存在于仓库中。
+
+1. 案例先明确要求与成功条件：增加 `openai` provider 下的 `fixture-chat` 模型，显示名为 `Fixture Chat`，支持文本输入与推理，窗口为 32,768 tokens，最大输出 4,096 tokens，价格为零；检查还要求新模型可加载且原模型保留。
+2. 计划器组合案例、`with_docs` / `without_docs` 条件、执行模型和 `runNumber`，列出完整运行计划。这些值构成运行身份，后续报告才能识别缺失项并配对。两个案例、两种文档条件、每种重复三次时计划 12 次运行；每个案例交替条件先后顺序，减少固定执行顺序造成的影响，但不能消除其他实验偏差。
+3. 每项计划在单独 Docker 容器运行，Harness 创建专用 Workspace、HOME、AgentDir 和 Session，再执行 Agent。Agent 根据 prompt 修改配置；任务结束后由 Harness 执行 reload，再读取重新加载后的真实 `ModelRuntime`。reload 是 Harness 的步骤，不是 Agent 调用的工具。
+4. Judge 检查新模型已加载、字段符合预期且原模型仍在，再生成 score。这个案例的 Judge 是严格结构化的程序；任务由模型执行不代表评分也由模型完成。文档提升 eval 将 `judgeThreshold: null`，因此字段错误可以保留为低分或零分，而不是一概变成基础设施失败。
+5. 每次任务会保存结果和原生 Session。Report 检查每项计划是否恰好收回一个身份匹配的观测，并按 `(evalSet, caseId, model, runNumber)` 把两种文档条件配成一对。
+6. Report 按 score `>= 1` 计算成功率，不取 score 平均值。实验组成功率减去对照组成功率得到 lift。若一个 eval set 存在缺失、重复、pending、unscored、skipped 或 errored 等 blocked pair，就不发布该 set 的 headline 成功率或 lift；有效观测仍可留在报告中。
 
 ![Eval 从案例发现、隔离运行与评分归档，到配对比较和 blocked headline 的流程](figures/12-evaluation-flow.svg)
 
-## 先确定每次要运行什么
+图里的箭头表示 Pi 实验的计划、运行产物、评分和报告之间的数据流。它不包含前面通用流程中的独立人工校准或录制回放执行器。
 
-案例需要同时交代任务输入与检查依据。例如输入是“增加模型”，规则是“新模型可加载且原模型保留”。runNumber 区分同一案例的第几次运行，variant 区分是否给文档，model 区分执行任务的模型。它们一起构成运行身份，后面收回结果时才能确定正在检查的是哪项计划。
+## 结果怎样决定这组比较能不能发布
 
-运行计划也是完整性检查的基准。如果只统计已有结果，一项没有启动或在容器中失败的任务可能从分母里消失，报告看起来反而更好。先把全部应运行项目列出来，报告才能明确区分“零分结果”和“没收到结果”。
+两份结果都有有效评分时，即使一份 score 为 0，仍能比较这组任务行为。缺少一份结果则无法知道该条件的行为；把它补成零分会混淆 Agent 失败和基础设施未完成，丢掉整组也可能只留下有利结果。因此报告将不完整配对标成 blocked，而不把缺失值当作零。
 
-Dataset 是要评估的案例集合，这里主要写在 `evals/*.eval.ts` 中。执行前，`parseDiscoveredCases()` 从 `<eval set> > <case>` 提取身份，拒绝歧义和重复，再由 `createTaskPlan()` 按案例（case）、文档条件（variant）、模型（model）和运行序号（runNumber）展开任务。见 [plan.ts:21-59](../../packages/evals/src/plan.ts#L21-L59)。
+| 观察情况 | 配对与指标含义 |
+| --- | --- |
+| 两种条件各有一个 score，包括 0 | 配对有效；score `>= 1` 才计为成功 |
+| 缺失、重复、pending、skipped、unscored 或 errored | 配对无效；所属 eval set 的 headline 成功率和 lift 不发布 |
+| score 有效但成本缺失 | 成功率仍可计算；成本指标要看自己的覆盖数量，缺测不等于零成本 |
 
-两个案例，在两种文档条件下各重复三次，会得到 `2 × 2 × 3 = 12` 次 Agent 运行。同一案例第一次先跑 `without_docs`，第二次先跑 `with_docs`。交替顺序可以减少总是先跑同一条件带来的影响，其他实验偏差仍可能存在。
+例如对照组两次 score 为 `[0, 1]`，实验组为 `[1, 1]`，成功率是 `50% → 100%`，lift 为 `0.5`，即提升 50 个百分点。如果实验组第二次没有结果，headline lift 应为 `null`，不能只展示第一对的收益。报告仍能保留有效配对的 Token、工具、延迟差值与已有观测的运营总量，解读时要同时看覆盖数。
 
-外层 CLI 还会核对两个镜像是否发现了相同案例，随后保存完整计划、镜像 ID 和 protocol 摘要。见 [cli.ts:140-173](../../packages/evals/src/cli.ts#L140-L173)。报告便能把未完成的计划项识别为缺失，计算分母时不会将它们悄悄丢掉。
+图中的“完整”同时要求计划和观测身份一致；两份来自不同案例或不同模型的分数，即使都有数值，也不能凑成一对。
 
-## 把两种文档条件分开
+![完整评分配对可以比较，缺失或异常配对会阻止所属评估集合发布 headline](figures/12-evaluation-pairs.svg)
 
-评估环境需要避免上一次运行影响下一次。比如有文档组已经写好配置，无文档组若复用同一目录，就可能直接读到现成答案。独立 Workspace 是本次工作目录，HOME 是程序查用户配置的目录，AgentDir 是 Pi 自己的配置目录；分别安排它们，是为了控制本次运行读取和写入的资源。
+## Pi 的实现边界
 
-Docker 容器提供一份单独的运行环境，artifacts 挂载用于把要保留的产物写出。隔离还涉及评分材料：Agent 若能读取预期结果，评分就失去检验能力。下面的目录、用户身份和文件可见性设置，都是在实现这个实验边界。
+这套内部工具没有独立 Replay 执行器，也没有统一的 LLM-as-Judge 服务。Session 归档留下消息、工具记录和运行信息，可用于解释分数或重建对话；仓库没有把这些模型响应和工具输出作为 cassette（录制数据）注入后执行整个案例的机制。Session 也不固定外部文件、服务状态或未来模型输出，不能据此安全重复外部副作用。
 
-计划中的每个任务都由 `runTask()` 启动一次 Docker，通过案例精确匹配过滤器选择要执行的案例，见 [docker.ts:161-175](../../packages/evals/src/docker.ts#L161-L175)。容器使用只读根文件系统、临时目录和独立 artifacts 挂载，见 [docker.ts:91-124](../../packages/evals/src/docker.ts#L91-L124)。
+多数文档提升案例由程序检查结构化结果。另一个 documentation audit 案例会让模型阅读文档和实现，提交 `match/mismatch/inconclusive`，随后由程序检查 verdict。这里模型的调查结论是被检查的输出，程序要求它提交一次成功调用且 verdict 为 `match`；这条路径没有提供独立盲评的通用裁判服务。扩展为通用模型评审时，仍需实现前面讲过的评审提示、人工样本校准与偏差检查。
 
-容器里的 harness 为本次运行创建独立 Workspace、HOME、AgentDir 和 Session，随后永久降到非特权 UID。评估代码等文件不允许 Agent 读取，以免任务执行过程接触评分材料。实现见 [harness.ts:154-188](../../packages/evals/src/harness.ts#L154-L188) 和 [harness.ts:272-367](../../packages/evals/src/harness.ts#L272-L367)。
+现有报告能保存逐次观测、发现不稳定结果并比较两种条件；统计置信区间和发布用的回归门槛还需另行设计。也应根据使用场景另建代表性案例和隔离测试集，不能把一个配置案例的成功率直接推广到所有 Agent 任务。
 
-文档评估默认只提供 `read/write/edit/grep/find/ls`，并检查两种变体的 system prompt 是否符合预期。见 [harness.ts:484-536](../../packages/evals/src/harness.ts#L484-L536)。模型服务仍需要网络，这里的 Docker 隔离并不保证任意 Agent 代码绝不联网。其运行边界可结合 [Sandbox](08-sandbox-environment.md) 阅读。
+## 源码附录：身份校验、隔离与产物字段
 
-## 从配置结果得到分数
+案例主要定义在 `evals/*.eval.ts`。执行前，`parseDiscoveredCases()` 从 `<eval set> > <case>` 提取身份并拒绝歧义或重复，`createTaskPlan()` 再按案例、变体、模型与运行序号展开任务。外层 CLI 会核对两个镜像发现了相同案例，并保存完整计划、镜像 ID 和 protocol 摘要，因此未完成的计划不会从分母里消失。
 
-Rubric 是预先明确的成功条件，Judge 是执行检查并给分的评分器。可检查结构化配置时，程序就能判断条件是否满足，无需再请一个模型评价。LLM-as-Judge 指使用大模型担任评分者，适用于需要模型判断的内容，但还需要另外设计评分提示与校准；任务由模型执行并不意味着评分也由模型完成。
+每个 `runTask()` 用案例精确匹配过滤器启动 Docker。容器采用只读根文件系统、临时目录和独立 artifacts 挂载；Harness 建立 Workspace、HOME、AgentDir 与 Session，随后降到非特权 UID。评估代码等评分材料不允许 Agent 读取。文档评估默认只提供 `read/write/edit/grep/find/ls`，并检查两个变体的 system prompt；模型服务仍需要网络，Docker 隔离不保证任意 Agent 代码绝不联网。可结合 Sandbox 章节理解这个边界。
 
-要取得可靠检查对象，Agent 修改后由 Harness 执行 reload，让程序重新加载配置，再从真实 ModelRuntime 读取状态。这样可以发现“文件改了但程序没加载”或“新模型加了但旧模型丢了”。评分接在实际状态读取之后，与检查回答是否包含“完成”是不同的验证方式。
+本案例的 `output` callback 从 Session 或当前运行时读取结构化状态。`judgeThreshold: null` 让严格 Judge 能把字段不匹配评分为 0 或其他低分并保留；没有模型凭证、容器出错或没有 harness run 属于执行异常，结果为 `errored`，基础设施异常仍可令测试失败。低分是已经评分的任务结果，errored 表示没有得到可评分结果。
 
-评估让 Agent 修改配置，接着执行 `reload`，最后检查重新加载后的 `ModelRuntime`。成功规则要求配置已加载，原模型也保留，这就是该案例的 Rubric；Judge 则按这些规则把实际结果转成 score，不评价回复措辞。任务定义、expected 和严格结构化 Judge 见 [models.docs.eval.ts:1-40](../../packages/evals/evals/models.docs.eval.ts#L1-L40)。加载后的配置提供了判断行为的证据，使用更复杂的模型评审是另外一种可选评分方式。
+“原模型保留”的具体检查范围也有限：`inspectAddedModel()` 用未加载自定义配置的运行时取得该 provider 的内置模型 ID，再确认这些 ID 在重新加载后的运行时中仍然存在。它不逐字段比较所有旧模型，也不证明任意用户自定义配置都被完整保留。新增模型本身的字段则由严格结构化 Judge 与预期值匹配。
 
-这个实际案例的要求比“模型存在”更具体：配置应作用于当前 Pi 安装，不能只写项目本地配置；新模型属于 `openai` provider，ID 为 `fixture-chat`，显示名称为 `Fixture Chat`，支持文本输入与推理，窗口为 32,768 tokens，最大输出为 4,096 tokens，用量价格为零。expected 还检查已有模型保留。Judge 使用严格结构化匹配，因而字段错误或额外字段都可能使评分不满足预期。这些明确条件把一句自然语言任务变成了可核对结果。
-
-配置案例需要重新加载，因此 harness 除了接收单个 prompt，也能接收 `prompt → reload → prompt` 这样的步骤列表。见 [harness.ts:369-390](../../packages/evals/src/harness.ts#L369-L390)。执行结束后，`output` callback 从 Session 或当前运行时读取状态，返回 Judge 要比较的结构化结果。
-
-文档提升案例将 `judgeThreshold: null`，所以配置虽然加载成功、某个字段却错误时，仍可以评分为 0 或其他低分，并保留为实验数据。没有模型凭证、容器出错或没有 harness run 时，属于执行异常，outcome 为 `errored`，基础设施异常仍可让测试失败。
-
-低分是已完成评分的任务结果；`errored` 表示任务未能产生可评分结果。两者不能混为一类，否则报告无法判断实验是否完整。
-
-多数文档提升案例都检查结构化结果，再由程序评分。任务由大模型执行时，Judge 仍可以是程序，不能将这些评分器都称为 LLM-as-Judge；这套工具目前的能力边界收在文末「边界与未实现」。
-
-[documentation-audit.eval.ts:43-66](../../packages/evals/evals/documentation-audit.eval.ts#L43-L66) 提供了另一种评分相关案例：Agent 阅读文档和实现，提交 `match/mismatch/inconclusive`，随后由程序检查 verdict。模型参与了审查，最终检查仍由程序完成，这里没有独立、盲评的通用 Judge 服务。
-
-无论采用哪种评分器，评分对象都要对应任务实际产物，计划与观察也必须严格对应，否则评审再细，仍可能评价了错误对象。
-
-## 归档 Session，区分几种重放
-
-归档留下任务当时的消息、工具记录与运行信息，用于解释某个分数为何出现。重新打开这份记录可以重建对话，但外部文件、服务状态和模型输出未必仍与当时相同。若要确定性重放，还需要固定或替换模型响应与工具输出，并控制执行环境；本项目没有仅凭 Session 自动完成这些工作的独立执行器。
-
-Regression（回归）表示修改后某个原本满足的行为不再满足。保存案例和规则后，可以在后续版本重新评估、比较实际结果，寻找行为退化。模型任务有运行变化，比较时仍要看重复运行和数据完整性，单次波动不能直接解释为代码改动造成。
-
-临时环境清理前，harness 会把原生 Session JSONL 写入 artifact，见 [harness.ts:424-439](../../packages/evals/src/harness.ts#L424-L439)。report 再按运行身份的 hash 分目录保存 `session.jsonl`，见 [report.ts:122-134](../../packages/evals/src/report.ts#L122-L134)。
-
-每次运行留下这些产物：
+每次任务结束前，Harness 将原生 Session JSONL 写入 artifact；Report 按运行身份 hash 分目录保存。当前产物结构如下：
 
 ```text
 .eval/<run>/
@@ -105,71 +164,19 @@ Regression（回归）表示修改后某个原本满足的行为不再满足。�
   report.txt
 ```
 
-Replay 或“重放”可能指几种不同操作，读取归档时需要说明要做哪一种：
+Report 的 `readTaskObservation()` 核对结果是否恰好一份、案例名和模型身份是否正确，再检查 metrics 数值并归类评分。配对要求每种文档条件都恰好计划一次、观察一次且状态为 `scored`。headline 按 `score >= 1` 统计成功率；blocked pair 会阻止所属 eval set 发布 headline 成功率或 lift。成本缺失只影响相应成本覆盖，不会改写成功评分。
 
-1. 记录重建：读取 Session，重新构造消息和上下文，见 [上下文与状态](02-context-state.md)。
-2. 重新评估：用同一案例再次运行模型与工具。模型、网络或环境可能改变，输出不保证逐字一致。
-3. 崩溃恢复：按任务的持久状态继续执行，见 [Durable Execution](05-durable-execution.md)。
+## 源码位置、测试与练习
 
-## 零分和缺一份结果怎样影响报告
+- 计划与 CLI：[案例身份与展开](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/evals/src/plan.ts#L21-L59)、[镜像和计划保存](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/evals/src/cli.ts#L140-L173)
+- Docker 与 Harness：[任务启动](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/evals/src/docker.ts#L161-L175)、[容器边界](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/evals/src/docker.ts#L91-L124)、[Harness 环境](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/evals/src/harness.ts#L154-L188)、[Workspace 与运行时](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/evals/src/harness.ts#L272-L367)、[工具和变体](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/evals/src/harness.ts#L484-L536)、[prompt/reload 步骤](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/evals/src/harness.ts#L369-L390)
+- 案例与归档：[模型配置案例](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/evals/evals/models.docs.eval.ts#L1-L40)、[documentation audit](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/evals/evals/documentation-audit.eval.ts#L43-L66)、[Session artifact](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/evals/src/harness.ts#L424-L439)、[Session report 目录](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/evals/src/report.ts#L122-L134)
+- 评分和比较：[观测校验](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/evals/src/report.ts#L136-L191)、[完整配对](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/evals/src/report.ts#L209-L281)、[成功率与 headline](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/evals/src/report.ts#L359-L412)
+- 相关章节：[Sandbox](08-sandbox-environment.md)、[上下文与状态](02-context-state.md)、[Durable Execution](05-durable-execution.md)
+- 测试：[计划](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/evals/test/plan.test.ts#L24-L42)、[配对比较](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/evals/test/comparison.test.ts#L61-L125)、[Report](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/evals/test/report.test.ts#L115-L207)、[Harness](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/evals/test/harness.test.ts#L63-L116)、[private 包](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/evals/package.json#L1-L20)
 
-配对比较是在同一案例、模型和运行序号下，对照两个文档条件的结果。两份结果都有有效评分，即使其中一份为零，也能比较任务行为；一份没有产生评分，则无法知道那一条件的行为结果。补成零分会把基础设施异常当成 Agent 失败，直接丢弃则可能选择性保留较好的结果，所以报告明确标记不可比较的配对。
-
-headline 是报告发布的主要成功率与提升值，set 是一组评估案例。下面的规则把 set 内的 blocked pair 与 headline 发布联系起来，同时仍保留其他可检查观测。成本缺失又是另一种情况：成功评分仍可能有效，但成本比较需要单独检查覆盖数。
-
-结果进入报告前，`readTaskObservation()` 先核对是否恰好只有一个结果，案例名称和模型身份是否正确，随后检查 metrics 数值并归类评分。见 [report.ts:136-191](../../packages/evals/src/report.ts#L136-L191)。
-
-有文档和无文档的结果按 `(evalSet, caseId, model, runNumber)` 配对，文档条件区分配对内的两组。见 [report.ts:209-281](../../packages/evals/src/report.ts#L209-L281)。每组都必须恰好计划一次、观察一次，而且结果都是 `scored`，这一对才可用于比较。
-
-![完整评分配对可以比较，缺失或异常配对会阻止所属评估集合发布 headline](figures/12-evaluation-pairs.svg)
-
-下面两对结果只用来演示报告规则。缺一份结果时，无法把它当成零分补齐，也不能只挑另一对结果发布成功率提升。
-
-| 观察结果 | 配对是否可用 | 原因 |
-| --- | --- | --- |
-| 两组各一个 score，即使 score 为 0 | 是 | 低分仍是有效行为结果 |
-| 一组 missing、重复、skipped、pending、unscored 或 errored | 否 | 不符合预先设计的完整配对 |
-| score 有效但成本缺失 | 成功率可用，成本指标可能不可用 | 缺测不是成本为零 |
-
-报告按 `score >= 1` 计算成功率，并不取 score 的平均值。Lift 是实验组成功率减去对照组成功率；同一个 eval set 只要出现 blocked pair，就不会发布 headline 成功率或 lift。见 [report.ts:359-412](../../packages/evals/src/report.ts#L359-L412)。
-
-例如，对照组的两次 score 为 `[0, 1]`，实验组为 `[1, 1]`，成功率就是 `50% → 100%`，lift 为 `0.5`，也就是提高 50 个百分点。如果实验组第二次没有结果，headline lift 会变成 `null`，不能只展示第一对的收益。报告仍可以保留有效配对的 Token、工具、延迟差值和已有观测的运营总量，读取这些指标时也要看覆盖数。
-
-## 边界与未实现
-
-前面介绍的评分、计划与报告都基于现有实现；这套内部工具目前的边界如下：
-
-- 这套内部工具目前没有通用评估平台、独立 Replay 执行器或统一的 LLM-as-Judge 服务。
-- 如果继续研究独立评审模型，需要考虑人工标注校准、评审顺序偏差和统计置信区间；固定响应的确定性重放则属于另一项能力。
-- 当前 eval 归档主要用于诊断和复核。仓库没有独立工具，将模型响应和工具输出作为 cassette 注入，再确定性执行整个案例；单靠 Session 文件，也无法安全重复外部副作用。
-
-## 源码位置与术语速查
-
-本章新出现的术语如下：
-
-| 术语 | 在这个项目中的含义 |
-| --- | --- |
-| Dataset | 要评估的案例集合，主要写在 `evals/*.eval.ts` 中 |
-| Variant | 同一案例的文档条件：`with_docs` / `without_docs` |
-| Rubric | 案例的成功规则，例如“配置已加载，原模型也保留” |
-| Judge | 按 Rubric 把结构化结果转成 score 的评分器，可以是程序 |
-| scored | 一次运行已完成评分的结果状态；报告按 `score >= 1` 计成功 |
-| Blocked pair | 因缺失、重复或非 scored 而不可用于比较的配对 |
-| Lift | 实验组成功率减去对照组成功率 |
-| Headline | 报告发布的成功率与 lift 摘要；存在 blocked pair 时不发布 |
-
-## 测试与练习
-
-任务展开和变体交替可以从 [plan.test.ts:24-42](../../packages/evals/test/plan.test.ts#L24-L42) 看起。[comparison.test.ts:61-125](../../packages/evals/test/comparison.test.ts#L61-L125) 用人工数据检查 lift、缺失配对、重复观测，以及缺测和零的差别；[report.test.ts:115-207](../../packages/evals/test/report.test.ts#L115-L207) 检查 Session 保存、失败结果、模型身份与零分处理。
-
-harness 的 [harness.test.ts:63-116](../../packages/evals/test/harness.test.ts#L63-L116) 检查文档变体的 prompt，并确认在容器外会拒绝 docs harness。
-
-不用调用模型，也能练习报告规则。用 `comparison.test.ts` 的人工 observations 手算一份报告，再依次删除一组结果、复制一组结果、删除成本字段，观察 `blockedPairs`、`lift` 和 `availableRuns` 的变化。练习检验的是数据完整性，不是模型分数；固定案例也可以用来发现行为退化，即 Regression。
-
-仓库依赖安装后，可以在 `packages/evals` 运行这些本地测试：
+可以不用调用模型练习报告规则：用 `comparison.test.ts` 的人工 observations 手算一次报告，再删除或复制一组结果，最后删掉成本字段，观察 `blockedPairs`、`lift` 和 `availableRuns` 怎样变化。原定向测试命令如下；`test/` 使用模拟数据，`evals/` 中的 Agent 评估会实际运行模型，一些入口还会构建 Docker 镜像。
 
 ```powershell
 node ../../node_modules/vitest/dist/cli.js --run --config vitest.test.config.ts test/plan.test.ts test/comparison.test.ts test/report.test.ts test/harness.test.ts
 ```
-
-这些 `test/` 使用模拟数据。`evals/` 中的 Agent 评估会实际运行模型，一些入口还会构建 Docker 镜像，需要单独安排。

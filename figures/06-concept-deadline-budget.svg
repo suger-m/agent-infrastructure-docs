@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
+  <title id="title">各层超时共享一个总截止时间和重试预算</title><desc id="desc">用户任务的绝对 deadline 覆盖排队、请求、退避和工具。每次重试把剩余时间传给下层；若退避或下一次调用超过剩余预算，就停止自动重试。</desc>
+  <defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#526579"/></marker></defs><rect width="1200" height="760" fill="#f5f8fc"/>
+  <style>.title{font:700 28px 'Segoe UI','Microsoft YaHei',sans-serif;fill:#14283f}.label{font:600 19px 'Segoe UI','Microsoft YaHei',sans-serif;fill:#18324d}.small{font:17px 'Segoe UI','Microsoft YaHei',sans-serif;fill:#526579}.node{fill:#fff;stroke:#9db0c4;stroke-width:2}.blue{fill:#e7f1ff;stroke:#5b8cc9}.green{fill:#e6f5ee;stroke:#4c9b72}.amber{fill:#fff2d9;stroke:#c58a2b}.line{fill:none;stroke:#526579;stroke-width:2.5;marker-end:url(#arrow)}</style>
+  <text x="48" y="58" class="title">局部超时服从总 deadline 与重试预算</text><text x="50" y="104" class="small">通用预算示意 · 示例数字仅为说明，不表示 Pi 有统一用户任务时限</text>
+  <rect x="55" y="180" width="1090" height="330" rx="24" fill="#edf4fb" stroke="#5b8cc9" stroke-width="2"/><text x="90" y="225" class="label">用户任务 deadline：20 秒（绝对截止时刻）</text>
+  <rect x="105" y="285" width="180" height="105" rx="16" class="node"/><text x="195" y="327" text-anchor="middle" class="label">排队</text><text x="195" y="358" text-anchor="middle" class="small">消耗总时间</text>
+  <rect x="350" y="285" width="200" height="105" rx="16" class="node blue"/><text x="450" y="327" text-anchor="middle" class="label">请求 #1</text><text x="450" y="358" text-anchor="middle" class="small">单次 timeout ≤ 8 秒</text>
+  <rect x="615" y="285" width="165" height="105" rx="16" class="node amber"/><text x="697" y="327" text-anchor="middle" class="label">退避 2 秒</text><text x="697" y="358" text-anchor="middle" class="small">计入 deadline</text>
+  <rect x="845" y="285" width="200" height="105" rx="16" class="node blue"/><text x="945" y="327" text-anchor="middle" class="label">请求 #2</text><text x="945" y="358" text-anchor="middle" class="small">只拿剩余时间</text>
+  <rect x="350" y="430" width="695" height="55" rx="14" class="node green"/><text x="697" y="465" text-anchor="middle" class="small">下层请求与工具共享取消信号；等待、重试也消耗同一预算</text>
+  <path d="M285 337H345" class="line"/><path d="M550 337H610" class="line"/><path d="M780 337H840" class="line"/>
+  <rect x="55" y="565" width="510" height="115" rx="18" class="node amber"/><text x="85" y="608" class="label">重试预算</text><text x="85" y="644" class="small">限制总尝试次数与额外请求量</text>
+  <rect x="635" y="565" width="510" height="115" rx="18" class="node green"/><text x="665" y="608" class="label">预算不足时停止</text><text x="665" y="644" class="small">退避超过剩余时间 → 不再启动下一次请求</text>
+  <path d="M565 622H630" class="line"/>
+</svg>

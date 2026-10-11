@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
+  <title id="title">Trace 时间线与并行任务的关键路径</title>
+  <desc id="desc">教学示例的排队 2 秒、模型 1 秒、并行读取 A 820 毫秒和 B 190 毫秒、模型 1 秒及写入 100 毫秒，总延迟 4.92 秒。A 是并行阶段的关键分支，B 更快完成后继续等待。</desc>
+  <defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#526579"/></marker></defs><rect width="1200" height="760" fill="#f5f8fc"/>
+  <style>.title{font:700 28px 'Segoe UI','Microsoft YaHei',sans-serif;fill:#14283f}.label{font:600 19px 'Segoe UI','Microsoft YaHei',sans-serif;fill:#18324d}.small{font:17px 'Segoe UI','Microsoft YaHei',sans-serif;fill:#526579}.node{fill:#fff;stroke:#9db0c4;stroke-width:2}.blue{fill:#e7f1ff;stroke:#5b8cc9}.green{fill:#e6f5ee;stroke:#4c9b72}.amber{fill:#fff2d9;stroke:#c58a2b}.line{fill:none;stroke:#526579;stroke-width:2.5;marker-end:url(#arrow)}.critical{fill:none;stroke:#4c9b72;stroke-width:4;marker-end:url(#arrow)}</style>
+  <text x="48" y="58" class="title">端到端延迟沿依赖链计算</text><text x="50" y="104" class="small">通用教学数值 · 4.92 秒 = 2 秒 + 1 秒 + max(820 毫秒, 190 毫秒) + 1 秒 + 100 毫秒</text>
+  <rect x="55" y="245" width="165" height="98" rx="16" class="node amber"/><text x="137" y="283" text-anchor="middle" class="label">排队</text><text x="137" y="313" text-anchor="middle" class="small">2 秒</text>
+  <rect x="275" y="245" width="165" height="98" rx="16" class="node blue"/><text x="357" y="283" text-anchor="middle" class="label">模型请求 1</text><text x="357" y="313" text-anchor="middle" class="small">1 秒</text>
+  <rect x="500" y="165" width="190" height="92" rx="16" class="node green"/><text x="595" y="203" text-anchor="middle" class="label">读取 A</text><text x="595" y="233" text-anchor="middle" class="small">820 毫秒</text>
+  <rect x="500" y="335" width="190" height="92" rx="16" class="node blue"/><text x="595" y="373" text-anchor="middle" class="label">读取 B</text><text x="595" y="403" text-anchor="middle" class="small">190 毫秒</text>
+  <circle cx="760" cy="294" r="12" fill="#fff" stroke="#526579" stroke-width="2"/><text x="760" y="455" text-anchor="middle" class="small">等待两项完成</text>
+  <rect x="825" y="245" width="165" height="98" rx="16" class="node blue"/><text x="907" y="283" text-anchor="middle" class="label">模型请求 2</text><text x="907" y="313" text-anchor="middle" class="small">1 秒</text>
+  <rect x="1030" y="245" width="135" height="98" rx="16" class="node amber"/><text x="1097" y="283" text-anchor="middle" class="label">写入</text><text x="1097" y="313" text-anchor="middle" class="small">100 毫秒</text>
+  <path d="M220 294H269" class="critical"/><path d="M440 294H470V211H494" class="critical"/><path d="M440 294H470V381H494" class="line"/><path d="M690 211H760V288" class="critical"/><path d="M690 381H760V300" class="line"/><path d="M772 294H819" class="critical"/><path d="M990 294H1024" class="critical"/>
+  <text x="70" y="530" class="label">绿色路径决定最早完成时间</text><text x="70" y="566" class="small">A 需要 820 毫秒，B 在 190 毫秒结束后仍等待 A；减少 B 的耗时不会缩短本例关键路径。</text>
+  <text x="70" y="616" class="small">并行 span 的 duration 不能直接相加；要按开始、结束时间和后续依赖找到最长依赖链。</text>
+</svg>
