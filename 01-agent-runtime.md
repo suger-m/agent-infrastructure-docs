@@ -174,7 +174,7 @@ prompt("读文件并解释")
   AgentSession 后处理完成 → agent_settled
 ```
 
-assistant #1 提出调用，`toolResult` 提供文件内容，assistant #2 才能据此解释。提示词或工具声明变化时，还会插入 system 消息。可用已有[事件顺序测试](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/test/suite/agent-session-retry-events.test.ts#L292-L338)逐项核对。
+assistant #1 提出调用，`toolResult` 提供文件内容，assistant #2 才能据此解释。提示词或工具声明变化时，还会插入 system 消息。可用已有[事件顺序测试](../pi/packages/coding-agent/test/suite/agent-session-retry-events.test.ts#L292-L338)逐项核对。
 
 ![读文件任务经过模型请求、工具执行、结果写回和第二次模型请求](figures/01-agent-loop.svg)
 
@@ -182,21 +182,21 @@ assistant #1 提出调用，`toolResult` 提供文件内容，assistant #2 才�
 
 ### 工具声明和执行实现怎样分开
 
-`AgentContext.tools` 保存可执行工具；模型请求使用的 `TranscriptContext` 只有消息，工具声明由 system 消息携带。`StreamFn` 是发起模型请求的函数接口，`AgentEvent` 是对外报告循环进度的事件类型。这里的类型规定数据形状，让模型协议与本地执行实现各自满足同一交接约定。`StreamFn` 还要求请求失败进入事件流，以最终的 `stopReason: error/aborted` 表达，便于错误路径也完成收尾。接口见 [packages/agent/src/types.ts:19-37](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/agent/src/types.ts#L19-L37)、[packages/agent/src/types.ts:501-539](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/agent/src/types.ts#L501-L539)。
+`AgentContext.tools` 保存可执行工具；模型请求使用的 `TranscriptContext` 只有消息，工具声明由 system 消息携带。`StreamFn` 是发起模型请求的函数接口，`AgentEvent` 是对外报告循环进度的事件类型。这里的类型规定数据形状，让模型协议与本地执行实现各自满足同一交接约定。`StreamFn` 还要求请求失败进入事件流，以最终的 `stopReason: error/aborted` 表达，便于错误路径也完成收尾。接口见 [packages/agent/src/types.ts:19-37](../pi/packages/agent/src/types.ts#L19-L37)、[packages/agent/src/types.ts:501-539](../pi/packages/agent/src/types.ts#L501-L539)。
 
 ### 输入准入与运行状态
 
-`Agent` 保存 `_state`、两个输入队列、监听器和 `activeRun`。活动运行期间再调用 `prompt()` 会被拒绝；后来输入可以通过队列 API 进入。API 指程序调用另一组件的接口。运行开始时创建 `AbortController` 并设置 `isStreaming`，结束时由 `finishRun()` 清理。`AbortController` 是 JavaScript 的取消信号控制器，通知接收方停止，仍需模型、工具与回调配合。`activeRun` 记录当前进程中的运行，不提供跨进程恢复。代码见 [packages/agent/src/agent.ts:188-228](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/agent/src/agent.ts#L188-L228)、[packages/agent/src/agent.ts:370-411](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/agent/src/agent.ts#L370-L411)、[packages/agent/src/agent.ts:507-556](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/agent/src/agent.ts#L507-L556)。
+`Agent` 保存 `_state`、两个输入队列、监听器和 `activeRun`。活动运行期间再调用 `prompt()` 会被拒绝；后来输入可以通过队列 API 进入。API 指程序调用另一组件的接口。运行开始时创建 `AbortController` 并设置 `isStreaming`，结束时由 `finishRun()` 清理。`AbortController` 是 JavaScript 的取消信号控制器，通知接收方停止，仍需模型、工具与回调配合。`activeRun` 记录当前进程中的运行，不提供跨进程恢复。代码见 [packages/agent/src/agent.ts:188-228](../pi/packages/agent/src/agent.ts#L188-L228)、[packages/agent/src/agent.ts:370-411](../pi/packages/agent/src/agent.ts#L370-L411)、[packages/agent/src/agent.ts:507-556](../pi/packages/agent/src/agent.ts#L507-L556)。
 
-创建运行上下文时只复制消息数组的顶层，每条消息对象仍然共享。`processEvents()` 收到 `message_end` 才向公开对话记录追加消息，`message_update` 只更新 `streamingMessage`。保留数组或事件对象不能保证内容以后不变，要比较两个时刻就需要独立快照。状态更新与复制方式见 [packages/agent/src/agent.ts:460-465](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/agent/src/agent.ts#L460-L465)、[packages/agent/src/agent.ts:565-603](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/agent/src/agent.ts#L565-L603)。
+创建运行上下文时只复制消息数组的顶层，每条消息对象仍然共享。`processEvents()` 收到 `message_end` 才向公开对话记录追加消息，`message_update` 只更新 `streamingMessage`。保留数组或事件对象不能保证内容以后不变，要比较两个时刻就需要独立快照。状态更新与复制方式见 [packages/agent/src/agent.ts:460-465](../pi/packages/agent/src/agent.ts#L460-L465)、[packages/agent/src/agent.ts:565-603](../pi/packages/agent/src/agent.ts#L565-L603)。
 
-为避免继续时重复追加用户要求，`runAgentLoop()` 与 `runAgentLoopContinue()` 分别处理新输入和已有上下文。前者追加输入并发出对应事件，后者直接沿已有上下文运行。低层继续入口拒绝空上下文和以 assistant 结尾的上下文；应用自定义的尾消息必须由调用方保证能转换为合法 user/toolResult。较外层的 `Agent.continue()` 可以先取排队输入，所以 assistant 结尾时仍可能启动下一轮。[低层入口](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/agent/src/agent-loop.ts#L102-L151)与 [Agent 队列检查](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/agent/src/agent.ts#L383-L411)应分开阅读。
+为避免继续时重复追加用户要求，`runAgentLoop()` 与 `runAgentLoopContinue()` 分别处理新输入和已有上下文。前者追加输入并发出对应事件，后者直接沿已有上下文运行。低层继续入口拒绝空上下文和以 assistant 结尾的上下文；应用自定义的尾消息必须由调用方保证能转换为合法 user/toolResult。较外层的 `Agent.continue()` 可以先取排队输入，所以 assistant 结尾时仍可能启动下一轮。[低层入口](../pi/packages/agent/src/agent-loop.ts#L102-L151)与 [Agent 队列检查](../pi/packages/agent/src/agent.ts#L383-L411)应分开阅读。
 
 ### 下一轮由哪些条件触发
 
 Pi 将两种输入队列称为 steering 和 follow-up。steering 在当前回合工具全部处理完后优先接入，follow-up 在模型原本可以停止时接入。常规情况下，工具后续与 steering 推进内层循环，follow-up 由外层循环检查。
 
-准备请求和决定继续也有各自入口。`prepareRequest` 在每次请求前执行，包括第一次；`prepareNextTurn` 只在一轮完成且已确定继续后执行，可以更换上下文、模型、思考级别或追加消息。若准备期间来了 steering，且此前尚未取到输入，循环还会补取，避免在逐条消费模式下一轮取走两条。见 [packages/agent/src/agent-loop.ts:163-242](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/agent/src/agent-loop.ts#L163-L242)。
+准备请求和决定继续也有各自入口。`prepareRequest` 在每次请求前执行，包括第一次；`prepareNextTurn` 只在一轮完成且已确定继续后执行，可以更换上下文、模型、思考级别或追加消息。若准备期间来了 steering，且此前尚未取到输入，循环还会补取，避免在逐条消费模式下一轮取走两条。见 [packages/agent/src/agent-loop.ts:163-242](../pi/packages/agent/src/agent-loop.ts#L163-L242)。
 
 回合完成后的 `finishTurn` 回调可以要求结束或继续。它决定是否还有下一次请求，请求准备回调决定下一次发送什么。各条件的处理关系如下。
 
@@ -209,29 +209,29 @@ Pi 将两种输入队列称为 steering 和 follow-up。steering 在当前回合
 | 无工具后续、无 steering | 检查 follow-up，再检查显式继续要求 |
 | 无任何继续条件 | 发出 `agent_end` |
 
-分支集中在 [packages/agent/src/agent-loop.ts:245-320](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/agent/src/agent-loop.ts#L245-L320)。所以收到普通文本时，仍要结合队列和回合决策判断本次低层运行是否停止。
+分支集中在 [packages/agent/src/agent-loop.ts:245-320](../pi/packages/agent/src/agent-loop.ts#L245-L320)。所以收到普通文本时，仍要结合队列和回合决策判断本次低层运行是否停止。
 
 ### 流式消息如何进入状态
 
-Pi 发起请求前按 `transformContext → convertToLlm → normalizeContext → 动态取 API key → StreamFn` 的顺序处理输入。API key 是模型服务接受的访问凭证。`streamAssistantResponse()` 收到 `start` 后把部分消息放进循环内部上下文，增量到达时替换尾消息并发出 `message_update`；收到 `done/error` 后通过 `result()` 取得最终消息，再发出 `message_end`。见 [packages/agent/src/agent-loop.ts:381-469](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/agent/src/agent-loop.ts#L381-L469)。
+Pi 发起请求前按 `transformContext → convertToLlm → normalizeContext → 动态取 API key → StreamFn` 的顺序处理输入。API key 是模型服务接受的访问凭证。`streamAssistantResponse()` 收到 `start` 后把部分消息放进循环内部上下文，增量到达时替换尾消息并发出 `message_update`；收到 `done/error` 后通过 `result()` 取得最终消息，再发出 `message_end`。见 [packages/agent/src/agent-loop.ts:381-469](../pi/packages/agent/src/agent-loop.ts#L381-L469)。
 
-事件中的 `partial` 是模型适配器持续更新的共享对象。`EventStream` 用 FIFO 队列支持异步迭代，即按先进先出顺序逐次等待事件；另有最终结果 Promise，表示稍后可以等待取得的最终值。队列没有容量上限，消费者慢也不会阻塞 `push()`。这既影响快照保存，也影响积压位置，见 [packages/ai/src/types.ts:785-817](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/ai/src/types.ts#L785-L817)、[packages/ai/src/utils/event-stream.ts:25-93](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/ai/src/utils/event-stream.ts#L25-L93)。
+事件中的 `partial` 是模型适配器持续更新的共享对象。`EventStream` 用 FIFO 队列支持异步迭代，即按先进先出顺序逐次等待事件；另有最终结果 Promise，表示稍后可以等待取得的最终值。队列没有容量上限，消费者慢也不会阻塞 `push()`。这既影响快照保存，也影响积压位置，见 [packages/ai/src/types.ts:785-817](../pi/packages/ai/src/types.ts#L785-L817)、[packages/ai/src/utils/event-stream.ts:25-93](../pi/packages/ai/src/utils/event-stream.ts#L25-L93)。
 
-模型协议的适配可继续看 [OpenAI Responses 实现](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/ai/src/api/openai-responses.ts#L127-L236)：请求成功后发出 `start`，读取响应流，正常结束发 `done`，异常转成 `error`。阅读与模拟这段处理无需真实模型请求。
+模型协议的适配可继续看 [OpenAI Responses 实现](../pi/packages/ai/src/api/openai-responses.ts#L127-L236)：请求成功后发出 `start`，读取响应流，正常结束发 `done`，异常转成 `error`。阅读与模拟这段处理无需真实模型请求。
 
 ### 工具执行顺序与错误结果
 
-Pi 默认并行执行同批工具，但先逐个准备和校验参数、运行 `beforeToolCall`，然后才并发执行允许的调用。hook（钩子）是留给扩展的函数入口，`beforeToolCall` 可以阻止操作。实际执行的 `tool_execution_end` 随完成进度发出，写回对话的 toolResult 仍按 assistant 原调用顺序排列；准备阶段直接失败的调用也产生对应结束事件。任一工具要求顺序执行时，整批改为顺序模式。见 [packages/agent/src/agent-loop.ts:508-660](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/agent/src/agent-loop.ts#L508-L660)。
+Pi 默认并行执行同批工具，但先逐个准备和校验参数、运行 `beforeToolCall`，然后才并发执行允许的调用。hook（钩子）是留给扩展的函数入口，`beforeToolCall` 可以阻止操作。实际执行的 `tool_execution_end` 随完成进度发出，写回对话的 toolResult 仍按 assistant 原调用顺序排列；准备阶段直接失败的调用也产生对应结束事件。任一工具要求顺序执行时，整批改为顺序模式。见 [packages/agent/src/agent-loop.ts:508-660](../pi/packages/agent/src/agent-loop.ts#L508-L660)。
 
-工具不存在、参数验证失败、被拦截或执行抛错都会形成错误工具结果，通常再交给模型判断。响应若因 `length` 截断，其中所有工具调用都会跳过并返回错误，因为补救 JSON 解析可能掩盖参数缺失。前面的教学伪代码选择立即停止，Pi 则可以让模型重新提出完整调用。只有整批最终结果的 `terminate` 都为 true，才停止由工具结果触发的继续，输入队列与 `finishTurn` 仍可能要求下一次请求。分别见[截断处理](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/agent/src/agent-loop.ts#L471-L503)、[参数与调用前检查](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/agent/src/agent-loop.ts#L690-L777)、[执行与调用后处理](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/agent/src/agent-loop.ts#L821-L909)。
+工具不存在、参数验证失败、被拦截或执行抛错都会形成错误工具结果，通常再交给模型判断。响应若因 `length` 截断，其中所有工具调用都会跳过并返回错误，因为补救 JSON 解析可能掩盖参数缺失。前面的教学伪代码选择立即停止，Pi 则可以让模型重新提出完整调用。只有整批最终结果的 `terminate` 都为 true，才停止由工具结果触发的继续，输入队列与 `finishTurn` 仍可能要求下一次请求。分别见[截断处理](../pi/packages/agent/src/agent-loop.ts#L471-L503)、[参数与调用前检查](../pi/packages/agent/src/agent-loop.ts#L690-L777)、[执行与调用后处理](../pi/packages/agent/src/agent-loop.ts#L821-L909)。
 
 ### 会话为何晚于低层循环完成
 
-`AgentSession` 在构造时订阅 Agent，并安装工具、请求投影、下一轮刷新和运行边界回调。它处理 `message_end` 时向 SessionManager 追加相应条目，再从会话投影构造后续请求上下文。投影就是从保存的历史推导本次模型可见消息；扩展与历史更新因此可以进入下一次请求，界面无需自行拼消息。入口见 [packages/coding-agent/src/core/agent-session.ts:485-526](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/core/agent-session.ts#L485-L526)、[packages/coding-agent/src/core/agent-session.ts:787-843](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/core/agent-session.ts#L787-L843)、[packages/coding-agent/src/core/agent-session.ts:1103-1196](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/core/agent-session.ts#L1103-L1196)。
+`AgentSession` 在构造时订阅 Agent，并安装工具、请求投影、下一轮刷新和运行边界回调。它处理 `message_end` 时向 SessionManager 追加相应条目，再从会话投影构造后续请求上下文。投影就是从保存的历史推导本次模型可见消息；扩展与历史更新因此可以进入下一次请求，界面无需自行拼消息。入口见 [packages/coding-agent/src/core/agent-session.ts:485-526](../pi/packages/coding-agent/src/core/agent-session.ts#L485-L526)、[packages/coding-agent/src/core/agent-session.ts:787-843](../pi/packages/coding-agent/src/core/agent-session.ts#L787-L843)、[packages/coding-agent/src/core/agent-session.ts:1103-1196](../pi/packages/coding-agent/src/core/agent-session.ts#L1103-L1196)。
 
 Agent 按订阅顺序等待监听器返回的 Promise；发出 `agent_end` 时，最后一批监听器可能还没完成，`waitForIdle()` 要等它们结束并清理运行状态。Session 的 `prompt()` 在低层运行后还要处理重试、压缩和 `agent_before_settle`，这些处理可能引发新的低层运行，最终才发 `agent_settled`。所以界面不能把 `agent_end` 直接当作整次会话请求已经结束。
 
-Session 公共 `subscribe` 的监听器返回 void，分发时直接调用，不会像 Agent 一样等待异步返回值。把异步保存放到这个公共监听器里，不会自动获得“会话完成前已保存”的保证。两种等待契约见 [packages/agent/src/agent.ts:256-269](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/agent/src/agent.ts#L256-L269)、[packages/agent/src/agent.ts:605-611](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/agent/src/agent.ts#L605-L611)、[packages/coding-agent/src/core/agent-session.ts:1038-1043](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/core/agent-session.ts#L1038-L1043)、[packages/coding-agent/src/core/agent-session.ts:1822-1851](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/core/agent-session.ts#L1822-L1851)。
+Session 公共 `subscribe` 的监听器返回 void，分发时直接调用，不会像 Agent 一样等待异步返回值。把异步保存放到这个公共监听器里，不会自动获得“会话完成前已保存”的保证。两种等待契约见 [packages/agent/src/agent.ts:256-269](../pi/packages/agent/src/agent.ts#L256-L269)、[packages/agent/src/agent.ts:605-611](../pi/packages/agent/src/agent.ts#L605-L611)、[packages/coding-agent/src/core/agent-session.ts:1038-1043](../pi/packages/coding-agent/src/core/agent-session.ts#L1038-L1043)、[packages/coding-agent/src/core/agent-session.ts:1822-1851](../pi/packages/coding-agent/src/core/agent-session.ts#L1822-L1851)。
 
 ![AgentSession 到模型请求、工具执行、继续条件与 agent_settled 的流程](figures/01-runtime-flow.svg)
 
@@ -265,7 +265,7 @@ Session 公共 `subscribe` 的监听器返回 void，分发时直接调用，不
 | Follow-up | 模型原本可以停止时才处理的后续输入 |
 | Settled | 会话层的重试、压缩和扩展收尾也已经完成 |
 
-消息、流和事件的完整定义见 [packages/agent/src/types.ts:19-58](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/agent/src/types.ts#L19-L58)、[packages/agent/src/types.ts:509-539](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/agent/src/types.ts#L509-L539)。
+消息、流和事件的完整定义见 [packages/agent/src/types.ts:19-58](../pi/packages/agent/src/types.ts#L19-L58)、[packages/agent/src/types.ts:509-539](../pi/packages/agent/src/types.ts#L509-L539)。
 
 ## 不调用真实模型，怎样检查理解
 
@@ -277,13 +277,13 @@ Pi 的已有测试可用于核对相同边界：
 
 | 要检查的行为 | 对应已有测试 |
 | --- | --- |
-| 工具声明与可执行集合一致 | [packages/agent/test/agent.test.ts:163-279](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/agent/test/agent.test.ts#L163-L279) |
-| `agent_end` 发出后仍等待监听器 | [packages/agent/test/agent.test.ts:361-432](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/agent/test/agent.test.ts#L361-L432) |
-| 错误响应仍完成收尾 | [packages/agent/test/agent.test.ts:330-359](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/agent/test/agent.test.ts#L330-L359) |
-| Session 的文本与工具事件顺序 | [packages/coding-agent/test/suite/agent-session-retry-events.test.ts:269-358](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/test/suite/agent-session-retry-events.test.ts#L269-L358) |
+| 工具声明与可执行集合一致 | [packages/agent/test/agent.test.ts:163-279](../pi/packages/agent/test/agent.test.ts#L163-L279) |
+| `agent_end` 发出后仍等待监听器 | [packages/agent/test/agent.test.ts:361-432](../pi/packages/agent/test/agent.test.ts#L361-L432) |
+| 错误响应仍完成收尾 | [packages/agent/test/agent.test.ts:330-359](../pi/packages/agent/test/agent.test.ts#L330-L359) |
+| Session 的文本与工具事件顺序 | [packages/coding-agent/test/suite/agent-session-retry-events.test.ts:269-358](../pi/packages/coding-agent/test/suite/agent-session-retry-events.test.ts#L269-L358) |
 
 对照事件轨迹记录 `messages`、`streamingMessage`、`pendingToolCalls` 的变化，再用模拟 `StreamFn` 返回一次 toolCall 和一次文本。在 `agent_end` 监听器里放一个可手动释放的 Promise，可以观察 `prompt()` 与 `waitForIdle()` 何时完成。
 
-Agent 测试使用内存事件流；会话测试使用 faux provider 和内存 SessionManager，均无需真实密钥。[会话测试支架](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/test/suite/harness.ts#L150-L225)提供这类构造。若要运行，在对应包的根目录使用 `node ../../node_modules/vitest/dist/cli.js --run test/agent.test.ts`，或在 coding-agent 下指定 `test/suite/agent-session-retry-events.test.ts`；选择定向用例，避免运行包含 e2e 的全套测试。
+Agent 测试使用内存事件流；会话测试使用 faux provider 和内存 SessionManager，均无需真实密钥。[会话测试支架](../pi/packages/coding-agent/test/suite/harness.ts#L150-L225)提供这类构造。若要运行，在对应包的根目录使用 `node ../../node_modules/vitest/dist/cli.js --run test/agent.test.ts`，或在 coding-agent 下指定 `test/suite/agent-session-retry-events.test.ts`；选择定向用例，避免运行包含 e2e 的全套测试。
 
 继续读[历史与上下文](02-context-state.md)，讨论会话越来越长之后，哪些信息应进入下一次请求、哪些信息需要另外保存。读[重试、超时与幂等](06-retry-timeout-idempotency.md)时，可以在本章工具执行与结果记录之间插入一次故障，推导恢复者是否有足够证据安全继续。
