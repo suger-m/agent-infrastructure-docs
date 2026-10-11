@@ -1,140 +1,140 @@
-# 07. 多个 Worker 怎样共享状态、接管任务并更新副本
+# 第 7 章　分布式状态与一致性
 
-一个 Agent 服务收到“读取资料并生成报告”的任务，把它保存到数据库。Worker A 和 Worker B 都能查询待办，谁空闲就领取。用户则在网页上查看进度，希望刷新后仍能看到任务状态；A 中途退出时，也希望 B 能继续处理。
+[返回目录](README.md) · [上一章：第 6 章 重试、超时与幂等](06-retry-timeout-idempotency.md) · [下一章：第 8 章 沙箱与执行环境](08-sandbox-environment.md)
 
-这里有几个相互依赖的问题：两个 Worker 可能读到同一条待办；领取信息可能只写了一半就中断；失联的 Worker 可能稍后恢复；页面和数据库副本可能还停留在旧版本。解决这些问题，需要把状态更新的边界、执行权的期限，以及读取允许有多旧分别说明。
+多个执行者共享任务时，系统需要确定状态更新如何共同提交、哪一个执行者拥有处理资格，以及读到的状态允许落后多久。本章先以两个 Worker 的任务领取和故障接管说明事务、租约与写入校验，再讨论数据库复制和一致性；随后介绍 Pi 的单进程 durable 存储与 Chord 只读状态同步，区分任务执行权和界面观察状态。
 
-下面先用共享数据库的双 Worker 系统讲通用设计。示例中的任务表、跨主机租约和接管协议是教学架构，Pi 当前没有实现这套分布式调度。后半章再对照 Pi 的实验 durable 存储和 Chord 只读状态复制。
+假设 Agent 服务收到“读取资料并生成报告”的任务，将它存入数据库。Worker A 和 B 都能查询待办，用户在网页查看进度。两者可能同时发现同一任务，A 也可能在运行中失联，再于 B 接管后恢复；与此同时，页面还可能显示数据库副本中的旧状态。这些情况分别涉及并发领取、执行权换代和读取可见性，需要配合处理。
 
-本文对应提交 `96abe9a5ad45005cae34ed1c52d42f71fc88bedc`。各章入口在[学习索引](README.md)，持久化的提交顺序见[持久执行](05-durable-execution.md)，客户端和工具边界见[Tools 与 MCP](09-tools-mcp.md)。
+下面先用共享数据库的双 Worker 系统说明通用设计。示例中的任务表、跨主机租约与接管协议属于教学架构，Pi 当前没有实现这套分布式调度；后半章再对照 Pi 的实验 durable 存储与 Chord 只读状态复制。本文的源码基线为提交 `96abe9a5ad45005cae34ed1c52d42f71fc88bedc`，持久化的提交顺序见[第 5 章 持久执行与恢复](05-durable-execution.md)，客户端与工具边界见[第 9 章 工具基础设施与 MCP](09-tools-mcp.md)。
 
-## 两个 Worker 都读到待办，谁能开始执行
+## 7.1 原子领取与事务不变量
 
-数据库中有任务 T，状态为“待处理”。A 查询得到 T，尚未来得及修改它；B 也查询得到 T。两次读取都正确，因为读取本身没有改变任务。如果它们随后分别写入“运行中”并开始调用工具，即使最后数据库只留下一个 owner（当前执行者），也已经发生两次执行。
+任务 T 的初始状态为“待处理”。A 读取 T 后尚未更新，B 也读取到同一状态；读取本身没有改变记录，因此两次查询都可能成功。若双方随后各自写入“运行中”并调用工具，即使最终记录只保存一个 owner（当前执行者），也无法撤销已经开始的重复执行。
 
-领取需要把“仍可领取吗”和“将执行者设为我”合成一个不可分割的动作，这叫原子操作。最小做法是条件更新：只在 T 仍为待处理时，将它改为运行中并写入 owner。数据库在执行更新时检查条件；A 成功修改一行，B 随后发现条件不成立，修改零行。B 必须依据这次更新的结果放弃 T，继续找其他任务。先查询得到的内容只能帮助筛选候选任务，不能充当领取凭证。
+原子操作把资格检查和所有权更新合为一个不可分割的动作。可以要求数据库仅在 T 仍为待处理时，将其改为运行中并写入 owner。A 成功修改一行后，B 的条件不再成立，更新结果为零行；B 应放弃该候选任务。查询用于发现候选，实际条件更新的成功结果才是领取依据。
 
-假设一次领取还要新增一条执行记录，记录本次尝试的编号和开始时间。任务表已经写了 owner，执行记录却因进程退出而没写成功，恢复程序就无法判断这次执行从哪里开始。事务（transaction）把这些相关修改包在同一个提交边界内：全部成功才提交；其中一步失败就回滚，已做的修改不作为本次成功结果保留。
+一次领取还可能需要新增执行记录，保存尝试编号与开始时间。若 owner 已更新而执行记录尚未写入就崩溃，恢复程序会缺少这次执行的依据。事务（transaction）将关联修改放在共同的提交边界内：全部成功才提交，任一步失败则回滚该批修改。
 
-不变量是每次更新后都必须成立的约束。本例要求每次成功领取都同时留下唯一的当前 owner、有效期和对应执行记录；完成任务时，结果引用和“已完成”状态也必须一起提交。数据库可以用条件更新配合事务完成它们。仅把两次普通读写放进事务还不够：并发控制必须能够排除上述竞争，例如使用适当的行锁、可串行化隔离，或在实际写入时重新检查状态。数据库的隔离级别规定并发事务允许看到什么、发生冲突时怎样处理；事务这个名字本身不代表所有竞争都已解决。
+不变量是在每次成功更新后都必须成立的约束。本例要求 owner、执行有效期与对应执行记录同时存在；完成时，结果引用与完成状态也应一起提交。事务提供组合更新的边界，并发控制还必须排除多个领取者的竞争。可采用适当行锁、可串行化隔离或写入时再次核对条件。隔离级别规定并发事务的可见性与冲突处理，因此把普通读写放入事务并不自动保证领取互斥。
 
-Worker 应在领取事务提交成功后开始生成报告，不要把耗时的模型调用放在数据库事务内一直持锁。这样会阻塞其他领取者，外部调用也通常无法随数据库回滚。任务完成后再开一个短事务，核对执行资格，保存结果引用并改为已完成。这里的原子性只覆盖同一数据库中的更新；已经发出去的邮件或外部文件写入要另外处理，参见[重试与幂等](06-retry-timeout-idempotency.md)。
+Worker 应在领取事务提交成功后开始生成报告，不要把耗时的模型调用放在数据库事务内一直持锁。这样会阻塞其他领取者，外部调用也通常无法随数据库回滚。任务完成后再开一个短事务，核对执行资格，保存结果引用并改为已完成。这里的原子性只覆盖同一数据库中的更新；已经发出去的邮件或外部文件写入要另外处理，参见[第 6 章 重试、超时与幂等](06-retry-timeout-idempotency.md)。
 
-## 领取写到一半时崩溃，数据库怎样恢复
+## 7.2 WAL 与数据库崩溃恢复
 
 事务给调用方规定了“整体成功或失败”，数据库还需要在进程突然停止后维持这个结果。写前日志（write-ahead log，WAL）是一种实现办法：先把修改及其提交边界记录到日志，再将修改合入主要数据文件。以 SQLite 为例，恢复时可用有效提交记录区分完整事务与未完成的尾部；读取还可能需要结合主文件和 WAL，不能仅凭主文件判断最新状态。后续 checkpoint 将日志中已提交的内容合入主文件。这里的 checkpoint 是数据库维护动作，与 Agent 保存任务执行位置的检查点不是同一层。[SQLite WAL 文档](https://www.sqlite.org/wal.html)
 
-假设 A 的领取已提交，数据库尚未完成 checkpoint 就停止。若所需日志已可靠保存，重新打开后仍可还原领取结果；若停止发生在提交前，不应出现只有 owner 而缺少对应执行记录的半笔领取。不过，“提交返回”是否已经抵抗掉电，取决于同步落盘策略。SQLite 在 WAL 模式下使用 `synchronous = NORMAL` 时，应用进程崩溃与机器掉电的保证不同，掉电或系统崩溃仍可能丢失最近已提交事务。[SQLite synchronous 说明](https://www.sqlite.org/pragma.html#pragma_synchronous)
+假设 A 的领取已提交，数据库尚未完成 checkpoint 就停止。若所需日志已可靠保存，重新打开后仍可还原领取结果；若停止发生在提交前，数据库不应保留只有 owner 而缺少执行记录的部分更新。不过，提交返回后，最近数据能否在掉电后保留，取决于同步落盘策略。SQLite 在 WAL 模式下使用 `synchronous = NORMAL` 时，应用进程崩溃与机器掉电的保证不同，掉电或系统崩溃仍可能丢失最近已提交事务。[SQLite synchronous 说明](https://www.sqlite.org/pragma.html#pragma_synchronous)
 
-WAL 解决本地数据库的恢复问题。它本身不会把数据复制到另一台机器，也不会让另一台机器取得写权。本例若要让两个跨主机 Worker 共享任务，应通过提供并发控制的数据库服务访问；不能把 SQLite WAL 文件放到共享网络目录，就当作分布式任务协调服务。
+WAL 的作用范围是本地数据库恢复，不包含跨机器复制或写权转移。跨主机 Worker 共享任务，应访问提供并发控制的数据库服务。将 SQLite WAL 文件放在共享网络目录，不能替代分布式任务协调。
 
-恢复后还有一种不确定性：数据库已提交领取，但成功响应在网络中丢失，A 不知道自己是否领到了 T。A 应使用本次请求的稳定标识查询权威记录，确认 owner 和执行代次；不能因为没有收到响应就自行开始，也不能无条件重复创建一次领取。事务与日志保证存储中的结果，调用方仍要处理“结果已发生，但我没收到确认”。
+提交确认也可能丢失。数据库已成功保存 A 的领取，网络却未将成功响应交给 A，此时 A 无法确定自己是否拥有 T。它应按稳定请求标识查询权威记录，核对 owner 与执行代次，再决定后续动作；执行代次是每次所有权换代时递增的编号。未经确认直接执行或无条件新建领取，都会绕过所需的执行权判断。
 
-## Worker 失联后，什么时候允许另一个接管
+## 7.3 租约、心跳与任务接管
 
-如果 owner 永远有效，A 一旦退出，T 就会永久停在运行中。给执行权加上期限，就得到租约（lease）。本例让数据库在领取时写入 A、执行代次 7 和到期时间。到期前，A 定期请求续租；数据库只在 owner、代次和当前有效期仍匹配时延长期限。续租与接管都必须经过同一个权威存储的原子检查，避免各 Worker 按自己的时钟各做一个决定。
+租约（lease）为执行权规定有效期限，避免 Worker 退出后任务永久处于运行中。本例在领取时保存 owner=A、执行代次 7 和到期时间。A 在期限内申请续租，权威数据库原子检查 owner、代次及有效期仍匹配后，才延长租约。接管也经过同一权威存储，避免各 Worker 根据各自时钟独立决定所有权。
 
-心跳（heartbeat）是周期性发送的活性通知。可以让心跳携带续租请求，但“收到了心跳”与“租约续期成功”是两件事：续租可能因数据库不可用、代次已经变化或租约已过期而失败。A 只有得到成功确认，才知道这次有效期被延长。调度端很久没收到心跳，也只能知道没有新消息，无法区分进程已退出、网络中断或长时间暂停。
+心跳（heartbeat）是周期性的活性通知，可以携带续租请求。收到心跳只表明有消息到达，续租还可能因数据库不可用、代次变化或租约已过期而失败。A 需要成功确认才能知道租约延长；调度端长期收不到心跳，也无法仅凭沉默区分进程退出、网络故障与长时间暂停。
 
-例如租约还有 30 秒，A 每 10 秒请求续租。这只是教学参数。若 A 失联，数据库中的期限不会继续延长；到期后，B 发起条件更新，把已过期的 T 领为自己的任务，同时将代次增加到 8，写入新期限和接管记录。其他 Worker 同时尝试时仍只有一个能成功。B 然后读取上次保存的检查点和工具结果，确定从哪里继续。租约回答谁可以尝试恢复，检查点回答恢复到哪里；未落盘的计算可能需要重做，外部操作结果未知时仍需查询或幂等机制。
+假设租约期限为 30 秒，A 每 10 秒申请续租，这些数值仅为教学参数。A 失联后，期限不再延长；到期后 B 通过条件更新取得 T，将代次增加为 8，并共同提交新期限和接管记录。并发申请者中只有更新成功者可以继续。B 随后读取检查点与工具结果，确定恢复阶段。租约确定恢复资格，检查点确定恢复位置；未提交的计算可能重做，未知外部效果仍需查询或幂等协议。
 
-有效期越短，故障后的等待越短，也越容易把短暂卡顿当成失联；期限越长，误接管较少，但任务会等待更久。续租频率还会增加存储压力。执行者无法确认续租时应停止继续发起工作，但这一自觉约束不足以保证安全，因为已经发出的请求无法总是撤回，进程暂停期间也无法运行停止逻辑。
+租约期限决定接管速度与误判风险。期限较短可缩短故障等待，却更容易把短暂暂停当成失联；较长期限减少误接管，但延长恢复等待。频繁续租还会增加存储负载。无法确认续租的执行者应停止发起新工作，但安全性不能仅依赖其主动停止：暂停中的进程无法运行停止逻辑，已经发送的请求也未必能够撤回。
 
-## 旧 Worker 恢复后，谁来拒绝它的写入
+## 7.4 隔离令牌与迟到写入校验
 
-B 接管为代次 8 后，A 从暂停中恢复，仍握着代次 7 的报告结果。A 甚至可能在暂停前就发出了一个写请求，现在请求才到达。仅在 A 开始工作前检查过一次租约，无法阻止这次迟到的写入。
+B 以代次 8 接管后，A 可能恢复运行，并尝试提交代次 7 的报告。也可能是 A 在暂停前发出的请求此时才到达。开始执行时的一次租约检查无法限制这些迟到写入，接收方还需要在实际修改资源时校验执行资格。
 
-Fencing token 是随执行权换代而单调增加的凭证，本例可使用由权威存储分配的执行代次。A、B 的每次受保护写入都要携带它，接收写入的一方必须校验。若结果保存在同一数据库，完成事务应同时检查当前 owner、代次和租约仍有效；当前代次已是 8，携带 7 的更新就被拒绝。校验和写入必须处于同一原子边界，不能先单独查一下再无条件落盘。
+隔离令牌（fencing token）是随执行权换代而单调增加的凭证，本例采用权威存储分配的执行代次。每次受保护写入都携带该令牌，由资源接收方检查。结果存入任务数据库时，完成事务应同时核对当前 owner、代次和租约有效期；代次已为 8，就拒绝携带 7 的更新。校验和写入必须原子完成，避免在单独检查后又发生接管。
 
-如果报告写到另一个文件服务，任务数据库中的条件更新就保护不到那个服务。文件服务必须参与 fencing：例如可靠保存它已接受的最高代次，并拒绝更低代次。这个规则只能保证在服务接受 8 之后拒绝 7；若要求接管一完成就立即拒绝所有旧请求，还需要把新代次先安装到该资源，或在写入时原子地核验当前授权。只给请求加一个数字，而服务不检查，没有隔离旧执行者的效果。
+外部文件服务不受任务数据库的条件更新保护，需要自行参与令牌校验。一种方式是持久保存已接受的最高代次，并拒绝更低代次；服务接受 8 后，便拒绝 7。这个规则不保证在数据库刚完成接管时就立即拒绝所有旧请求。若需要该保证，必须先向资源安装新代次，或在写入时原子核验当前授权。只有携带数字而不执行校验，无法限制旧执行者。
 
-即便资源支持 fencing，也不会自动撤销 A 之前已完成的外部动作，更不会让整个任务只执行一次。它限制过期执行者继续修改受保护资源；已经发生的重复外部效果仍属于幂等与恢复协议的范围。
+令牌校验限制失效执行者继续修改受保护资源，不会撤销其过去已经完成的动作，也不保证整个任务只执行一次。已发生的重复效果仍由幂等与恢复协议处理。
 
 ![租约续租失败后由 B 接管为代次 8；资源接受 8 后拒绝 A 携带 7 的迟到写入](figures/07-concept-lease-fencing.svg)
 
-图中资源必须实际校验代次；只有接受 8 之后，保存最高代次的资源才可据此拒绝 7。
+图中的文件服务以自己已接受的最高代次为判断依据。在图示时序中，服务接受代次 8 后才据此拒绝代次 7 的迟到请求。
 
-## 数据已经提交，为什么页面还显示旧状态
+## 7.5 数据复制与读取一致性
 
-B 完成报告，权威数据库已经把 T 改成“已完成”。服务为了减轻主存储的读取压力，将数据复制到另一份数据库，页面从这份副本查询。复制（replication）让多处保有同一数据的拷贝；写入先到主存储，再传到副本，传输和应用需要时间，所以页面此刻仍可能显示“运行中”。
+B 完成报告后，权威数据库保存“已完成”。为减轻主存储读取压力，服务将数据复制到另一份数据库，并让进度页面查询副本。复制（replication）使多处保有同一数据，但传播和应用更新需要时间，所以主存储提交后，页面仍可能暂时显示“运行中”。
 
-一致性（consistency）约定读取与写入之间允许怎样的关系。对任务领取这种判断，本例要求在权威存储中执行原子条件更新。即使 B 从旧副本读到 T 仍为待处理，也必须经过这次更新才有资格执行。对进度展示，用户可能允许状态稍后才更新。两种用途可以选择不同的读取保证。
+一致性（consistency）规定读取允许观察到哪些写入。任务领取需要在权威存储执行原子条件更新，即使 Worker 从旧副本发现 T 待处理，也不能直接开始执行。进度展示则可能允许一定滞后。用途不同，可采用不同的读取保证。
 
-以线性一致的读写作为这里“强一致”的具体含义：B 已收到 T 完成提交的成功响应，随后才开始的同一任务状态读取，必须反映这次写入或更晚的写入。它仍可能与并发写入有先后顺序，已经开始的读取也不会实时变化；保证只覆盖服务承诺的操作范围，不会自动把数据库、邮件服务和多个状态对象组成一个事务。要提供这种读取，服务必须确认自己拥有足够新的状态，在故障或网络分区时可能需要等待或拒绝请求。
+本章用线性一致读写具体说明“强一致”：B 收到完成提交的成功响应后才发起的任务读取，应反映这次或更晚的写入。并发操作仍需确定先后次序，已经开始的读取也不会自动刷新。这项保证只覆盖服务承诺的操作范围，不会自动把数据库、邮件服务或多个状态对象组合为事务。服务需要确认状态足够新；遇到故障或网络分区时，可能因此等待或拒绝请求。
 
-如果选择最终一致的副本读取，提交成功后页面仍可暂时显示“运行中”；在停止写入且复制持续正常的条件下，副本最终应追上“已完成”。这并不承诺最多落后多少秒，也不自动保证切换副本后读到的版本只增不减。产品若要求用户提交后立即看到自己的结果，可以将后续读取路由到权威存储，或携带提交版本，让读取等待副本至少追到该版本。等待会增加延迟，不能满足等待条件时还要定义超时后的行为。
+最终一致的副本允许提交后暂时返回旧状态。在停止写入且复制持续正常时，各副本最终应取得完成状态，但该承诺没有规定最多滞后几秒，也不保证切换副本后版本只增不减。若产品要求用户提交后立即看见自己的结果，可将后续读取发到权威存储，或携带提交版本并等待副本至少应用到该版本。后一方式增加读取延迟，还需规定等待超时后的行为。
 
 ![WAL 恢复属于本地数据库层，主库到只读副本则是独立的复制与读取路径](figures/07-concept-wal-replica.svg)
 
-图中两条路径处理不同问题：WAL 参与本地崩溃恢复，副本可能因传播延迟而暂时读旧状态。
+图示将本地恢复与数据复制分开：WAL 用于数据库崩溃恢复，主存储到副本的传播过程决定副本何时可见更新。
 
-同步复制可以让提交等待指定副本确认，降低某些故障下丢失已确认数据的风险，但会增加写入等待。异步复制缩短这段等待，主存储故障时却可能有尚未传出的提交。把一个落后的副本直接提升为主存储，可能重新出现已领取的待办。因此，主存储故障恢复还需要决定谁能成为新主、哪些提交已被承认，以及怎样隔离旧主。
+同步复制让提交等待指定副本确认，可降低某些故障下已确认数据丢失的风险，同时增加写入等待。异步复制缩短等待，但主存储故障时可能仍有提交未传出。若直接提升落后副本为新主，已经领取的任务甚至可能重新显示为待处理。因此，故障切换还必须确定新主资格、认可的提交范围，并隔离旧主。
 
 共识协议负责让参与节点在故障条件下对一系列决定达成约定；Raft 是一种常见实现。复制数据并不自动提供共识，数据库产品需要把复制、故障检测和主节点切换配合起来。本章无需实现完整共识协议，但要区分：本地 WAL、数据库事务、副本读保证和主节点选举各自解决不同步骤。作为可核对的系统实例，[etcd 的 API 保证](https://etcd.io/docs/v3.5/learning/api_guarantees/) 区分线性一致读取与可能读到旧状态的读取；这不是 Pi 的依赖或现有能力。
 
-## Pi 的存储边界：单进程提交与本地所有权
+## 7.6 参考实现：单进程提交与本地所有权
 
-前面的双 Worker 共享任务表尚不是 Pi 的运行方式。Pi 当前 durable 库采用单进程拥有 storage 的前提，实验 Worker 用本地目录锁维护 Session 所有权，没有实现跨主机任务租约与接管协议。默认 CLI 也不能因此被理解为分布式执行器；这里讨论的是实验 durable 与 coding-agent services 路径。
+Pi 实验 durable 库以单进程拥有 storage 为前提，实验 Worker 使用本地目录锁维护 Session 所有权。它尚未实现前述跨主机任务租约和接管协议。以下介绍 durable 与 coding-agent services 的实验路径，不应据此将默认 CLI 视为分布式执行器。
 
-Session 将修改放进串行提交线，Node SQLite 用 `BEGIN IMMEDIATE` / `COMMIT` 将一个存储批次原子提交，配置 WAL 与 `synchronous = NORMAL`。这让相关记录有共同的提交边界，并为重开数据库后的恢复留下依据；掉电仍可能丢最近提交，不能将“原子提交”写成“任何故障都绝不丢失”。Storage 成功后，Session 才采用状态并发布，conversation view 随 commit 更新。
+Session 通过串行提交线组织状态修改，Node SQLite 使用 `BEGIN IMMEDIATE` / `COMMIT` 原子提交一个批次，并配置 WAL 与 `synchronous = NORMAL`。相关记录因此共享提交边界，重开后可以恢复；掉电仍可能丢失最近提交。Storage 成功后，Session 才采用内存状态并发布更新，conversation view 随 commit 改变。
 
-实验目录锁有 stale 检测和周期 update，用于本地所有权保活。env 连接也会定期 ping，沉默超时后清理连接或进程。它们没有提供前面任务表中的领取、续租、代次检查和跨主机接管流程。若扩展成多个 Worker 共享同一任务库，需要补齐这些机制，不能用发布序号或服务实例编号代替执行资格。
+实验目录锁的 stale 检测与周期 update 维护本地所有权，env 连接的定期 ping 与沉默超时负责连接或进程清理。这些机制不包含共享任务表的原子领取、续租、执行代次校验和跨主机接管。扩展为分布式 Worker 时，仍需实现这些职责；状态发布序号和服务实例编号不能充当执行权凭证。
 
-## 界面状态也是副本，但只承担观察职责
+## 7.7 参考实现：Chord 的界面状态副本
 
-Worker 一边运行任务，一边把输出从 `a` 写成 `ab`，再写成 `abc`。终端或浏览器可能在中途才打开，它需要马上显示已有内容，并继续显示后续变化。Worker 维护可写的权威值，界面持有供显示的只读副本。这个副本可以帮助用户观察任务，不能据此判定哪个进程有权执行或修改持久任务。
+任务输出可能依次变为 `a`、`ab`、`abc`，而界面在任一时刻加入。Worker 维护可修改的权威状态，界面先取得当前内容，再接收后续更新。界面的只读副本用于观察，不能授权进程执行任务或修改持久状态。
 
-项目里的 Chord 包负责这类状态交付，实验版 coding-agent 用它将 Worker 的会话视图交给客户端。完整值可以直接显示，但每次都传完整值会重复传输。Chord 可以把后续变化编码成增量（delta），例如只传“在末尾追加 `c`”。增量依赖前一个值，所以界面必须先得到完整快照作为起点，再按顺序应用后续变化。晚加入的界面因此不必重放全部历史业务事件。
+Chord 在实验 coding-agent 中负责将 Worker 会话视图交付给客户端。首次传输完整快照，随后可以发送增量（delta），例如在已有 `ab` 末尾追加 `c`。增量依赖前一版本，因此消费者必须先安装快照，再依序应用变化。中途加入的界面由此获得当前状态，无须重放全部业务事件。
 
-durable Storage 负责保存与恢复，Chord 把当前 view 同步给观察者。普通 `replicatedState(initial)` 自己不写磁盘，可以连接任意权威数据源。实验服务在 [packages/coding-agent/src/experimental/services/transcript-provider.ts L5-L15](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/experimental/services/transcript-provider.ts#L5-L15) 中通过 `createTranscriptServiceFacet()` 直接取得 `conversation.viewState()` 作为 Transcript.state，并在退出时 dispose。Delta 的有序交付、丢包与乱序处理、重新连接和订阅，由协议和宿主共同负责。
+durable Storage 负责保存与恢复，Chord 把当前 view 同步给观察者。普通 `replicatedState(initial)` 本身不执行磁盘持久化，可以连接任意权威数据源。实验服务在 [packages/coding-agent/src/experimental/services/transcript-provider.ts L5-L15](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/experimental/services/transcript-provider.ts#L5-L15) 中通过 `createTranscriptServiceFacet()` 直接取得 `conversation.viewState()` 作为 Transcript.state，并在退出时 dispose。Delta 的有序交付、丢包与乱序处理、重新连接和订阅，由协议和宿主共同负责。
 
-两张图使用不同的示意序号：42、43、44说明基线后的连续更新及缺帧后的恢复；10、11展示实际订阅建立顺序。箭头表示状态交付，不表示副本取得写权。
+两张图使用不同的示意序号：42、43、44 说明基线后的连续更新及缺帧后的恢复；10、11展示实际订阅建立顺序。箭头表示状态交付，不表示副本取得写权。
 
 ![副本先安装序号 42 的快照，再应用 43 和 44；缺号后需重建基线](figures/07-snapshot-delta.svg)
 
 ![Chord 订阅时先安装序号 10 快照，再激活并按序接收序号 11 更新](figures/07-subscription-sequence.svg)
 
-## Worker 怎样发布一个完整变化
+## 7.8 参考实现：草稿修改与原子发布
 
-界面要收到 `abc`，Worker 得先把一次修改作为完整状态变化发布。假设任务状态从“读取中”变为“读取完成”，同时加入结果引用；这两个字段应属于同一次修改。若逐字段发布，观察者可能短暂看到状态已完成却没有结果引用。
+同一次状态修改应保持相关字段的一致性。例如任务从“读取中”变成“读取完成”时，应同时发布结果引用。逐字段发布可能使观察者暂时看到完成状态却没有结果，因此发布端先准备完整变化，再统一采用。
 
-`draft` 是一次修改期间使用的临时草稿。调用方在草稿上修改字段，准备完成后再整体采用并发布；若回调抛错，草稿被放弃，观察者仍看到旧的完整状态。一次 `state.change` 可以更新多个字段，形成该 state 对象的一次原子 revision。若 prepare 后没有操作，方法直接返回，发布序号也不增加。
+草稿（draft）保存一次修改尚未发布的候选状态。调用方修改草稿，准备完成后统一采用并发布；回调抛错则放弃草稿，观察者继续读取原状态。`state.change` 可同时修改多个字段，形成该 state 对象的一次原子 revision（版本变化）。prepare 后没有操作时，直接返回且不增加发布序号。
 
 [packages/chord/src/services/state.ts L184-L244](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/chord/src/services/state.ts#L184-L244) 的 `MutableReplicatedStateImpl.change()` 打开 draft，运行 mutate，准备候选值，再采用并发布。回调返回 Promise 也会被拒绝，因此网络等待应放在这个同步回调之外。
 
 这种交接依赖不可变值的所有权约定。状态发布后，使用方不能再修改同一个对象，否则同一 revision 对不同观察者可能呈现不同内容。传给 `track()` 或 `replicatedState()` 的 initial root 转交给 tracker，发布后的 value 和 ops 都不能再改。放进 draft 的外部值会先验证再复制，细节见 [packages/chord/src/delta/README.md L1-L41](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/chord/src/delta/README.md#L1-L41)。
 
-这是一项调用方约定，不是运行时对所有对象执行了 deep freeze。TypeScript 的只读类型也不提供冻结或隔离。在进程内直连时，提供端与消费端可能共享容器；消费端若擅自修改，就会破坏权威状态。把值交给会修改数据的代码前，应在边界复制或序列化。
+不可变性依赖调用方遵守所有权约定，运行时并未对所有对象执行 deep freeze，TypeScript 只读类型也不会冻结对象。进程内直连可能让提供端与消费端共享容器，消费端修改它会破坏权威状态。向会修改输入的代码交付值时，应先复制或序列化。
 
-增量是一批相对于前一版本的操作。[packages/chord/src/delta/index.ts L21-L41](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/chord/src/delta/index.ts#L21-L41) 定义整值替换、set/delete、字符串追加与截断，以及数组 splice/permutation；[packages/chord/src/delta/index.ts L408-L435](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/chord/src/delta/index.ts#L408-L435) 通过 copy-on-write 应用操作，保留前一版不可变值。输出从 `"a"` 变为 `"ab"` 时，线上可以只送 append，副本应用后仍得到完整值 `"ab"`。操作只要求在正确基线上按序应用后结果一致，编码形式不必唯一或最小，也不代表业务事件的含义。
+增量是一批相对于前一版本的操作。[packages/chord/src/delta/index.ts L21-L41](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/chord/src/delta/index.ts#L21-L41) 定义整值替换、set/delete、字符串追加与截断，以及数组 splice/permutation；[packages/chord/src/delta/index.ts L408-L435](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/chord/src/delta/index.ts#L408-L435) 通过 copy-on-write 应用操作，保留前一版不可变值。输出从 `"a"` 变为 `"ab"` 时，传输时可以只发送 append 操作，副本应用后仍得到完整值 `"ab"`。操作只要求在正确基线上按序应用后结果一致，编码形式不必唯一或最小，也不代表业务事件的含义。
 
-## 界面中途加入，怎样既拿到快照又接住更新
+## 7.9 参考实现：快照安装与连续增量交付
 
-Worker 已发布 `ab`，界面此时才订阅。若提供端先读当前值，过一会儿再登记订阅，Worker 可能在两步之间发布 `abc`，界面既没在快照里看到它，也收不到更新。若先开始交付更新再安装旧快照，界面可能先得到 `abc`，随后又被 `ab` 覆盖。提供端因此要原子地捕获快照并登记订阅；消费者则要先安装快照，再启用后续交付。
+建立订阅需要协调快照读取和监听登记。若先读取 `ab`，再登记监听，两步之间发布的 `abc` 可能遗漏；若先交付增量，再安装旧快照，又可能用 `ab` 覆盖较新状态。提供端需要原子捕获快照并登记订阅，消费端则在快照安装完成后启用增量交付。
 
-在这个例子里，提供端捕获 `ab` 和序号 10，同时登记订阅。此后发布的序号 11 暂存起来。消费端安装完整快照 10 后调用 `activate`，提供端才交付 11。Hydration 指用完整快照建立副本基线；它先于增量交付，避免旧快照覆盖新变化，也避免读快照与注册之间漏掉变化。
+例如，提供端捕获值 `ab` 与序号 10，同时登记订阅，随后产生的序号 11 暂存。消费者先完成 hydration，即用完整快照建立副本基线，再调用 `activate` 开始接收 11。该顺序同时避免漏更新和旧快照覆盖新内容。
 
-[packages/chord/src/services/provider.ts L239-L276](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/chord/src/services/provider.ts#L239-L276) 将 subscriber 加入注册表、捕获 snapshot、记录快照覆盖的 state sequences，再返回 activate/close。[packages/chord/src/services/provider.ts L424-L443](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/chord/src/services/provider.ts#L424-L443) 中，每个 state member 的快照带完整 `r` 和当前 sequence；普通发布通过已经登记的精确操作监听器继续前进。
+[packages/chord/src/services/provider.ts L239-L276](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/chord/src/services/provider.ts#L239-L276) 将 subscriber 加入注册表、捕获 snapshot、记录快照覆盖的 state sequences，再返回 activate/close。[packages/chord/src/services/provider.ts L424-L443](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/chord/src/services/provider.ts#L424-L443) 中，每个 state member 的快照带完整 `r` 和当前 sequence；后续发布通过已经登记的精确操作监听器交付。
 
 consumer 的 singleton 入口在 [packages/chord/src/services/consumer.ts L594-L633](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/chord/src/services/consumer.ts#L594-L633)。它先校验并安装 snapshot，再 activate。实际接收增量的是 [packages/chord/src/services/state.ts L376-L415](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/chord/src/services/state.ts#L376-L415) 的 replica，也就是只读副本。它安装完整快照后，要求每个更新序号恰好比上次多一。
 
-序号检查的是交付是否连续。假设副本基线是 `a`，下一项追加 `b`，再下一项追加 `c`。漏掉第一项却直接应用第二项，副本会得到 `ac`；序号跳变能在使用这个错误结果前发现问题。它不验证任务代码或业务内容，也不构成多写入方共识。
+连续序号用于验证增量交付的完整性。基线为 `a` 时，后续操作依次追加 `b` 和 `c`；若漏掉第一步，直接应用第二步会得到错误的 `ac`。序号跳变使消费者在使用错误值之前发现缺失，但不能验证业务内容正确，也不构成多写入方共识。
 
 普通 `state` update 即使携带完整 `r`，仍必须遵守严格的 `+1` 连续序号。完整值不能让一个普通 update 自动变成新基线，因为序号之间可能还有实例生命周期变化。只有显式 snapshot/reset hydration 才能建立新起点。收到重复、缺号、无效操作或无效 JSON 结果时，replica 会清空 value 并报错；它不会自行向提供端请求 snapshot。主机或 binding 负责重新绑定、订阅；[packages/chord/src/services/consumer.ts L540-L570](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/chord/src/services/consumer.ts#L540-L570) 展示了这条重建路径。
 
 Chord 的实现见 [packages/chord/README.md L1-L7](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/chord/README.md#L1-L7) 与 [packages/chord/README.md L32-L57](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/chord/README.md#L32-L57)。它是独立的应用组合包，不依赖其他 Pi workspace 包，负责让一个权威状态源向本地和远端消费者发布快照、增量，并维护序号、实例换代和重新绑定。实验 coding-agent services 用它把 worker 的会话视图交给客户端；durable 和这组 services 的入口仍属于实验层。
 
-## 缺帧、断线或服务换代时，副本怎样恢复
+## 7.10 参考实现：副本重建与服务实例换代
 
-缺帧后，副本已经清空数据，不能把随后到达的普通更新当成新起点。主机需要重新订阅并安装快照，或交付显式 reset。reset 会给状态建立新的完整基线，之后副本再按连续序号应用增量。重新绑定也会清空旧值，直到新快照安装完成；界面可以继续保存句柄，同时识别数据尚未就绪的阶段。
+缺帧使副本清空后，主机应重新订阅并安装快照，或交付显式 reset。reset 为状态建立完整新基线，后续增量再按连续序号应用。重新绑定同样先清空旧值，再等待新快照；界面可保留句柄，但需要识别数据尚未就绪的阶段。
 
 断线还可能让旧句柄指向错误的服务实例。假设某个 key 对应的子服务关闭，后来以相同 key 创建新服务。只检查 key 的旧客户端可能把针对旧工作的调用发给新工作。当前 provider 给复用 key 的实例分配新的 generation，区分两段生命周期；[packages/chord/src/services/provider.ts L183-L212](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/chord/src/services/provider.ts#L183-L212) 在复用 key 时增加 generation，[packages/chord/src/services/provider.ts L377-L409](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/chord/src/services/provider.ts#L377-L409) 用它拒绝旧实例调用。这份编号保存在当前 provider 的 Map 中，用于限制旧服务实例访问。
 
-单例服务替换时会保留对外接口对象，换入新的状态快照。消费端重新绑定会先清空旧值，再等新快照安装。这让界面可以保留接口句柄，同时知道此刻状态还没准备好。generation 标记服务实例生命周期，不是持久任务的租约代次。
+单例服务替换保留对外接口对象，并安装新的状态快照。消费端在重新绑定期间清空旧值，因此接口句柄可以持续存在，数据却暂不可用。generation 只标记服务实例生命周期，不承担持久任务租约代次的职责。
 
-## 慢消费者积压时，为什么两种订阅有不同处理
+## 7.11 参考实现：慢消费者与队列积压
 
-订阅回调可能等待很久。如果积压的是完整值，中间版本可以舍弃，最新值仍能独立显示；如果积压的是增量，跳过一步会破坏后续操作所依赖的基线。因此 public state subscription 保留较新的完整值，provider remote subscription 在积压过多时改送显式 reset。
+慢订阅者的处理策略取决于交付内容。完整值能够独立解释，可以舍弃中间版本而保留最新值；增量依赖连续基线，直接丢弃中间操作会破坏状态。因此 public state subscription 合并积压的完整值，provider remote subscription 则在积压过多时发送显式 reset。
 
 [packages/chord/src/services/state.ts L28-L95](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/chord/src/services/state.ts#L28-L95) 与 [packages/chord/src/services/state.ts L149-L181](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/chord/src/services/state.ts#L149-L181) 为每个 public subscriber 串行调用 callback，正在执行的回调不计入 pending。其他订阅者和同步的精确操作监听器仍能继续处理发布。
 
@@ -144,9 +144,9 @@ Chord 的实现见 [packages/chord/README.md L1-L7](https://github.com/earendil-
 | provider remote subscription | 精确 state 操作与实例 lifecycle updates | 新增第 101 个 pending 时换成一个显式 reset，包含当前完整订阅 snapshot |
 | 应用 transport 的异步队列 | 宿主自行定义 | 不自动继承上述上限 |
 
-公开订阅交付完整值，因此允许跳过发布序号。远端订阅交付精确增量，必须保持连续；[packages/chord/src/services/provider.ts L445-L465](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/chord/src/services/provider.ts#L445-L465) 在 pending 达到上限时用 reset 替换积压，给每个状态建立新基线。reset 还会重建 keyed membership，避免丢掉 close/spawn 后仍留下已经不存在的实例。上限按帧数计算，较大的 snapshot 仍可能占用较多字节。应用 transport 的异步队列由宿主定义，不自动继承这两处限制。
+公开订阅交付完整值，因此允许跳过发布序号。远端订阅交付精确增量，必须保持连续；[packages/chord/src/services/provider.ts L445-L465](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/chord/src/services/provider.ts#L445-L465) 在 pending 达到上限时用 reset 替换积压，给每个状态建立新基线。reset 还会重建 keyed membership，避免遗漏 close/spawn 后仍保留已经不存在的实例。上限按帧数计算，较大的 snapshot 仍可能占用较多字节。应用 transport 的异步队列由宿主定义，不自动继承这两处限制。
 
-## 实现补充：编码字典、校验与边界
+## 7.12 参考实现：编码字典、校验与边界
 
 Delta encoder 在路径第二次出现时引入 ID，decoder 必须先收到配套定义；具体过程见 [packages/chord/src/delta/index.ts L506-L553](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/chord/src/delta/index.ts#L506-L553) 与 [packages/chord/src/delta/index.ts L622-L662](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/chord/src/delta/index.ts#L622-L662)。同一连接承载多个独立状态时，每个状态都有自己的字典。不同客户端的编码进度可能不同，因此不能用一个有状态编解码器编码一次后复用于所有客户端。
 
@@ -160,7 +160,7 @@ Delta encoder 在路径第二次出现时引入 ID，decoder 必须先收到配�
 - 队列上限只作用于对应队列。实验 worker manager 在 [packages/coding-agent/src/experimental/session-worker-manager.ts L614-L639](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/experimental/session-worker-manager.ts#L614-L639) 用 `deliveryTail` 串行转发服务事件，但这条 Promise 链没有同样的 100-frame 上限，因此整个网络通道还没有端到端背压。
 - 远端服务授权需要单独判断。service token allowlist 和 stale-generation 检查还没有组成完整租户授权；[packages/coding-agent/src/experimental/services/README.md L14-L24](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/experimental/services/README.md#L14-L24) 把认证身份与按客户端投影状态列为后续工作。
 
-## 源码位置与术语速查
+## 7.13 编号约定与源码定位
 
 本章会遇到几种编号。它们记录不同对象，没有统一的全局含义：
 
@@ -171,7 +171,18 @@ Delta encoder 在路径第二次出现时引入 ID，decoder 必须先收到配�
 | member sequence | 一个 state stream 的发布基线 | 没有多个 members 的事务边界含义 |
 | key/generation | service instance 生命周期 | 不负责任务续租或共识 term |
 
-### 文中术语
+## 7.14 本章术语
+
+| 通用概念 | 定义 |
+| --- | --- |
+| 原子领取 | 将执行资格检查与所有权更新作为不可分割操作 |
+| 租约 | 具有有效期限、按协议续期的执行权 |
+| 隔离令牌 | 随执行权换代增加，由资源端核验的写入凭证 |
+| 线性一致性 | 已完成写入对随后开始的读取可见，操作顺序符合实时先后关系 |
+| 最终一致性 | 停止写入且复制持续正常时，副本最终收敛 |
+| 快照与增量 | 完整状态基线，以及相对此前版本的变化 |
+
+以下表格对应 Pi 的具体实现范围。
 
 | 术语 | 当前实现 | 范围与限制 |
 | --- | --- | --- |
@@ -180,13 +191,13 @@ Delta encoder 在路径第二次出现时引入 ID，decoder 必须先收到配�
 | Lease | durable task 没有可到期和续租的跨 worker 租约；实验 worker 有本地目录锁的 stale/update | 目录锁不负责 task reservation、多主共识或全局 fencing |
 | Heartbeat | 实验目录锁周期更新；env 连接定期 ping，沉默超时会清理连接/进程 | 用于本地所有权保活与连接活性，无法证明任务仍有执行资格 |
 
-Session 提交线在 [packages/durable/src/session/session.ts L220-L245](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/session/session.ts#L220-L245)，SQLite 事务与 WAL 设置在 [packages/durable/src/storage/sqlite/node.ts L140-L159](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/storage/sqlite/node.ts#L140-L159)、[packages/durable/src/storage/sqlite/node.ts L179-L202](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/storage/sqlite/node.ts#L179-L202)。实验目录锁则在 [packages/coding-agent/src/experimental/session-worker.ts L517-L522](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/experimental/session-worker.ts#L517-L522) 设置 `stale: 2000`、`update: 1000`；env ping 的 Node/Rust 两端和故障处理见[Sandbox 与执行环境](08-sandbox-environment.md)。
+Session 提交线在 [packages/durable/src/session/session.ts L220-L245](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/session/session.ts#L220-L245)，SQLite 事务与 WAL 设置在 [packages/durable/src/storage/sqlite/node.ts L140-L159](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/storage/sqlite/node.ts#L140-L159)、[packages/durable/src/storage/sqlite/node.ts L179-L202](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/storage/sqlite/node.ts#L179-L202)。实验目录锁则在 [packages/coding-agent/src/experimental/session-worker.ts L517-L522](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/experimental/session-worker.ts#L517-L522) 设置 `stale: 2000`、`update: 1000`；env ping 的 Node/Rust 两端和故障处理见[第 8 章 沙箱与执行环境](08-sandbox-environment.md)。
 
-## 测试与练习
+## 7.15 练习
 
 先画出任务 T 的记录变化：待处理，A 以代次 7 领取，续租失败，到期后 B 以代次 8 接管，A 的迟到结果被拒绝。分别标出每一步由谁检查、哪些字段必须在一次事务中更新。再设想文件服务不检查代次，指出数据库拒绝 A 的完成提交后，仍可能发生什么外部写入。
 
-让 B 完成任务后立即打开进度页：主存储已提交，副本尚未追上。写出强一致读取与最终一致读取各自允许返回的结果，并说明为什么从副本看到“待处理”不能直接授权 Worker 执行。
+让 B 完成任务后立即打开进度页：主存储已提交，副本尚未应用该次提交。写出强一致读取与最终一致读取各自允许返回的结果，并说明为什么从副本看到“待处理”不能直接授权 Worker 执行。
 
 可以在纸上维护 `{ output: "a" }` 的副本：hydrate 10，append 11，漏掉 12，再收到 13。按连续序号规则，value 会清空；之后显式 reset 把基线设为 20，21 才能继续应用。再试一次让普通 update 13 携带 `r`，检查为什么完整值仍无法免去缺号校验。
 

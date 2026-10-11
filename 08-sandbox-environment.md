@@ -1,44 +1,44 @@
-# 08. 沙箱怎样限制工具访问，并收回执行环境
+# 第 8 章　沙箱与执行环境
 
-[返回索引](README.md) · [下一章：工具与 MCP](09-tools-mcp.md)
+[返回目录](README.md) · [上一章：第 7 章 分布式状态与一致性](07-distributed-state.md) · [下一章：第 9 章 工具基础设施与 MCP](09-tools-mcp.md)
 
-本章按提交 `96abe9a5ad45005cae34ed1c52d42f71fc88bedc` 阅读源码。
+执行环境决定工具在何处运行，沙箱则通过系统机制限制代码的访问范围与资源消耗。本章先说明文件、进程和网络边界，再讨论资源配额以及环境准备、运行、终止和清理的完整流程。随后对照 Pi 的本机与远端环境接口、可选沙箱扩展和 micro-VM 示例，明确默认行为与部署方需要实施的策略。
 
-一个 coding agent 接到“修改解析器并验证”的任务。它要用 Git 查看改动，通过 shell 启动 Python 脚本、构建工具和测试程序，最后交回补丁与测试结果。测试还可能启动一个本地 HTTP 服务。模型给出的命令只是入口；仓库脚本、依赖中的代码以及它们创建的子进程都会实际执行。
+以“修改解析器并验证”为例，coding agent 需要调用 Git 查看改动，通过 shell 启动 Python、构建工具和测试程序，并交付补丁与验证结果；测试还可能启动本地 HTTP 服务。实际执行的代码包括仓库脚本、依赖及其子进程。如果它们继承开发者权限，就可能因路径错误覆盖工作区外的文件，也可能读取凭证、连接内网或持续占用 CPU。
 
-如果这些程序直接继承开发者账号的权限，一个路径写错就可能覆盖工作区外的文件，测试脚本也可能读取凭证、连接内网，或启动持续占用 CPU 的后台进程。Sandbox（沙箱）是在执行代码周围施加访问和资源限制的环境。调用方交给它代码、输入和允许的操作范围，期望取回产物与执行证据，并在任务结束后收回进程和临时资源。限制需要由操作系统或虚拟化边界执行，提示词里的“只操作项目目录”无法阻止一次实际系统调用。
+沙箱（sandbox）是在代码执行周围施加访问限制和资源约束的环境。调用方提供代码、输入及允许范围，执行器负责应用限制、运行代码、返回产物和证据，并在结束后回收资源。限制需要由操作系统或虚拟化机制执行；提示词中的目录要求不能阻止一次越权系统调用。
 
-以下先设计这一任务的通用执行环境；它是教学方案，不表示 Pi 已经实现这些策略。宿主指承载执行环境的机器；虚拟机内部的系统称为客体。随后再用 Pi 区分环境接口、默认本机操作与可选沙箱部署。
+前半章采用通用教学设计，不表示 Pi 已实现其中全部策略。宿主是承载执行环境的机器，客体是虚拟机内部运行的系统。后半章源码说明以提交 `96abe9a5ad45005cae34ed1c52d42f71fc88bedc` 为基线，分别讨论默认本机操作、实验环境接口和可选隔离部署。
 
-## 先决定让程序看见和改动什么
+## 8.1 文件、进程与网络的访问边界
 
-### 文件系统：输入、工作副本与输出分开处理
+### 8.1.1 文件系统：输入、工作副本与输出
 
-执行器先准备任务需要的源文件和依赖。可以把固定输入以只读方式挂载进环境：挂载把一个目录呈现在环境内的指定路径，只读限制阻止其中的进程通过该挂载修改文件。编译器仍需要写中间文件，Agent 也需要修改代码，因此另外提供可写工作副本、临时目录和产物目录。任务能读到哪些内容、能写到哪些位置，是两项分别配置的权限。只读挂载保护文件不被修改，却仍允许读取其中的秘密。
+执行器需要分别安排输入、工作副本与产物。挂载将一个目录呈现在环境内的指定路径；固定源文件和依赖可以只读挂载，可写工作副本供 Agent 修改，临时目录和产物目录供编译器生成文件。读取权限与写入权限应分别配置。只读挂载可以防止修改，仍允许进程读取文件中的秘密。
 
-工作副本有两种常见安排。如果把宿主项目目录直接以可写方式挂载进去，Agent 保存文件时就已经修改了宿主；销毁沙箱不会撤销这些写入。若给任务复制一份输入或建立独立工作区，执行器可以在任务结束时取出差异与产物，核对目标路径和基准版本后再写回。后者多了一次复制或同步，却可以把“运行成功”和“接受这次改动”分开处理。提交回来的补丁仍是待审查输入，收集器不能因为文件来自沙箱就允许它覆盖任意宿主路径。
+工作副本可以直接映射宿主项目，也可以独立复制。采用宿主可写挂载时，工具保存文件就已经修改宿主，销毁沙箱不会回滚这些变化。独立工作副本则允许先收集差异与产物，核对目标路径和基准版本后再写回，代价是增加复制或同步。产物收集器仍需检查补丁目标，不能因其来自沙箱就允许覆盖任意宿主路径。
 
-`cwd` 是当前工作目录，只决定相对路径从哪里开始解析。例如在 `/work/project` 中访问 `../other.txt` 会指向 `/work/other.txt`，能否读取取决于真实权限。Git worktree 能提供独立的工作文件，减少两个任务互相覆盖，但不会建立操作系统隔离；其进程仍可能访问其他目录和共享的 Git 管理数据。路径字符串检查也需要考虑符号链接等实际解析结果。系统强制限制文件可见范围与写权限，才能约束绕开工具直接运行的程序。
+`cwd`（当前工作目录）决定相对路径的解析起点。例如在 `/work/project` 访问 `../other.txt`，解析结果为 `/work/other.txt`，实际能否读取由系统权限决定。Git worktree 分离工作文件，有助于减少任务相互覆盖，但进程仍可访问其他目录及共享 Git 管理数据。路径检查还需考虑符号链接等实际解析结果。要限制程序绕过工具后的访问，仍需系统强制执行文件可见范围和读写权限。
 
-### 进程：限制脚本及其后代
+### 8.1.2 进程：脚本及其后代的限制
 
-构建命令会启动编译器，测试程序又可能启动服务。只约束最外层 shell 会漏掉这些后代。执行器要把任务的进程放在同一个受控范围内，用低权限身份运行，限制它们接触其他任务进程、宿主设备和管理接口；创建子进程时也应保留限制。否则任务虽然不能直接读取一个文件，却可能通过有更高权限的服务完成同样的操作。
+进程限制需要覆盖任务及其后代。构建命令启动编译器，测试再启动服务，只限制最外层 shell 会遗漏这些执行路径。执行器应将它们纳入同一受控范围，使用低权限身份，并限制其他任务进程、宿主设备和管理接口的访问；子进程也应继承这些约束。否则程序可能通过更高权限的服务间接操作原本不可访问的资源。
 
-Linux 的 namespace（命名空间）可以让进程拥有不同的挂载、进程编号或网络视图；这解释了容器内为什么可以看到不同的目录与进程列表。可见性还需要与用户权限、能力限制等机制配合。容器通常共享宿主内核，虚拟机则运行自己的客体内核，由虚拟化层隔开；二者的信任边界不同。虚拟机仍可通过共享目录或被传入的管理接口访问宿主资源，因此“在 VM 中运行”不足以推导具体访问权限。
+Linux 命名空间（namespace）为进程提供不同的挂载、进程编号或网络视图，容器因此可以显示不同的目录和进程列表。视图隔离还需结合用户权限、能力限制等机制。容器通常共享宿主内核，虚拟机运行独立客体内核，信任边界有所不同；但虚拟机仍可通过共享目录或传入的管理接口访问宿主资源，具体权限必须逐项检查。
 
-覆盖范围也要先选定。整进程隔离把 Agent、扩展和工具一起放入边界，模型连接、持久化数据和凭证也要为这一部署安排出口。只隔离工具则让 Agent 留在宿主，选定的文件或命令操作进入沙箱，集成较方便，但未接管的文件工具与扩展代码仍拥有宿主权限。检查范围时需要沿所有实际执行路径核对，不能只看 bash 命令是否带了一个包装器。
+隔离部署还需要确定覆盖哪些代码。整进程隔离将 Agent、扩展与工具一同放入环境，同时安排模型连接、持久数据和凭证的访问。工具隔离保留宿主上的 Agent，仅将选定操作交给沙箱，集成较方便；未接管的文件工具与扩展仍保有宿主权限。覆盖检查应沿全部实际执行路径进行，仅包装 bash 不足以证明所有操作受限。
 
-### 网络：出站访问和测试服务分别授权
+### 8.1.3 网络：出站访问与测试服务
 
-这次任务需要下载依赖时，可以先在受控准备阶段取得依赖，再关闭执行阶段的外部访问；也可以允许执行环境通过指定出口访问依赖源。前一种方式便于复用固定输入，后一种方式适合必须联网的任务，却需要控制目标地址、协议和使用的凭证。限制应落实到网络策略或代理等执行机制，不能只禁用一个下载工具，因为 Python 和测试代码同样可以发出请求。
+依赖下载可以安排在受控准备阶段，执行阶段随后关闭外部网络；也可以在运行期间允许指定出口访问依赖源。预先准备便于复用固定输入，运行时联网则适合必须访问外部资源的任务，但需要限制目的地址、协议及凭证。策略应由网络配置或代理执行，单独禁用下载工具无法限制 Python、测试代码等其他客户端。
 
 网络允许列表还要考虑宿主地址、内网服务和云环境的元数据服务。即使程序只打算下载公开包，给它完整宿主网络仍可能暴露这些额外目标。网络命名空间提供不同的网络视图，具体允许哪些流量仍取决于配置的接口、路由与过滤规则。相关 Linux 机制见 [namespaces(7)](https://man7.org/linux/man-pages/man7/namespaces.7.html)。
 
-本地 HTTP 测试则需要环境内部的回环通信：测试客户端连接同一环境中的服务。如果用户要从外部预览页面，执行器还要显式转发或发布端口，并决定哪些调用方可访问它。内部服务能够启动，不代表宿主自动能连上；开放一个预览端口也不要求开放任意出站访问。任务结束时，服务进程和端口映射都属于需要清理的资源。
+本地 HTTP 测试需要环境内部的回环通信，使测试客户端能够访问同一环境中的服务。用户从外部预览时，还需显式转发或发布端口，并确定允许访问的调用方。内部服务启动并不自动使宿主可连接；发布预览端口也不要求开放任意出站流量。任务结束后，服务进程与端口映射都应回收。
 
-## 资源额度怎样改变执行结果
+## 8.2 资源配额与执行时限
 
-脚本即使没有越权，也可能耗尽机器资源。假设解析器测试进入循环：CPU 配额可以限制它挤占其他任务的计算能力，但循环依然可能永不结束；执行时限才会使这次任务最终停止。另一种测试不断积累输入，即使 CPU 使用很少，也可能耗尽内存。因此执行器需要分别选择额度，并记录究竟是哪一种限制导致任务结束。
+权限正确的脚本仍可能耗尽资源。解析器测试陷入循环时，CPU 配额可以限制它占用的计算份额，却未必使其结束，执行时限负责终止持续过久的工作。测试不断积累输入时，则可能在低 CPU 使用下耗尽内存。各项额度需要独立设置，并保存触发终止的具体原因。
 
 | 限制 | 约束什么 | 对任务的影响 |
 | --- | --- | --- |
@@ -48,22 +48,22 @@ Linux 的 namespace（命名空间）可以让进程拥有不同的挂载、进�
 
 这些限制需要明确计量范围。给每个编译器单独限制内存，无法直接约束十个编译器的总和；逐条命令都满足时限，也不能保证整个任务按时结束。进程数量、磁盘和日志空间同样会被消耗，可按工作负载补充上限。Linux 的 cgroup 将进程组织在层级中，由不同控制器管理资源，适合对一个任务及其后代统一计量与约束；它与文件访问授权是不同职责。具体语义见 [Linux cgroup v2 文档](https://www.kernel.org/doc/html/latest/admin-guide/cgroup-v2.html)。
 
-资源额度不等于权限。内存只有少量可用的进程，仍可能读取已挂载的凭证；网络被禁用的程序，仍可能覆盖可写目录。设计时应分别写出允许的操作和允许消耗的资源，再检查两者是否都已经生效。
+访问权限控制程序能够操作什么，资源配额控制它可以消耗多少。低内存额度不会阻止读取已挂载的凭证，关闭网络也不会阻止覆盖可写目录。执行器应分别配置和核验这两类约束。
 
 ![文件、进程和网络限制访问边界，CPU、内存和时长限制资源消耗](figures/08-concept-boundaries.svg)
 
-图中访问控制与资源配额分开配置和核验，任一类限制都不会自动替代另一类。
+图中的访问控制与资源配额分别限制可访问对象和可消耗资源，需要独立确认是否生效。
 
-## 从准备环境到取回补丁
+## 8.3 执行环境的生命周期
 
-负责管理环境的监督者应留在任务无法随意修改的控制范围内。它保存任务标识、输入版本、环境标识、权限配置、截止时间和最终状态。以一次解析器修改为例，完整过程如下：
+环境监督者负责创建、监控和回收执行环境，应位于任务代码无法任意修改的控制范围内。它记录任务标识、输入版本、环境标识、权限配置、截止时间和最终状态。以下以解析器任务说明各阶段及其完成条件。
 
-1. 监督者选择包含所需 shell、Git、Python 和构建工具的基础环境，建立本次任务的工作副本，记录输入版本。复用已有环境可以减少启动成本，但需要确认没有前次任务留下的文件、后台服务或秘密。
-2. 放入输入，设置只读与可写挂载，选择执行身份，配置网络出口和资源额度。只传入本次操作需要的环境变量和凭证。监督者核验配置已经生效，再允许任务启动；必要的隔离建立失败时，任务应以准备失败结束。
-3. Agent 通过受控工具执行修改、构建与测试。监督者持续收集 stdout（标准输出）、stderr（标准错误输出）、退出状态和资源使用，区分普通测试失败、权限拒绝、资源超限与运行中的任务。输出过大时可以保留摘要并另存完整日志，同时限制日志占用的存储。
-4. 命令完成后收集结果；任务取消或超时后，监督者要求其停止，再在有限宽限期后强制终止仍存活的任务进程。检查范围要包含编译器、后台测试服务和其他后代。只让调用方停止等待，不能证明执行已经停止。
-5. 确认进程退出后，取回补丁、报告和允许的产物，保存结束原因。失败任务也可能留下有用日志或部分改动，但不能把它们记成验证通过的结果。采用独立工作副本时，先核对改动再写回目标版本。
-6. 移除端口映射、临时挂载和工作空间，撤回临时凭证，销毁环境或完成复用前的清理。若清理失败，记录残留资源并继续回收，避免把仍有进程的环境重新分配给另一个任务。
+1. 监督者选择具有所需 shell、Git、Python 和构建工具的基础环境，建立工作副本并记录输入版本。复用环境可以降低启动成本，但必须检查前次任务是否遗留文件、后台服务或秘密。
+2. 监督者放入输入，配置只读和可写挂载、执行身份、网络及资源额度，仅传入本次操作需要的环境变量和凭证。确认配置生效后再启动任务；必需隔离无法建立时，以准备失败结束。
+3. Agent 经受控工具修改代码、构建并测试。监督者收集 stdout（标准输出）、stderr（标准错误输出）、退出状态与资源使用，以区分测试失败、权限拒绝、资源超限和仍在运行。大量输出可保留摘要并另存完整日志，同时限制日志存储。
+4. 正常完成后进入结果收集；取消或超时后先请求停止，在有限宽限期后强制终止仍存活的任务进程及其后代，包括编译器和后台测试服务。调用方停止等待不构成进程终止证据。
+5. 确认进程退出后，取回允许的补丁、报告和产物，保存结束原因。失败任务的日志与部分改动仍可保留，但不能标为验证通过。独立工作副本的修改需要核对后再写回目标版本。
+6. 监督者移除端口映射、临时挂载与工作空间，撤回临时凭证，销毁环境或完成复用前清理。清理失败时记录残留资源并继续回收，不能将仍有任务进程的环境分配给下一项工作。
 
 ![环境依次经历准备、运行、终止、取回产物和清理](figures/08-concept-lifecycle.svg)
 
@@ -80,56 +80,56 @@ flowchart LR
     F --> G[核对写回并清理环境]
 ```
 
-图中的“终止”和“清理”是执行器要确认完成的动作。执行器若与任务一同崩溃，需要另一个管理进程根据环境记录和期限回收资源。保留容器或 VM 可以方便调查失败，却也延长了资源占用与秘密暴露时间，应限定保留期限和访问者。
+执行器需要确认终止与清理真正完成。若执行器也随任务崩溃，另一个管理进程应依据环境记录与期限回收资源。为调查失败而暂时保留容器或 VM，会延长资源占用和秘密暴露时间，因此还需限定保留期限与访问者。
 
-## 出错时根据哪份证据继续
+## 8.4 隔离故障、写入冲突与结果未知
 
-沙箱初始化失败后如果直接改用宿主 shell，同一条命令就获得了不同权限。允许这种回退的交互式工具需要明确报告实际后端；要求强制隔离的任务应停止启动。是否继续由任务的隔离要求决定，不能把一次成功的本机执行记成沙箱执行成功。
+初始化失败后的回退会改变实际权限。允许回退到宿主 shell 的交互式工具，应明确报告所用后端；要求强制隔离的任务则应停止启动。本机执行成功只能作为本机执行证据，不能记为沙箱验证成功。
 
-另一种遗漏发生在覆盖范围：bash 受到限制，但 Agent 的文件工具仍能直接写宿主目录。这种行为走的是未覆盖的入口。它与利用内核或虚拟化漏洞突破边界的“逃逸”不同，排查时先核对工具路径、挂载、传入的凭证和管理接口，再调查边界本身。沙箱只能保护其实施并覆盖到的资源，不能对所有漏洞作绝对保证。
+隔离不完整也可能来自未覆盖的执行入口。例如 bash 已受限制，文件工具却仍直接写宿主目录。这与利用内核或虚拟化漏洞突破边界的沙箱逃逸不同。排查时应检查工具路由、挂载、凭证和管理接口，再调查隔离机制自身。保护范围仅限实际覆盖并实施限制的资源，也不能据此排除所有漏洞。
 
-两个任务也可能各自在正确配置的容器中，却同时挂载同一份可写源码。任务甲读取旧文件，任务乙写入修改，甲随后按旧内容保存，就会覆盖乙的结果。两个任务都遵守了沙箱规则，问题是共享写入缺少协调。独立工作副本能隔开执行期间的修改；写回时还需比较基准版本、合并差异，或串行提交。若使用 worktree，仍要协调共享 Git 状态。隔离环境的数量不能代替写入冲突控制。
+环境隔离与共享写入协调是不同要求。两个容器同时可写挂载同一源码时，任务甲读取旧文件，任务乙写入后，甲再保存旧基础上的修改，仍会覆盖乙。独立工作副本可以分离执行期间的改动；写回时还需比较基准版本、合并差异或串行提交，使用 worktree 时也要协调共享 Git 状态。
 
-还有一种失败发生在命令结束之后：环境已经写出产物，结果通知却丢失。控制侧此时只能记录结果未知，并按任务标识查询环境或检查产物；直接重跑可能重复外部操作。取消任务和销毁环境都不会自动撤销已经发出的网络请求或已经落到宿主可写挂载中的更改。[重试与超时](06-retry-timeout-idempotency.md) 讨论这类结果未知时如何决定下一步。
+还有一种失败发生在命令结束之后：环境已经写出产物，结果通知却丢失。控制侧此时只能记录结果未知，并按任务标识查询环境或检查产物；直接重跑可能重复外部操作。取消任务和销毁环境都不会自动撤销已经发出的网络请求或已经落到宿主可写挂载中的更改。[第 6 章 重试、超时与幂等](06-retry-timeout-idempotency.md) 讨论这类结果未知时如何决定下一步。
 
-## Pi 对照：先创建环境，再把操作交给它
+## 8.5 参考实现：Pi 的环境创建与执行路由
 
-Pi 的环境接口可以表达文件与命令操作，但上述隔离规则需要具体后端实施。先看 Durable 实验 harness 的本机请求，再看可选扩展如何改变覆盖范围。
+Pi 的环境接口统一表达文件与命令操作，具体隔离限制由后端实施。以下先追踪实验 durable harness 的本机工具调用，再比较远端路由与可选扩展的覆盖范围。
 
-假设当前会话的项目目录是 `/work/project`，模型请求工具运行 `git status`。输入是命令和会话工作目录，结果是命令输出、退出状态或错误。一次调用按以下顺序完成：
+假设会话工作目录为 `/work/project`，模型请求运行 `git status`。工具接收命令和工作目录，经过环境后端执行，最终返回输出、退出状态或错误。调用顺序如下。
 
 1. 工具任务先调用 `runtime.env(context)`，经 `Harness.buildEnv()` 从当前 `AgentDoc` 读取会话的 `cwd`，再交给应用配置的环境工厂。本例工厂返回本机 `NodeExecutionEnv`。
-2. 工具任务把创建好的环境放进工具 API，再调用工具。工具里的 `requireEnv()` 只读取已经注入的环境；没有配置时，它会报普通错误，不会创建默认环境。
+2. 工具任务将创建好的环境注入工具 API，再调用工具。工具里的 `requireEnv()` 只读取已经注入的环境；没有配置时，它会报普通错误，不会创建默认环境。
 3. `createBashTool` 从参数中取出命令和可选超时，把环境的工作目录作为 cwd 传给 `env.exec()`。cwd（当前工作目录）是相对路径的起点。环境变量是传给程序的键值配置；实际传入哪些值取决于环境的合并选项。
 4. 本机后端在该目录启动命令并收集 stdout 和 stderr。stdout 是程序的正常输出流，stderr 是错误输出流。命令完成后，后端把输出、退出状态或错误交给工具；工具再把结果写入会话，供后续模型请求读取。
 
-宿主是运行 Pi 的机器和进程。本例的宿主就是启动 Durable harness 的机器，命令也在宿主进程权限下运行。命令被取消或设置的超时到达时，Node 环境会结束对应的进程树；内置 bash 工具没有默认超时，只有调用方提供超时才会按时限结束命令。
+在这个本机例子中，宿主是启动 durable harness 的机器，命令使用该进程的权限。Node 环境在收到取消或达到已设置的超时时，会终止对应进程树。内置 bash 工具没有默认超时，只有调用方提供时限后才据此终止命令。
 
-这条路径属于 Durable 实验 harness。稳定版 coding-agent 的内置 bash 默认走本机 `BashOperations`，不经过 `ExecutionEnv`。扩展可以替换 `BashOperations`，例如把 bash 操作交给远端或沙箱。两套接口表达相似的执行需求，具体工具如何接入后端由各自运行路径决定。
+稳定版 coding-agent 的内置 bash 默认使用本机 `BashOperations`，不经过实验 harness 的 `ExecutionEnv`。扩展可以替换 `BashOperations`，将命令转交远端或沙箱。两套接口表达相似需求，但后端接入位置和默认路径不同。
 
-### 同一条命令要在远端运行时
+### 8.5.1 同一命令的远端执行
 
-若项目在另一台机器上，应用可以让环境工厂为这次工具调用返回 `RemoteExecutionEnv`。工具仍提交 `git status`，后端改为通过 SSH 在远端执行，再把结果送回会话。SSH 是建立远端连接并以远端账号启动程序的通道；daemon 是连接期间在远端运行、负责实际文件与命令操作的进程。应用显式配置了远端后端时才会走这条路径，稳定版 CLI 的本机 bash 不会默认经过它。
+SSH 提供连接远端并以远端账号启动程序的通道。项目位于远端时，应用可显式配置环境工厂返回 `RemoteExecutionEnv`。工具仍提交 `git status`，后端经 SSH 建立连接，以远端账号执行，并将结果返回会话。daemon 是连接期间在远端执行文件和命令操作的进程。稳定 CLI 默认本机 bash 不会自动采用这一路由。
 
-操作过程仍是取得环境、解析工作目录和命令参数、执行、收集并返回结果。远端版本把执行环境换成 `RemoteExecutionEnv`：它通过连接把 cwd、命令和环境覆盖项发送给 daemon；daemon 在远端账号下运行命令；连接按请求 ID 把输出和最终结果送回工具。请求 ID 用来将并行操作的响应交给发起它的调用。远端的文件与进程权限由远端账号及其操作系统决定。
+远端后端向 daemon 发送 cwd、命令与环境覆盖项，daemon 按远端账号和操作系统权限运行。连接为每次请求分配 ID，将并发操作的输出及最终结果关联回原调用。取得环境、解析参数、执行和返回的逻辑次序保持一致，实际文件与进程操作发生在远端。
 
 ![Durable 工具通过 ExecutionEnv 路由到本机或远端后端，宿主控制侧保持关联](figures/08-env-routing.svg)
 
-这张图只描述执行路由，没有表示文件、网络或资源策略已生效。远端只改变了操作执行的位置。主机密钥验证、daemon 部署、消息帧与断线后的写入状态属于连接实现细节，放在本章末尾的源码补充中。
+图示表示执行位置和结果关联，不表示文件、网络或资源策略已经生效。主机密钥校验、daemon 部署、协议帧及断线状态在 8.7 节说明。
 
-## Pi 的可选隔离部署覆盖哪些操作
+## 8.6 参考实现：可选隔离部署的覆盖范围
 
-下面两个示例分别使用 OS 沙箱和 micro-VM。对照前面的设计，需要检查实际接管了哪些工具、映射了哪些宿主资源，以及隔离初始化失败后怎样处理。CPU、内存和执行时长也需要分别检查，环境接口提供取消方法并不代表资源额度已经启用。
+可选 sandbox 与 Gondolin 示例分别使用操作系统沙箱和 micro-VM。核对部署时，需要检查工具覆盖、宿主资源映射及初始化失败处理，同时分别检查 CPU、内存和执行时限。环境接口具有取消方法，不等于这些配额已经配置。
 
-### sandbox 扩展怎样启用和回退
+### 8.6.1 sandbox 扩展的启用与回退
 
 仓库中的 sandbox 扩展示例在 macOS/Linux 上初始化 sandbox runtime，再通过 `createSandboxedBashOps()` 和 `wrapWithSandbox()` 包装命令。它替换 `bash`，也为用户输入的 `!` 提供沙箱操作。示例默认配置启用沙箱；启动时读取全局和项目配置，并检查命令行的 `--no-sandbox` 标志。平台不支持、配置关闭或初始化失败时，示例会保留本机 bash 操作。`read/write/edit` 没有被这个扩展示例替换，因此不能据此认为所有文件操作都经过沙箱。它是可选扩展，Pi 默认没有强制沙箱策略（[packages/coding-agent/examples/extensions/sandbox/index.ts:55-139](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/examples/extensions/sandbox/index.ts#L55-L139)、[packages/coding-agent/examples/extensions/sandbox/index.ts:130-150](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/examples/extensions/sandbox/index.ts#L130-L150)、[packages/coding-agent/examples/extensions/sandbox/index.ts:201-285](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/examples/extensions/sandbox/index.ts#L201-L285)）。
 
-### Gondolin 把什么映射进虚拟机
+### 8.6.2 Gondolin 的虚拟机映射
 
-Gondolin 示例把七个内置工具和用户输入的 `!` 转交给 micro-VM。启动时，`VM.create()` 把 `/workspace` 挂载到 `RealFSProvider(localCwd)`。该挂载允许虚拟机修改宿主工作区中的文件，路径转换只负责让工具找到映射后的文件。
+Gondolin 将七个内置工具和用户输入的 `!` 转交 micro-VM。初始化调用 `VM.create()`，通过 `RealFSProvider(localCwd)` 将宿主工作区映射到 `/workspace`。该挂载可写，因此虚拟机内的文件修改会影响宿主工作区；工具路径转换负责定位映射后的文件。
 
-bash 的 `env` 只去掉非字符串值，没有过滤敏感变量。文件凭证仍放在宿主文件系统，但通过宿主环境变量传入的 provider key 可能进入 VM。审查这类配置时，需要同时看工具覆盖了哪些操作、哪些宿主目录被挂载，以及哪些环境变量被传入（[packages/coding-agent/examples/extensions/gondolin/index.ts:67-85](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/examples/extensions/gondolin/index.ts#L67-L85)、[packages/coding-agent/examples/extensions/gondolin/index.ts:315-363](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/examples/extensions/gondolin/index.ts#L315-L363)、[packages/coding-agent/examples/extensions/gondolin/index.ts:379-398](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/examples/extensions/gondolin/index.ts#L379-L398)、[packages/coding-agent/examples/extensions/gondolin/index.ts:443-520](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/examples/extensions/gondolin/index.ts#L443-L520)）。
+bash 的 `env` 仅移除非字符串值，没有过滤敏感变量。文件凭证仍放在宿主文件系统，但通过宿主环境变量传入的 provider key 可能进入 VM。审查这类配置时，需要同时看工具覆盖了哪些操作、哪些宿主目录被挂载，以及哪些环境变量被传入（[packages/coding-agent/examples/extensions/gondolin/index.ts:67-85](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/examples/extensions/gondolin/index.ts#L67-L85)、[packages/coding-agent/examples/extensions/gondolin/index.ts:315-363](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/examples/extensions/gondolin/index.ts#L315-L363)、[packages/coding-agent/examples/extensions/gondolin/index.ts:379-398](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/examples/extensions/gondolin/index.ts#L379-L398)、[packages/coding-agent/examples/extensions/gondolin/index.ts:443-520](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/examples/extensions/gondolin/index.ts#L443-L520)）。
 
 容器化文档还区分 whole-process 与 tool-only。整进程部署把 Pi 和扩展一起放进容器；只隔离工具则只转交选定的操作。Docker、Docker Sandboxes 和 OpenShell 是文档列出的外部部署方案，仓库默认启动路径不会自动启用它们（[packages/coding-agent/docs/containerization.md:3-27](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/docs/containerization.md#L3-L27)）。
 
@@ -143,17 +143,17 @@ bash 的 `env` 只去掉非字符串值，没有过滤敏感变量。文件凭�
 
 ![工具通过环境接口选择执行位置，访问和资源约束由实际后端实施](figures/08-execution-boundaries.svg)
 
-### 默认权限与未实现的策略
+### 8.6.3 默认权限与未实现的策略
 
 Pi 默认继承启动用户和进程的权限。仓库根文档说明，Pi 没有内置的文件、进程、网络或凭证访问限制系统；默认本地操作也按这个方式执行（[README.md:88-96](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/README.md#L88-L96)、[packages/coding-agent/src/core/tools/bash.ts:96-118](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/core/tools/bash.ts#L96-L118)）。
 
 远端连接可能在文件已写入、结果尚未返回时断开。客户端此时无法确认写入结果。等待中的请求会以错误结束并标记为 `lost`，当前写操作不会自动重放；下一次请求才会启动新 daemon。文件句柄带有打开它的 session ID，因此旧句柄不会误指向新 daemon 重新编号的句柄。重连恢复通信，但不提供事务恢复、自动回滚或写入结果确认（[packages/env/src/connection.ts:164-199](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/env/src/connection.ts#L164-L199)、[packages/env/src/connection.ts:307-320](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/env/src/connection.ts#L307-L320)、[packages/env/src/remote-env.ts:130-155](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/env/src/remote-env.ts#L130-L155)）。
 
-这些实现没有统一的路径白名单、网络授权、秘密代理或租户资源配额。应用需要这些限制时，必须由实际部署的后端或整进程隔离来实施，并确认所有相关工具都经过该边界。本地与 remote 的一致性测试检查 API 语义；容器和 VM 的安全策略仍需单独验证。
+这些实现尚未提供统一的路径白名单、网络授权、秘密代理或租户配额。需要相关限制的应用，应在实际后端或整进程隔离部署中实施，并确认工具全部经过所需边界。本机与 remote 的一致性测试验证 API 行为，不能替代容器或 VM 的安全策略验证。
 
-## 源码补充
+## 8.7 参考实现：环境接口与远端连接协议
 
-### 环境结果和本机命令输出
+### 8.7.1 环境结果与本机命令输出
 
 Durable 环境把可预期的失败作为结果返回，形式是 `{ ok: true, value }` 或 `{ ok: false, error }`。文件操作和命令操作使用各自的错误类型；工具将成功值或错误转成会话可保存的工具结果。这个 `Result` 类型表达一次操作的结果，不建立文件或进程访问规则（[packages/durable/src/env/index.ts:4-4](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/env/index.ts#L4-L4)）。
 
@@ -167,9 +167,9 @@ Durable 环境把可预期的失败作为结果返回，形式是 `{ ok: true, v
 
 stdout 和 stderr 分别解码，因此多字节字符跨数据块时仍能保留。取消或超时会终止命令的进程树，`cleanup()` 清理环境仍在追踪的命令（[packages/durable/src/env/node.ts:708-736](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/env/node.ts#L708-L736)、[packages/durable/src/env/node.ts:833-936](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/env/node.ts#L833-L936)、[packages/durable/src/env/node.ts:1220-1224](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/env/node.ts#L1220-L1224)）。
 
-命令输出超过保留阈值时，完整原始输出会写入临时文件，结果保留供模型读取的输出窗口，并通过诊断给出完整输出路径。spill 指的就是这份临时文件。命令的 stdout 与 stderr 会被收集为工具输出；退出码非零时，工具结果仍带输出和退出码，并标记为错误。
+输出超过保留阈值时，工具将完整原始内容写入临时文件，即 spill；返回结果保留供模型阅读的输出窗口，并在诊断中给出完整路径。stdout 与 stderr 都进入工具输出。退出码非零时，结果仍保存输出及退出码，同时标记错误。
 
-### 远端连接、SSH 身份与 daemon
+### 8.7.2 远端连接、SSH 身份与 daemon
 
 `RemoteExecutionEnv` 先从 `hello` 取得远端操作系统、主目录和各盘符的工作目录，再按远端规则解析路径。`exec()` 检查取消与超时，然后构造 `command` 或 `argv` 请求。连接为每次请求分配 ID，再按 ID 把结果和错误交还调用者。daemon 为文件操作使用 16 个 worker 线程；较长的 `exec/watch` 各自使用线程。取消会在操作开始前登记，因此紧随请求到达的取消也能生效（[packages/env/src/remote-env.ts:347-399](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/env/src/remote-env.ts#L347-L399)、[packages/env/src/remote-env.ts:834-930](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/env/src/remote-env.ts#L834-L930)、[packages/env/src/connection.ts:214-305](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/env/src/connection.ts#L214-L305)、[packages/env/daemon/src/main.rs:389-436](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/env/daemon/src/main.rs#L389-L436)）。
 
@@ -179,9 +179,43 @@ SSH 主机密钥指纹由 `scanHostKey()` 沿实际 SSH 路线取得。主机拥
 
 远端命令默认继承 daemon 所在机器的环境。客户端发送 `shellEnv` 和本次 `env` 覆盖项，不会把本地 `process.env` 全量复制进 SSH 请求；设 `inheritEnv: false` 后，命令也不再继承 daemon 的环境（[packages/env/src/remote-env.ts:850-881](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/env/src/remote-env.ts#L850-L881)、[packages/env/docs/semantics.md:45-60](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/env/docs/semantics.md#L45-L60)）。
 
-SSH 连接两端每 5 秒发送一次 ping。daemon 连续 30 秒收不到字节或 stdin 结束时，会杀掉自己启动的进程组。每个协议帧最多 16 MiB，大传输由客户端拆块。启动时输出的随机 `PI-ENV <token>` 让客户端跳过远端 Shell 的杂项输出，找到协议起点；它是同步标记，不提供用户授权。stdin、stdout、stderr 是程序的标准输入、标准输出和错误输出流。daemon 在连接期间读取 stdin、写入 stdout，不提供 HTTP 服务。协议帧是客户端与 daemon 交换的消息单位，包含长度、类型、请求 ID、JSON 和原始字节（[packages/env/src/connection.ts:12-17](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/env/src/connection.ts#L12-L17)、[packages/env/src/connection.ts:322-369](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/env/src/connection.ts#L322-L369)、[packages/env/daemon/src/main.rs:438-488](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/env/daemon/src/main.rs#L438-L488)）。
+SSH 连接两端每 5 秒发送一次 ping。daemon 连续 30 秒收不到字节或 stdin 结束时，会终止自己启动的进程组。每个协议帧最多 16 MiB，大传输由客户端拆块。启动时输出的随机 `PI-ENV <token>` 让客户端跳过远端 Shell 的杂项输出，找到协议起点；它是同步标记，不提供用户授权。stdin、stdout、stderr 是程序的标准输入、标准输出和错误输出流。daemon 在连接期间读取 stdin、写入 stdout，不提供 HTTP 服务。协议帧是客户端与 daemon 交换的消息单位，包含长度、类型、请求 ID、JSON 和原始字节（[packages/env/src/connection.ts:12-17](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/env/src/connection.ts#L12-L17)、[packages/env/src/connection.ts:322-369](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/env/src/connection.ts#L322-L369)、[packages/env/daemon/src/main.rs:438-488](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/env/daemon/src/main.rs#L438-L488)）。
 
-## 测试与练习
+## 8.8 源码定位
+
+| 机制 | 源码入口 |
+| --- | --- |
+| 执行环境接口 | [packages/durable/src/env/index.ts:171-236](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/env/index.ts#L171-L236) |
+| 环境工厂与注入 | [packages/durable/src/harness/harness.ts:229-235](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/harness/harness.ts#L229-L235) |
+| 本机命令与环境变量 | [packages/durable/src/env/node.ts:652-680](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/env/node.ts#L652-L680) |
+| 远端命令请求 | [packages/env/src/remote-env.ts:834-930](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/env/src/remote-env.ts#L834-L930) |
+| 断线与待处理请求 | [packages/env/src/connection.ts:164-199](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/env/src/connection.ts#L164-L199) |
+| SSH 主机身份校验 | [packages/env/src/ssh.ts:72-120](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/env/src/ssh.ts#L72-L120) |
+| daemon 活性检测 | [packages/env/daemon/src/main.rs:438-488](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/env/daemon/src/main.rs#L438-L488) |
+| 可选 sandbox 扩展 | [packages/coding-agent/examples/extensions/sandbox/index.ts:55-139](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/examples/extensions/sandbox/index.ts#L55-L139) |
+
+## 8.9 本章术语
+
+| 通用概念 | 定义 |
+| --- | --- |
+| 沙箱 | 由系统机制实施访问限制与资源约束的执行环境 |
+| 宿主与客体 | 承载环境的机器，以及虚拟机内部的系统 |
+| 挂载 | 将目录呈现在环境内的指定路径，可分别配置读写权限 |
+| 工作副本 | 任务执行时使用的工作文件，其写回需遵守目标路径与版本约束 |
+| 资源配额 | 对任务及其后代消耗的 CPU、内存等资源设定限制 |
+
+下表列出 Pi 接口与远端连接中的术语。
+
+| 术语 | 在这个项目中的含义 |
+| --- | --- |
+| `ExecutionEnv` | 实现文件与命令操作的后端接口，声明为 `extends FileSystem, Shell` |
+| `requireEnv()` | 工具读取执行环境的入口；应用没有配置环境时会报普通错误 |
+| daemon | 远端连接期间运行的 Rust 进程，读 stdin、写 stdout，执行实际系统调用 |
+| 协议帧（frame） | 客户端与 daemon 交换的消息单位，带长度、类型、请求 ID、JSON 和原始字节 |
+| spill | 命令输出超过阈值时，将完整原始输出写入临时文件的机制 |
+| known-hosts | 记录已接受主机密钥的专用文件；同类型主机密钥变化时拒绝自动接受 |
+
+## 8.10 练习
 
 环境测试先检查后端是否遵守同一份接口契约。[packages/durable/test/env-node-conformance.test.ts:33-60](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/test/env-node-conformance.test.ts#L33-L60) 让 Node 后端复用一致性测试，包含 polling 模式；[packages/env/test/conformance.test.ts:10-30](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/env/test/conformance.test.ts#L10-L30) 则在本地 pipe 上对 remote 后端检查相同契约。
 
@@ -199,15 +233,4 @@ node ../../node_modules/vitest/dist/cli.js --run test/env-node-conformance.test.
 
 remote 测试还需要已有的 daemon 二进制，缺少它时会明确失败。阅读和上述临时文件练习不要求自动安装或构建 daemon（[packages/env/test/daemon.ts:4-13](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/env/test/daemon.ts#L4-L13)）。
 
-[MCP 工具适配](09-tools-mcp.md) 继续讨论模型可以调用哪些工具；[权限与秘密](10-permissions-secrets.md) 解释授权钩子、认证 token 与 OS 隔离分别控制什么。
-
-## 源码位置与术语速查
-
-| 术语 | 在这个项目中的含义 |
-| --- | --- |
-| `ExecutionEnv` | 实现文件与命令操作的后端接口，声明为 `extends FileSystem, Shell` |
-| `requireEnv()` | 工具读取执行环境的入口；应用没有配置环境时会报普通错误 |
-| daemon | 远端连接期间运行的 Rust 进程，读 stdin、写 stdout，执行实际系统调用 |
-| 协议帧（frame） | 客户端与 daemon 交换的消息单位，带长度、类型、请求 ID、JSON 和原始字节 |
-| spill | 命令输出超过阈值时，将完整原始输出写入临时文件的机制 |
-| known-hosts | 记录已接受主机密钥的专用文件；同类型主机密钥变化时拒绝自动接受 |
+[第 9 章 工具基础设施与 MCP](09-tools-mcp.md) 继续讨论模型可以调用哪些工具；[第 10 章 权限、安全与凭据](10-permissions-secrets.md) 解释授权钩子、认证 token 与 OS 隔离分别控制什么。
