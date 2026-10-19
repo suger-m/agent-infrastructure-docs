@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1000" viewBox="0 0 1200 1000" role="img" aria-labelledby="title desc">
   <title id="title">Pi Agent Infra 默认与实验运行路径</title>
-  <desc id="desc">完整展示默认 CLI 与 SDK 路径、实验 durable 路径、两条路径共用的 pi-ai、工具与外部服务，以及 Session、Storage、Chord、Worker 和执行环境之间的关系。</desc>
+  <desc id="desc">完整展示默认 CLI 与 SDK 路径、实验 durable 路径、两条路径共用的 pi-ai、工具与外部服务，以及 Session、Storage、Chord、durable 任务与执行环境之间的关系。</desc>
   <rect width="1200" height="1000" fill="#f8fafc"/>
   <text x="52" y="66" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="30" font-weight="700">Pi Agent Infra：默认与实验运行路径</text>
   <text x="52" y="104" fill="#475569" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20">先分清两套执行引擎，再看它们共用哪些模型、工具与状态组件。</text>
@@ -66,7 +66,7 @@
 
   <rect x="70" y="530" width="300" height="90" rx="16" fill="#fffbeb" stroke="#b45309" stroke-width="2"/>
   <text x="220" y="566" text-anchor="middle" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="19" font-weight="700">
-    <tspan x="220">实验服务与</tspan><tspan x="220" dy="26">Session Worker</tspan>
+    <tspan x="220">durable 会话与</tspan><tspan x="220" dy="26">任务提交</tspan>
   </text>
   <rect x="440" y="545" width="310" height="90" rx="16" fill="#f5f3ff" stroke="#7c3aed" stroke-width="2"/>
   <text x="595" y="582" text-anchor="middle" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="20" font-weight="700">
@@ -74,7 +74,7 @@
   </text>
   <rect x="860" y="545" width="290" height="90" rx="16" fill="#f5f3ff" stroke="#7c3aed" stroke-width="2"/>
   <text x="1005" y="582" text-anchor="middle" fill="#0f172a" font-family="system-ui, -apple-system, Segoe UI, Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="19" font-weight="700">
-    <tspan x="1005">Chord 服务</tspan><tspan x="1005" dy="26">与状态副本</tspan>
+    <tspan x="1005">Chord 状态副本</tspan><tspan x="1005" dy="26">与链路</tspan>
   </text>
 
   <rect x="70" y="700" width="250" height="90" rx="16" fill="#f5f3ff" stroke="#7c3aed" stroke-width="2"/>

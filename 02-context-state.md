@@ -221,6 +221,14 @@ Pi 的压缩过程依次完成预算判断、选择切点、生成摘要、保�
 
 扩展可通过 `session_before_compact` 取消默认处理或提供自定义摘要。返回的保留起点仍决定原文范围。示例 `custom-compaction.ts` 使用另一个模型生成摘要，却返回准备阶段的 `firstKeptEntryId`，因此仍保留近期尾段；顶部注释声称“丢弃全部旧回合”，与实际返回值不一致，应按实现理解。
 
+### 2.8.6 参考实现：durable 侧的压缩策略与失败处理
+
+durable harness 的压缩是一个可持久任务 `pi.compaction`：先在 `select` 阶段提交选定切点的检查点，再在 `summarize` 阶段发送摘要请求，重试退避以 sleeping 状态保存，最后把摘要条目经提交放置。与默认 CLI 相比，有三点值得对照。
+
+- 按模型覆盖策略：`settings.compaction.modelOverrides` 以精确的 `"provider/modelId"` 为键，对指定模型逐字段覆盖整体压缩策略（`enabled`、`reserveTokens`、`keepRecentTokens`、`backgroundTokens`），使同一 harness 同时服务大小窗口模型；阈值判断、溢出恢复和压缩任务都使用其所服务模型的对应条目，见[压缩策略选择](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/src/harness/compaction.ts#L260-L270)与[设置类型](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/src/harness/types.ts#L515-L519)，默认值见[默认策略](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/src/harness/agent.ts#L27-L27)。
+- 摘要请求内容：串行化对话时省略 system 与 thinking 块。重放的 thinking 常常不在实际上下文中，包含它可能使摘要请求大于被摘要的上下文而每轮失败；工具结果文本被截断到固定字符数，见[对话串行化](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/src/harness/compaction.ts#L373-L404)。请求的输出上限取预留量的 80% 与模型输出上限的较小值（[摘要请求构造](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/src/harness/compaction.ts#L143-L154)）。
+- 失败处理：摘要重试退避以 `{ status: "sleeping" }` 检查点保存，进程可在退避期间停止或休眠，重开后在到期之前再次入睡，见[退避与重试阶段](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/src/harness/compaction.ts#L203-L221)。失败会记入 `pi.live.compactionFailure`；被阻塞的代在其阻塞阈值压缩失败、被隔离或中止时不再继续发送请求，而是以 `model_error`（`Compaction failed: …`）结束，见[阻塞压缩失败处理](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/src/harness/generation.ts#L355-L379)。
+
 ## 2.9 参考实现：会话重开与任务恢复的范围
 
 ### 2.9.1 JSONL 历史的重建

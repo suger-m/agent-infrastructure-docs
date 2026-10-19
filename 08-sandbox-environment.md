@@ -138,6 +138,7 @@ bash 的 `env` 仅移除非字符串值，没有过滤敏感变量。文件凭�
 | Durable 的 `ExecutionEnv` | 由应用配置的后端 | 接口本身没有访问控制策略 |
 | `NodeExecutionEnv` | 本机 Node 文件与进程操作 | cwd 是路径基准；权限来自启动进程的用户 |
 | `RemoteExecutionEnv` | 远端 Rust daemon | SSH 账号和远端操作系统决定可访问范围 |
+| `LocalExecutionEnv` | 本机 Node 操作；`listFiles` 经本机 pi-env daemon | 其余操作仍是 `NodeExecutionEnv`；daemon 连接由调用方关闭 |
 | sandbox 扩展示例 | OS 沙箱中的 bash，以及用户 `!` | 其他文件工具未被替换；关闭或初始化失败时回退本机 bash |
 | Gondolin 扩展示例 | micro-VM 中的七个内置工具和用户 `!` | 工作区可写挂载，未接管的扩展仍可能在宿主执行 |
 
@@ -181,6 +182,16 @@ SSH 主机密钥指纹由 `scanHostKey()` 沿实际 SSH 路线取得。主机拥
 
 SSH 连接两端每 5 秒发送一次 ping。daemon 连续 30 秒收不到字节或 stdin 结束时，会终止自己启动的进程组。每个协议帧最多 16 MiB，大传输由客户端拆块。启动时输出的随机 `PI-ENV <token>` 让客户端跳过远端 Shell 的杂项输出，找到协议起点；它是同步标记，不提供用户授权。stdin、stdout、stderr 是程序的标准输入、标准输出和错误输出流。daemon 在连接期间读取 stdin、写入 stdout，不提供 HTTP 服务。协议帧是客户端与 daemon 交换的消息单位，包含长度、类型、请求 ID、JSON 和原始字节（[packages/env/src/connection.ts:12-17](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/env/src/connection.ts#L12-L17)、[packages/env/src/connection.ts:322-369](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/env/src/connection.ts#L322-L369)、[packages/env/daemon/src/main.rs:438-488](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/env/daemon/src/main.rs#L438-L488)）。
 
+### 8.7.3 交互式终端、文件列举与平台名映射
+
+pi-env 还直接暴露两类连接能力，供扩展与应用使用；本章的内置工具调用尚未使用它们。
+
+伪终端（PTY）用于运行需要交互的程序。`openTerminal(connection, options)` 请求 daemon 的 `pty` 操作并返回 `RemoteTerminal`，选项含 cwd、argv、env、cols、rows 与 `onData` 回调（[packages/env/src/terminal.ts:6-18](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/env/src/terminal.ts#L6-L18)）。终端输出以原始字节事件按序到达 `onData`；`write()` 按到达顺序发送输入，超过 1 MiB 的输入被切成多次写入；`resize()` 修改尺寸后程序收到 `SIGWINCH`；`close()` 或连接丢失都会终止程序的整个进程组（[packages/env/src/terminal.ts:55-89](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/env/src/terminal.ts#L55-L89)、[packages/env/src/terminal.ts:92-127](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/env/src/terminal.ts#L92-L127)）。`foreground()` 在终端前台不是程序本身时报告前台的进程组，例如 shell 正在运行的编辑器，macOS 与 Linux 下附带 leader 名称（[packages/env/src/terminal.ts:20-24](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/env/src/terminal.ts#L20-L24)、[packages/env/src/terminal.ts:73-82](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/env/src/terminal.ts#L73-L82)）。daemon 的 pty 操作仅支持 Unix，Windows 上回答 `ENOTSUP`；`localDaemon()` 返回本机对应的 daemon 二进制路径，可为本地会话启动终端（[packages/env/src/ssh.ts:361-368](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/env/src/ssh.ts#L361-L368)）。
+
+文件列举是环境接口上的可选操作 `listFiles`：返回目录树下深度优先的条目（文件、目录、未跟随的符号链接），在 `maxEntries`、`maxBytes`、`timeoutMs` 等边界处提前结束并置 `truncated`；默认跳过 `.git` 及 git 忽略规则命中的路径，包括已跟踪文件（[packages/durable/src/env/index.ts:170-206](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/src/env/index.ts#L170-L206)、[packages/durable/src/env/index.ts:245-255](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/src/env/index.ts#L245-L255)）。`RemoteExecutionEnv.listFiles` 经 daemon 执行（[packages/env/src/remote-env.ts:723-736](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/env/src/remote-env.ts#L723-L736)）；对端 daemon 若不支持，`hello` 的 `features` 不含 `listFiles`，调用立即以 `not_supported` 失败，调用方回退到自己的遍历（[packages/env/src/list-files.ts:20-41](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/env/src/list-files.ts#L20-L41)、[packages/env/src/connection.ts:36-53](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/env/src/connection.ts#L36-L53)）。daemon 用 `FEATURES` 数组声明能力，忽略语义由 git ignore 匹配实现（[packages/env/daemon/src/main.rs:34](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/env/daemon/src/main.rs#L34)、[packages/env/daemon/src/list.rs:100-103](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/env/daemon/src/list.rs#L100-L103)）。`LocalExecutionEnv` 组合 `NodeExecutionEnv` 与本机 daemon 连接：只有 `listFiles` 走 daemon，其余仍是 Node 操作，使本机与远端共用同一份列举代码（[packages/env/src/list-files.ts:74-102](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/env/src/list-files.ts#L74-L102)）。
+
+平台名映射：daemon 用 Rust 的拼写报告系统与架构，`nodePlatform(info)` 把它们映射为 Node 的名称（`windows`→`win32`、`macos`→`darwin`、`x86_64`→`x64`、`aarch64`→`arm64`，其余保留），便于与 `process.platform` 和 `process.arch` 比较（[packages/env/src/connection.ts:55-64](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/env/src/connection.ts#L55-L64)）。
+
 ## 8.8 源码定位
 
 | 机制 | 源码入口 |
@@ -192,6 +203,9 @@ SSH 连接两端每 5 秒发送一次 ping。daemon 连续 30 秒收不到字节
 | 断线与待处理请求 | [packages/env/src/connection.ts:164-199](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/env/src/connection.ts#L164-L199) |
 | SSH 主机身份校验 | [packages/env/src/ssh.ts:72-120](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/env/src/ssh.ts#L72-L120) |
 | daemon 活性检测 | [packages/env/daemon/src/main.rs:438-488](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/env/daemon/src/main.rs#L438-L488) |
+| 交互终端（PTY） | [packages/env/src/terminal.ts:92-127](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/env/src/terminal.ts#L92-L127) |
+| 文件列举 listFiles | [packages/env/src/list-files.ts:20-72](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/env/src/list-files.ts#L20-L72) |
+| 平台名映射 | [packages/env/src/connection.ts:55-64](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/env/src/connection.ts#L55-L64) |
 | 可选 sandbox 扩展 | [packages/coding-agent/examples/extensions/sandbox/index.ts:55-139](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/examples/extensions/sandbox/index.ts#L55-L139) |
 
 ## 8.9 本章术语
@@ -213,6 +227,8 @@ SSH 连接两端每 5 秒发送一次 ping。daemon 连续 30 秒收不到字节
 | daemon | 远端连接期间运行的 Rust 进程，读 stdin、写 stdout，执行实际系统调用 |
 | 协议帧（frame） | 客户端与 daemon 交换的消息单位，带长度、类型、请求 ID、JSON 和原始字节 |
 | spill | 命令输出超过阈值时，将完整原始输出写入临时文件的机制 |
+| `listFiles` | 可选的文件树列举操作；daemon 不支持时以 `not_supported` 失败，调用方自行遍历 |
+| 伪终端（PTY） | 在 daemon 上运行的交互终端，按原始字节流收发事件 |
 | known-hosts | 记录已接受主机密钥的专用文件；同类型主机密钥变化时拒绝自动接受 |
 
 ## 8.10 练习

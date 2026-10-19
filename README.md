@@ -33,6 +33,8 @@ Agent 基础设施进一步处理长期运行和并发执行中的问题。任�
 | [第 11 章　可观测性与调试](11-observability-debugging.md) | 执行追踪、指标、延迟、用量、成本、故障排查 | 从执行记录定位问题，并通过汇总指标判断影响范围 |
 | [第 12 章　评估与回放](12-evaluation-replay.md) | 数据集、评分标准、成功率、回归比较、模型裁判 | 将任务要求转化为可检查的标准，比较不同版本的执行结果 |
 
+[附录 A　Codemode 专题](appendix-codemode.md)不属于十二章主线，以专题形式展开第 9 章的脚本调用组织方式：脚本模型与接口、工具声明渲染、执行边界，以及 durable 任务的确定性重放。
+
 ## 一项任务中的机制协作
 
 以批量修改多个项目配置为例，接收服务先确认请求者身份并检查项目访问权限，再将工作提交到任务队列。空闲 Worker 按调度规则领取任务，准备上下文并启动 Agent 循环。模型请求的文件读取、命令执行和网络访问，通过工具接口进入指定执行环境，并受权限与资源限制约束。
@@ -69,26 +71,26 @@ Agent 基础设施进一步处理长期运行和并发执行中的问题。任�
 
 Pi 的默认 CLI 使用 `AgentSession` 组织模型调用、工具执行与会话记录。实验 durable harness 将工作组织成可持久保存的任务，用于调度与恢复。两条路径共用部分模型与工具能力，但执行引擎、状态记录和恢复规则不同。普通会话重开主要恢复已有对话，持久任务恢复还需要重建未完成工作的执行状态。
 
-`pi-durable` [明确标为 Experimental](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/README.md#L1-L7)。`coding-agent/src/experimental` 下的入口属于实验路径，`examples` 提供可选扩展示例。示例需要经过相应配置才能接入应用。
+`pi-durable` [明确标为 Experimental](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/README.md#L1-L7)。`coding-agent/src/experimental` 现仅保留 `source-resolver.ts`（在源码运行时解析工作区别名），此前的 session worker 与服务端入口已随 `packages/client`、`packages/protocol`、`packages/server` 一并移除。`examples` 提供可选扩展示例，需要经过相应配置才能接入应用。
 
 ![Pi 默认 CLI 与实验持久任务路径，以及共用的模型、工具和会话组件](figures/00-runtime-map.svg)
 
 | 学习范围 | 项目材料与实现边界 |
 | --- | --- |
 | 运行循环、上下文与工具 | 包含模型调用、工具执行、流式事件、历史投影和压缩实现；通用长期记忆检索仍需额外设计 |
-| 排队与编排 | 包含输入队列、本地任务调度、Session Worker 和子 Agent 示例；输入队列的职责不同于通用任务队列，已有关系图也不构成完整 DAG 工作流引擎 |
+| 排队与编排 | 包含输入队列、本地任务调度、durable 持久任务调度与唤醒、子 Agent 示例；输入队列的职责不同于通用任务队列，已有关系图也不构成完整 DAG 工作流引擎 |
 | 持久执行与失败处理 | 实验路径提供持久状态、检查点和恢复案例；默认 CLI 的重试与会话记录有独立的适用范围；外部效果去重还取决于工具和服务 |
 | 状态与协调 | 包含事务、SQLite、快照与增量同步及本地执行权的实现材料；尚未构成完整的多主调度、分布式租约或数据库共识系统 |
 | 执行环境与安全 | 包含 Node、SSH 后端、沙箱示例、凭据保存、认证和工具拦截；执行位置本身不保证隔离，统一 ACL 与网络策略未默认内置 |
 | 观测与评估 | 包含事件、用量、成本、遥测接口及评估案例；完整自动追踪、指标后端和导出仍需接入；结果判定方式应按产物选择 |
 
-源码材料以 Pi 提交 `96abe9a5ad45005cae34ed1c52d42f71fc88bedc` 为基线。阅读其他版本时，应重新核对实现与行号。本地阅读版使用源码相对路径，GitHub 发布版使用固定提交的源码链接；两种版本的正文与图示保持一致。
+源码材料以 Pi 提交 `96abe9a5ad45005cae34ed1c52d42f71fc88bedc` 为基线。阅读其他版本时，应重新核对实现与行号。本次修订将 durable 睡眠与唤醒、崩溃循环保护、SQLite schema 迁移、chord 宿主运行时、环境 PTY 与文件列举等新增内容对照提交 `482c1381a` 补充，其余章节的行号仍按基线理解。本地阅读版使用源码相对路径，GitHub 发布版使用固定提交的源码链接；两种版本的正文与图示保持一致。
 
 在 Pi 仓库中，可从 `docs/agent-infra/README.md` 开始阅读。独立文档仓库的本地阅读分支为 `local-vscode`，要求它与 `pi` 源码目录位于同一个父目录；远程 `main` 为 GitHub 发布版。章节中的测试命令需要在 Pi 源码仓库的指定目录执行。实际模型评估、SSH、容器和微虚拟机案例还需要相应执行环境。
 
 ## 图示索引
 
-全书包含 24 张通用概念图和 21 张 Pi 实现图，均位于相应解释之后。概念图说明参与者、状态与操作关系，实现图用于核对项目流程。03 的输入边界图只覆盖消息排队，07 的订阅图只覆盖状态副本同步，08 的路由图只覆盖执行后端；这些图都不代表该章通用能力的全部范围。
+全书包含 24 张通用概念图和 22 张 Pi 实现图，均位于相应解释之后。概念图说明参与者、状态与操作关系，实现图用于核对项目流程。03 的输入边界图只覆盖消息排队，07 的订阅图只覆盖状态副本同步，08 的路由图只覆盖执行后端，附录 A 的重放图只覆盖 durable Codemode；这些图都不代表该章通用能力的全部范围。
 
 下表列出 Pi 实现图，通用概念图索引接在其后。
 
@@ -107,6 +109,7 @@ Pi 的默认 CLI 使用 `AgentSession` 组织模型调用、工具执行与会�
 | [10 · 权限与凭证](10-permissions-secrets.md) | [项目信任、工具拦截与服务认证](figures/10-permission-layers.svg) | 区分加载权限、工具调用与系统访问 |
 | [11 · 可观测性](11-observability-debugging.md) | [事件、统计与遥测接入](figures/11-observation-flow.svg) | 已有记录与待接入的遥测能力 |
 | [12 · 评估与回放](12-evaluation-replay.md) | [从任务计划到配对报告](figures/12-evaluation-flow.svg) | [评估结果配对](figures/12-evaluation-pairs.svg) |
+| [附录 A · Codemode](appendix-codemode.md) | [启动数据、日志与重启重放](figures/codemode-replay.svg) | 脚本调用、journal 与重放拒绝条件 |
 
 通用概念图按章索引如下：
 

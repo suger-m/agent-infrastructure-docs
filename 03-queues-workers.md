@@ -125,7 +125,7 @@ Pi 根据运行路径维护不同的排队对象。默认 CLI 使用内存输入
 | --- | --- | --- |
 | durable 的 `pi.inbox` | 等待交给一个会话的新输入或写入 | 输入消息的等待与消费时机 |
 | durable scheduler | 持久任务及其当前执行尝试 | 判断可运行性、登记和启动任务、重开恢复 |
-| 实验 Session worker | 一个 Session 的服务与活跃任务 | 专属会话的执行进程 |
+| durable 任务归属 | generation 拥有的任务与 conversation 所有的任务 | 任务与对话的完成关系及放置路径 |
 | subagent 扩展的并发循环 | 单次调用中的一批子任务 | 本地执行槽与待处理列表 |
 
 收件箱中的一条补充要求不一定独立启动一份任务；同一轮 Agent 工作可能消费多条消息。另一方面，一个会话内部可以有多个持久任务。只有先分清排队的对象，才能判断“输入已放置”“任务正在运行”和“Worker 还活着”分别说明什么。
@@ -164,33 +164,35 @@ durable 的运行框架 Harness 通过调度器（scheduler）将任务记录转
 
 开始执行前，调度器先检查任务是否仍需等待、是否已被取消，以及对应代码是否已安装。符合条件时，它在一次状态提交中将任务记为 `running`，登记本次执行；提交成功后，再在状态提交线外调用处理函数。这样任务等待网络或工具时，其他状态更新仍能保存。调度入口和预留逻辑见 [packages/durable/src/harness/scheduler.ts L1094-L1195](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/harness/scheduler.ts#L1094-L1195)，启动逻辑见 [packages/durable/src/harness/scheduler.ts L1301-L1338](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/harness/scheduler.ts#L1301-L1338)。
 
-### 3.7.3 Session worker 的会话归属
+### 3.7.3 任务归属与串行提交线
 
-Harness 的承载方式由宿主决定。在 durable 实验服务中，一个 Session（会话实例）由专属 Node 子进程承载，同一会话的多个客户端附件共享这个进程。该 worker 管理本会话的服务、请求和活跃任务，其分配单位是会话实例，不会从全局队列竞争领取单条输入。
+早期版本的 durable 实验服务曾为每个 Session（会话实例）启动专属 Node 子进程，这批 `session-worker` 入口已随服务端整体移除。承载进程的数量与位置现在完全由宿主决定，存储所有权则有硬性约定：同一时间只有一个进程拥有（owns）一份 storage，库本身不做跨进程锁，见 [packages/durable/README.md L772](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/README.md#L772)。会话归属由此表现为两条更细的规则。
 
-`session-worker-manager` 按 Session 路径复用现有或正在启动的 worker，需要时启动 `session-worker`，见 [packages/coding-agent/src/experimental/session-worker-manager.ts L175-L187](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/experimental/session-worker-manager.ts#L175-L187) 和 [packages/coding-agent/src/experimental/session-worker-manager.ts L449-L503](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/experimental/session-worker-manager.ts#L449-L503)。客户端断开后，如果请求或 Harness 任务仍在活动，worker 还要继续运行；`WorkerLifecycle` 会等连接需求、请求和 Harness 活动都清空后才退出，见 [packages/coding-agent/src/experimental/session-worker.ts L183-L305](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/experimental/session-worker.ts#L183-L305)。
+第一，任务按 `ownership` 区分。由某个 generation 拥有的任务与其持有者一起完成：阻塞式压缩由等待它的 generation 拥有，摘要直接追加到对话。没有持有者的任务归属 conversation 本身，例如后台压缩，其摘要经写提交（write submission）在空闲时立即放置，否则等下一个边界或被结算为 `stale`，见 [压缩摘要的放置](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/src/harness/compaction.ts#L427-L463)。
 
-worker 打开 SQLite 前还会取得目录锁，并用 `proper-lockfile` 的 stale 与 update 配置维护本地 Session 的所有权：[packages/coding-agent/src/experimental/session-worker.ts L509-L544](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/experimental/session-worker.ts#L509-L544)。目录锁保护这份本地会话存储，不是任务级租约，也不会让多个 worker 竞争领取任务。锁与活跃任务判断的实现分别见 [packages/coding-agent/src/experimental/session-worker.ts L509-L544](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/experimental/session-worker.ts#L509-L544) 和 [packages/coding-agent/src/experimental/session-worker.ts L585-L594](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/experimental/session-worker.ts#L585-L594)。
+第二，同一 conversation 的输入准入经过串行的提交线：`submit()` 把操作排入会话的串行执行线，保证同一会话的状态按顺序提交，见 [提交入口](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/harness/submissions.ts#L62-L95)。多个会话共享同一进程时，各自拥有独立的提交线；是否把不同会话放到不同进程是宿主的部署选择，不改变存储所有权的约定。
+
+与前一节的领取模型对比：这里没有全局队列竞争，执行单位是“每条会话一条串行提交线，加上归属明确的持久任务”。
 
 ### 3.7.4 subagent 示例的本地并发限制
 
-subagent 扩展展示了一个进程内的本地限流例子：一次调用最多接受 8 项并行任务，最多同时运行 4 项。`mapWithConcurrencyLimit()` 使用共享的 `nextIndex` 和多个异步循环逐项取任务，每项任务启动一个带 `--no-session` 的 `pi` 子进程。限制值、循环和子进程启动分别见 [packages/coding-agent/examples/extensions/subagent/index.ts L33-L36](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/examples/extensions/subagent/index.ts#L33-L36)、[packages/coding-agent/examples/extensions/subagent/index.ts L219-L237](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/examples/extensions/subagent/index.ts#L219-L237)、[packages/coding-agent/examples/extensions/subagent/index.ts L300-L350](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/examples/extensions/subagent/index.ts#L300-L350)。这是扩展对单次调用的本地限流，不是 durable scheduler 的默认并发配置。
+subagent 扩展展示了一个进程内的本地限流例子：一次调用最多接受 8 项并行任务，最多同时运行 4 项。`mapWithConcurrencyLimit()` 使用共享的 `nextIndex` 和多个异步循环逐项取任务，每项任务启动一个带 `--no-session` 的 `pi` 子进程。限制值、循环和子进程启动分别见 [限制常量](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/coding-agent/examples/extensions/subagent/index.ts#L34-L35)、[并发循环](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/coding-agent/examples/extensions/subagent/index.ts#L217-L235)、[子进程参数与启动](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/coding-agent/examples/extensions/subagent/index.ts#L298-L350)。这是扩展对单次调用的本地限流，不是 durable scheduler 的默认并发配置。
 
 八项任务进入本地并发循环后，最初四项占用执行槽；某项结束时，对应异步循环再取下一项。循环和槽位得到复用，但每项任务仍会新建 `pi` 子进程。这与复用长驻 Worker 的工作池具有不同的启动成本和状态隔离方式。四项上限只对本次调用生效，不能据此限定整个服务、全部用户或所有会话的总并发数。
 
 ### 3.7.5 重开后的任务恢复
 
-worker 退出时，原来的处理函数和 Promise 都留在已退出的进程内，无法恢复。Harness 重开时，`open()` 扫描仍活跃的任务，将遗留的 `running` 状态改回 `pending`，并保留 checkpoint、input 和 abort mark。重新打开本身不会立即分派任务；显式 `resume()`、提交输入或等待工作才会启用调度。恢复逻辑见 [packages/durable/src/harness/scheduler.ts L288-L321](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/harness/scheduler.ts#L288-L321)。
+承载进程退出时，原来的处理函数和 Promise 都留在已退出的进程内，无法恢复。Harness 重开时，`open()` 扫描仍活跃的任务，将遗留的 `running` 状态改回 `pending`，并保留 checkpoint、input 和 abort mark。这次切断同时计为一次重启：同一任务连续被切断达到 `settings.restartLimit`（默认 5）时会被停置，在 `inspect()` 与任务图中显示为阻塞（理由 `restart_limit`）并报告一次，`retryTask()` 可以让它再次运行，见 [重开与重启计数](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/src/harness/scheduler.ts#L348-L369) 与 [崩溃循环保护](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/README.md#L204)。重新打开本身不会立即分派任务；显式 `resume()`、提交输入或等待工作才会启用调度。
 
-调度前还需要找到任务对应的 kind/version 处理定义和迁移函数。缺定义、版本过旧或迁移失败会阻塞任务；registry 与宿主 settings 不持久化，因此宿主重启后必须重新安装任务代码并提供设置。缺定义的普通任务仍会影响空闲等待，主动取消时可按条件结算为 `orphaned`；带 `abandonOnRestart` 的任务会等定义可用，以便运行清理逻辑。查找位置见 [packages/durable/src/harness/scheduler.ts L1209-L1236](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/harness/scheduler.ts#L1209-L1236)。
+调度前还需要找到任务对应的 kind/version 处理定义和迁移函数。缺定义（`missing_task`）、记录版本过旧（`task_too_old`）、迁移失败（`migration_failed`）或达到重启上限（`restart_limit`）都会阻塞任务，阻塞理由是推导值而不是持久状态；registry 与宿主 settings 不持久化，因此宿主重启后必须重新安装任务代码并提供设置。缺定义的普通任务仍会影响空闲等待，主动取消时可按条件结算为 `orphaned`；带 `abandonOnRestart` 的任务会等定义可用，以便运行清理逻辑。原因分类与判定见 [阻塞原因](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/src/harness/scheduler.ts#L81-L85) 和 [blockedReason](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/src/harness/scheduler.ts#L421-L442)，定义匹配与迁移见 [版本匹配](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/src/harness/scheduler.ts#L1555-L1590)。
 
 ## 3.8 参考实现：共享任务服务的能力边界
 
-这里有持久输入、任务调度和本地并发循环，但它们还没有组成分布式队列系统。记录中的 `running` 表示调度器曾为任务建立一次执行，不带可过期的分布式租约；scheduler 没有任务租约、心跳、全局并发槽、优先级、租户配额或租约超时。`pi-durable` 要求一个进程拥有 storage，跨进程锁由宿主提供，约定见 [packages/durable/README.md L630-L641](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/README.md#L630-L641)。
+这里有持久输入、任务调度和本地并发循环，但它们还没有组成分布式队列系统。记录中的 `running` 表示调度器曾为任务建立一次执行，不带可过期的分布式租约；scheduler 没有任务租约、心跳、全局并发槽、优先级、租户配额或租约超时。`pi-durable` 约定同一时间只有一个进程拥有 storage，库本身不做跨进程锁，见 [packages/durable/README.md L772](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/README.md#L772)。
 
-实验 durable 任务已有包入口、存储适配器和测试，但仍标为 Experimental，[packages/durable/README.md L1-L7](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/README.md#L1-L7)。实验 client/server 只提供源码入口，不进入 npm 包和独立二进制，[packages/coding-agent/src/experimental/services/README.md L1-L12](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/experimental/services/README.md#L1-L12)。稳定版 coding-agent 默认内核没有因此改用这套执行方式。
+实验 durable 任务已有包入口、存储适配器和测试，但仍标为 Experimental，[packages/durable/README.md L1-L7](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/README.md#L1-L7)。此前的实验 client/server 包与 `coding-agent/src/experimental` 下的服务端入口已经整体移除；该目录现仅保留源码别名解析器 `source-resolver.ts`。稳定版 coding-agent 默认内核没有因此改用这套执行方式。
 
-若多个执行者要从共享积压中竞争领取工作，就需要共享任务存储、原子领取和执行资源管理。可以使用消息代理，也可以在满足并发与持久性要求的数据库上实现。当前没有共享 broker、ack/nack、可见性超时、死信队列或竞争消费；其中 nack 表示消费者报告本次交付未成功处理，是否重投还应由失败策略决定。跨主机接管还需处理租约续期与旧执行者写入，例如由存储校验 fencing token。Session worker 不会自动把会话实例迁移到另一台主机。
+若多个执行者要从共享积压中竞争领取工作，就需要共享任务存储、原子领取和执行资源管理。可以使用消息代理，也可以在满足并发与持久性要求的数据库上实现。当前没有共享 broker、ack/nack、可见性超时、死信队列或竞争消费；其中 nack 表示消费者报告本次交付未成功处理，是否重投还应由失败策略决定。跨主机接管还需处理租约续期与旧执行者写入，例如由存储校验 fencing token。durable 与宿主都不会自动把会话存储迁移到另一台主机。
 
 积压也需要单独设上限。inbox 准入没有队列长度或字节配额，本地 scheduler 没有全局任务并发预算。[分布式状态](07-distributed-state.md) 的公开状态交付通道有 100 帧上限，那约束观察通道，不能限制输入队列。
 
@@ -203,8 +205,10 @@ worker 退出时，原来的处理函数和 Promise 都留在已退出的进程�
 - inbox 变空时会保存完整 base（文档基准值），让恢复时少重放一段增量，见 [packages/durable/src/harness/inbox.ts L7-L29](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/harness/inbox.ts#L7-L29)。
 - `TaskRecord` 保存输入、版本、归属、检查点和取消标记；`Invocation` 保存本次处理函数、Promise、AbortController 和临时 watch。调度器的 `kick` 把 `drain` 排到 JavaScript 微任务中，随后执行预留和启动步骤。
 
-- `write` 可写入会话而不创建 generation；display-only 的 `note` 也是即时写入，不调用模型。若 reset 已排队，note 会排在 reset 后面。边界处理先放置 write，再放置选中的用户输入，因此 submission ID 顺序可能不同于 transcript entry 顺序。相关代码见 [packages/durable/src/harness/submissions.ts L160-L241](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/harness/submissions.ts#L160-L241) 和 [packages/durable/src/harness/inbox.ts L47-L110](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/harness/inbox.ts#L47-L110)。
+- `write` 可写入会话而不创建 generation；display-only 的 `note`（只含 `kind` 与 `data`）立即追加并结算 `done`，即使会话忙碌或已有排队项，也不调用模型。唯一例外是排队中的 reset 仍会使它等待，以免被 reset 隐藏；它不改变模型可见内容，并且不会再放置失败运行后遗留的排队项。边界处理先放置 write，再放置选中的用户输入，因此 submission ID 顺序可能不同于 transcript entry 顺序。相关代码见 [display-only 快速路径](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/src/harness/submissions.ts#L163-L195) 和 [inbox.ts L47-L110](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/harness/inbox.ts#L47-L110)。
+- 输入提交可携带 `entry: { kind, data }`（`InputEntry`）：输入以该 kind 的条目放置，内容作为 user 消息，其余行为与其他输入相同；kind 不得以 `pi.` 开头，排队期间由 `pi.inbox` 项携带这一信息。定义见 [types.ts L60](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/src/harness/types.ts#L60) 与 [inbox.ts L103-L128](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/src/harness/inbox.ts#L103-L128)。
 - 调用方可提供 `requestId`，在同一 conversation 内防止重复准入。同一个 ID 再次用于同类型 submission 时返回原记录，即使第二次内容不同；不同类型则报错。去重只约束输入准入，不会阻止外部工具重复产生副作用，见 [packages/durable/src/harness/submissions.ts L160-L241](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/harness/submissions.ts#L160-L241)。
+- 运行失败后排队输入的去向由 `settings.afterFailedRun` 决定：`keep`（默认）让它们留在队列等待下一次运行，`continue` 用它们启动下一轮，`withdraw` 把它们以 `run_failed` 结算为 `unanswered`，见 [失败运行的收尾](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/src/harness/generation.ts#L393-L419)。
 - `postTools` 默认选择第一条 steer，或按设置选择全部；`final` 对 follow-up 使用相同规则。queued reset 会让 `postTools` 按 `final` 处理。已被 reset 切出活动范围的 write 会结算为 stale。具体选择、写入顺序与移除规则见 [packages/durable/src/harness/inbox.ts L47-L110](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/harness/inbox.ts#L47-L110)。
 - 输入可以排在现有 inbox 项之后；显示型 write 只有遇到排队 reset 才必须等待。忙碌时选择 reject 会抛出 `ConversationBusy`。具体准入顺序见 [packages/durable/src/harness/submissions.ts L160-L241](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/harness/submissions.ts#L160-L241)。
 
@@ -217,7 +221,7 @@ worker 退出时，原来的处理函数和 Promise 都留在已退出的进程�
 | 边界消费（`final` / `postTools`） | `packages/durable/src/harness/generation.ts` |
 | 任务调度与恢复 | `packages/durable/src/harness/scheduler.ts` |
 | 任务记录与执行类型 | `packages/durable/src/types.ts` |
-| 会话子进程 | `packages/coding-agent/src/experimental/session-worker-manager.ts`、`session-worker.ts` |
+| 压缩摘要的放置（generation 拥有与 conversation 所有） | `packages/durable/src/harness/compaction.ts` |
 | 本地限流示例 | `packages/coding-agent/examples/extensions/subagent/index.ts` |
 
 ## 3.11 本章术语
@@ -231,7 +235,8 @@ worker 退出时，原来的处理函数和 Promise 都留在已退出的进程�
 | Generation | 一轮工作的执行单位，提供 `final` 与 `postTools` 两个消费边界 |
 | TaskRecord | 持久任务记录：输入、版本、归属、checkpoint 和取消标记 |
 | Invocation | 当前进程中的一次执行：AbortController、Promise 和临时 watch |
-| Session worker | 承载一个会话实例的专属 Node 子进程 |
+| InputEntry | 输入提交携带的条目描述（`kind` 与 `data`），放置后成为对应 kind 的条目 |
+| Blocked reason | 任务无法被预留的推导原因：`missing_task`、`task_too_old`、`migration_failed` 或 `restart_limit` |
 
 ## 3.12 练习
 
@@ -249,7 +254,7 @@ worker 退出时，原来的处理函数和 Promise 都留在已退出的进程�
 | [packages/durable/test/harness-submissions.test.ts L57-L107](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/test/harness-submissions.test.ts#L57-L107) | 忙碌时拒绝输入不产生写入；request ID 按 conversation 去重 |
 | [packages/durable/test/harness-submissions.test.ts L134-L147](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/test/harness-submissions.test.ts#L134-L147) | 取消等待后，已经放置的工作继续存在 |
 | [packages/durable/test/harness-submissions.test.ts L178-L221](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/test/harness-submissions.test.ts#L178-L221) | 重开后取回 submission；提交和等待都会启用调度 |
-| [packages/coding-agent/test/experimental-session-worker-lifecycle.test.ts L23-L107](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/test/experimental-session-worker-lifecycle.test.ts#L23-L107) | 客户端连接需求、Harness 活动和请求持有共同决定进程退出 |
+| [packages/durable/test/harness-failed-run-inbox.test.ts L35-L54](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/test/harness-failed-run-inbox.test.ts#L35-L54) | 失败运行后排队输入默认保留；`continue` 让它启动下一轮 |
 
 可以在纸上跟踪读取配置的当前工作、“保持只读”、“检查日志”和 note，逐次记录 inbox 与 submission 状态。再加入 queued reset，对照 `applyBoundary()` 看写入先于用户输入放置时会发生什么。这个练习无需真实模型，也不用修改文件。
 

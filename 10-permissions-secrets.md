@@ -188,11 +188,11 @@ HTTP MCP 服务未手写 Authorization header、也未配置 `auth.provider` 时
 
 提前刷新失败后，连接仍可能携带旧 token 发起请求，随后根据服务的 401 响应继续处理。15 秒超时针对单个 OAuth 网络请求，整次浏览器登录没有因此获得同样的总时限。默认文件存储使用进程间刷新锁，自定义后端若没有配置锁目录则没有这层进程间协调；锁失效仍可能让刷新重叠，不能把它理解成服务端提供的事务保证。
 
-### 10.8.1 Radius provider 与实验性 relay
+### 10.8.1 Radius provider 登录与凭证使用
 
 Radius 是另一种模型 provider 登录实现，用来对照 provider 凭证如何接入特定网关；它与 MCP 登录属于两条独立的服务连接流程。`createRadiusOAuth()` 提供 browser 和 device-code 两种方式。browser 从 gateway 的 `/v1/oauth` 发现授权页面，使用 PKCE、state 和 `127.0.0.1:1456/oauth/callback` 回调。device-code 与 refresh 分别直接访问 gateway 的 `/v1/oauth/device` 和 `/v1/oauth/token`。生成 provider auth 时读取 `credential.access`；这让 provider 识别连接方，不设置本机工具权限（[packages/ai/src/auth/oauth/radius.ts:18-27](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/ai/src/auth/oauth/radius.ts#L18-L27)、[packages/ai/src/auth/oauth/radius.ts:134-187](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/ai/src/auth/oauth/radius.ts#L134-L187)、[packages/ai/src/auth/oauth/radius.ts:189-268](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/ai/src/auth/oauth/radius.ts#L189-L268)、[packages/ai/src/auth/oauth/radius.ts:275-321](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/ai/src/auth/oauth/radius.ts#L275-L321)）。
 
-实验性 relay 使用 `RadiusRelayAuthResolver`。每次尝试连接时，它重新解析显式 token 或文件，也可以通过 `ModelRuntime` 取得已存储的 Radius auth，并要求 OAuth 至少还有五分钟有效期。设置 `PI_OFFLINE` 时不会建立 relay 认证连接。这个 resolver 只提供连接认证，没有多租户 RBAC 或统一秘密代理，也不使用 MCP OAuth store（[packages/coding-agent/src/experimental/radius-auth.ts:16-67](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/experimental/radius-auth.ts#L16-L67)）。
+Radius 登录只提供 provider 认证。coding-agent 的会话分享与 bug report 上传会复用这份凭证：分享要求 OAuth 至少还有五分钟有效期，把导出的会话 POST 到 gateway 的 `/v1/artifacts`，不可用时退回 gist；设置 `PI_OFFLINE` 时 bug report 不会上传。这些请求只证明连接方身份，不设置本机工具权限，也不构成多租户 RBAC（[packages/coding-agent/src/modes/interactive/session-share.ts:105-138](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/coding-agent/src/modes/interactive/session-share.ts#L105-L138)、[packages/coding-agent/src/modes/interactive/bug-report.ts:56](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/coding-agent/src/modes/interactive/bug-report.ts#L56)、[packages/coding-agent/src/modes/interactive/bug-report.ts:177-186](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/coding-agent/src/modes/interactive/bug-report.ts#L177-L186)）。
 
 ## 10.9 参考实现：默认能力与部署责任
 
@@ -221,7 +221,7 @@ Pi 的项目信任、服务认证、扩展钩子和执行环境分别检查不�
 | 凭据存储 | [默认文件存储](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/core/auth-storage.ts#L24-L67)、[锁与更新](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/core/auth-storage.ts#L116-L200) |
 | OAuth 登录校验 | [授权码交换](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/mcp/src/oauth/flow.ts#L354-L399)、[回调检查](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/mcp/src/oauth/callback.ts#L124-L162) |
 | MCP 凭据刷新 | [刷新协调](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/extensions/mcp/oauth.ts#L300-L374)、[授权范围变化](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/extensions/mcp/oauth.ts#L521-L550) |
-| 模型网关与实验 relay | [Radius 登录](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/ai/src/auth/oauth/radius.ts#L134-L187)、[实验 relay 认证](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/experimental/radius-auth.ts#L16-L67) |
+| 模型网关 | [Radius 登录](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/ai/src/auth/oauth/radius.ts#L134-L187)、[凭证复用（会话分享）](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/coding-agent/src/modes/interactive/session-share.ts#L105-L138) |
 
 源码可按调用阶段阅读：`project-trust.ts` 处理项目加载决定，`agent-session.ts` 提供工具拦截入口，`auth-storage.ts` 实现 provider 凭据存储，MCP 的 `oauth.ts` 与 `packages/mcp/src/oauth/` 组织服务授权和刷新。对应证据链接位于各参考实现段落；下面的测试入口提供离线核对材料。
 

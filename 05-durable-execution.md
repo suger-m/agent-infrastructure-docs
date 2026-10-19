@@ -156,11 +156,26 @@ Pi 的 checkpoint 是包含 `{ phase, ... }` 的 JSON 状态，调度器据此�
 
 阶段名称只有结合任务定义才有意义。数据库保存任务类型、版本、checkpoint 和输入；宿主注册表提供对应版本的阶段处理代码。恢复不会从数据库加载可执行的旧函数。
 
-打开时，[packages/durable/src/harness/scheduler.ts L288-L315](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/harness/scheduler.ts#L288-L315) 扫描 pending、running、waiting、completing 任务，把遗留的 running 改回 pending，同时保留 checkpoint、input 和 abort mark。之后，[packages/durable/src/harness/scheduler.ts L1317-L1383](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/harness/scheduler.ts#L1317-L1383) 根据 `checkpoint.phase` 选择处理函数。函数返回时必须留下持久进展，否则调度器会把任务判为故障，避免原地反复运行。
+打开时，[重开与重启计数](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/src/harness/scheduler.ts#L348-L369) 扫描 pending、running、waiting、sleeping、completing 任务，把遗留的 running 改回 pending，同时保留 checkpoint、input 和 abort mark，并计一次重启。之后，[phase 分派](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/src/harness/scheduler.ts#L1689) 根据 `checkpoint.phase` 选择处理函数。函数返回时必须留下持久进展，否则调度器会把任务判为故障，避免原地反复运行。
 
-前面讨论的状态迁移在这里由任务定义提供。调度器在 [packages/durable/src/harness/scheduler.ts L1209-L1236](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/harness/scheduler.ts#L1209-L1236) 按 kind/version 查找定义和 migration；缺少定义、当前版本过旧或迁移失败都会阻塞任务，并报告原因。
+前面讨论的状态迁移在这里由任务定义提供。调度器在 [版本匹配与迁移](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/src/harness/scheduler.ts#L1555-L1590) 按 kind/version 查找定义和 migration；缺少定义、当前版本过旧、迁移失败或连续重启达到上限都会阻塞任务，并报告原因。
 
-invocation 指调度器当前启动的一次处理函数执行。`runtime.sleep(until)` 只影响这次执行中的等待。若重开后仍需等到某个时间，应把绝对时间 `until` 写进 checkpoint，再由新 invocation 比较当前时间。内建 generation 的 retry 与 poll 阶段也采用这种方式。其他恢复所需数据应进入 checkpoint、memo、document 或 entry。缺少定义的普通任务仍算活跃，会影响空闲等待；主动取消时可按条件结算为 orphaned。设置 `abandonOnRestart` 的任务在重启取消时会等定义可用，以便执行清理。
+invocation 指调度器当前启动的一次处理函数执行。等待时间不再占用 invocation：`TaskRuntime.sleepUntil(until, checkpoint, context)` 提交一个 `sleeping` 检查点后结束本次执行，任务不持有处理函数、可以跨重启存活，宿主时钟到达 `until` 后才在检查点上恢复，见 [sleepUntil 类型](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/src/types.ts#L314-L329)。或者在提交中直接返回 `{ status: "sleeping", until, checkpoint }`，与其他写入一起保存。内建 generation 的 retry 与 poll 阶段、压缩重试都采用这种方式。因此重开后要等到某个时间时，绝对时间保存在记录本身，而不是内存计时器里。其他恢复所需数据应进入 checkpoint、memo、document 或 entry。缺少定义的普通任务仍算活跃，会影响空闲等待；主动取消时可按条件结算为 orphaned。设置 `abandonOnRestart` 的任务在重启取消时会等定义可用，以便执行清理。
+
+### 5.8.2 睡眠、宿主时钟与唤醒
+
+sleeping 任务的 `until` 与 checkpoint 一起提交，进程可在等待期间正常退出，不占用执行资源。让它在正确时间恢复需要宿主提供两个接口：`setTimer` 武装计时器（睡眠到期、进度节流、空闲驱逐等），`now` 提供时钟（默认 `setTimeout` 与 `Date.now`）。传入自己的实现即可在假时钟上测试。睡眠期限保存在 `now` 上，因此打开同一份存储的所有进程必须使用同一时钟，见 [HarnessOptions.setTimer/onWake](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/src/harness/types.ts#L631-L645)。
+
+没有 `onWake` 时，调度器在运行期间用计时器在到期时恢复睡眠任务，并让 Node 进程保持存活。进程可能被驱逐的宿主（如 Cloudflare Durable Object）则自己负责唤醒：提供 `onWake` 后调度器不再为睡眠武装计时器，而是在每次唤醒结果变化时回调宿主；宿主保持自己的 alarm 并在触发时调用 `resume()`。
+
+```typescript
+const wake = harness.wake(); // { active: boolean, at?: number }
+// active：现在就有可运行或运行中的任务；at：最早的睡眠到期时间
+```
+
+`Harness.wake()` 返回 `{ active, at }`，见 [Wake 类型](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/src/harness/types.ts#L662) 与 [wake()](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/src/harness/harness.ts#L273-L276)。调度器在微任务中重算唤醒结果，只在结果变化时通知宿主，见 [唤醒重算](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/src/harness/scheduler.ts#L1282-L1297)。README 给出了完整的 Durable Object 示例（fallback alarm、每处入口先武装再提交），见 [packages/durable/README.md L128-L210](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/README.md#L128-L210)。默认 `setTimer` 会拒绝那些只用于释放内存的计时器，避免挂起的计时器阻止 Workers 中的对象休眠，见 [timers.ts L51](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/src/timers.ts#L51)。
+
+内建任务的回退等待都已改为 sleeping 检查点：generation 的 retry 与 poll 在到期前入睡，见 [generation.ts L236-L253](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/src/harness/generation.ts#L236-L253)；压缩重试的退避同样如此，见 [compaction.ts L218-L221](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/src/harness/compaction.ts#L218-L221)。早期的记录如果停在退避中间，重开后到达期之前会再次入睡。
 
 ## 5.9 参考实现：模型请求重发与后台结果查询
 
@@ -183,8 +198,8 @@ prepare → 提交 request checkpoint
 | 重开时的 phase | 已保存的信息 | 恢复动作 |
 | --- | --- | --- |
 | `request` | 请求配置、cutoff、可能已有 partial | 将 partial 记为 aborted，再建立新请求 |
-| `retry` | attempt 与绝对 `until` | 等到时间，再发起下一次尝试 |
-| `poll` | provider handle 与 `pollAt` | 调用 `fetchDeferred()` 查询原后台响应 |
+| `retry` | attempt 与绝对 `until` | 以 sleeping 检查点等到时间，再发起下一次尝试 |
+| `poll` | provider handle 与 `pollAt` | 以 sleeping 等到期后调用 `fetchDeferred()` 查询原后台响应 |
 
 partial 默认每 100 ms 节流提交到 `LiveDoc.generation.message`，同一时间最多有一个提交进行。[packages/durable/src/harness/generation.ts L353-L420](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/harness/generation.ts#L353-L420) 中的 pending、timer、inFlight 留在内存，尚未落盘的增量可能随进程丢失。100 ms 是配置的提交间隔，不构成“最多丢 100 ms”的保证；实际时序还受机器与存储影响。终态处理会停止计时器并等待正在进行的提交完成，避免旧 partial 覆盖最终状态。
 
@@ -227,11 +242,13 @@ Session 的提交流程在 [packages/durable/src/session/session.ts L690-L742](h
 
 ### 5.11.2 后端保存内容与故障范围
 
-上述记录通过所选 Storage 后端提交。MemoryStorage 提供相同接口与原子语义，但进程退出后数据消失；跨进程恢复需要其他后端，[packages/durable/README.md L630-L639](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/README.md#L630-L639) 列出了差别。
+上述记录通过所选 Storage 后端提交。MemoryStorage 提供相同接口与原子语义，但进程退出后数据消失；跨进程恢复需要其他后端，[packages/durable/README.md L746-L772](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/README.md#L746-L772) 列出了差别。
 
 [packages/durable/src/types.ts L703-L748](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/types.ts#L703-L748) 定义的 `StorageWrite` 可以在同一批次保存 conversation、entry、task、submission 与 document base/delta。entry 保存不可变的交互记录，task 保存最新完整任务记录，document 保存应用状态。文档可保存完整值（base）和相对前一值的改动（delta）；读取时从 base 开始按顺序应用 delta。
 
 SQLite 后端在 [packages/durable/src/storage/sqlite/storage.ts L175-L198](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/storage/sqlite/storage.ts#L175-L198) 的单个数据库事务中检查 ID、写入表和文档，再推进 commit sequence。读取文档时，[packages/durable/src/storage/sqlite/storage.ts L607-L642](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/storage/sqlite/storage.ts#L607-L642) 取最新适用的 base 并按顺序应用同版本 delta；版本变化时需要新的 base。
+
+SQLite 表结构由有序 migration 管理，当前版本为 2：版本 2 为任务表加入 `sleeping` 状态；SQLite 不能就地修改 CHECK 约束，因此该表被重建。打开存储时自动迁移；迁移后的数据库不能再被 1.3.0 及更早版本打开，因为旧版本不认识新表结构。JSONL 无需迁移，但旧版本不会恢复它发现的睡眠任务。migration 列表与当前版本号见 [migrations.ts L91-L121](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/src/storage/sqlite/migrations.ts#L91-L121)。SQLite 驱动、通用 migration runner 与 Durable Object 适配器现在来自 `@earendil-works/chord/sqlite`，durable 侧只保留自己的 schema 历史，见 [migrations.ts L1-L8](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/src/storage/sqlite/migrations.ts#L1-L8)。`openNodeSqliteStorage` 与 `openDurableObjectSqliteStorage` 还接受 `{ prefix }`，为全部表与索引加前缀，便于与宿主表共用同一个数据库，见 [node.ts L14-L21](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/src/storage/sqlite/node.ts#L14-L21) 与 [schema.ts L47-L59](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/src/storage/sqlite/schema.ts#L47-L59)。
 
 WAL 是 write-ahead log（预写日志）：数据库先记录用于恢复的变更日志，再按数据库机制处理数据页。WAL 帮助本地数据库恢复；是否在断电后保留最新提交还取决于同步设置。进程崩溃、整机掉电和存储损坏是不同的故障范围，不能只凭“使用 SQLite”判断所有持久保证。
 
@@ -250,11 +267,16 @@ Node 的事务入口和设置分别见 [packages/durable/src/storage/sqlite/node
 
 Storage 错误的处理见 [packages/durable/src/session/session.ts L1049-L1075](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/session/session.ts#L1049-L1075)。Session 会锁定 failure 并关闭，Harness 不会自动重试。后端可能已经落盘后才向调用者抛错，所以没有收到确认不能证明提交没发生。重新打开后可以取回 submission，用相同 requestId 判断此前是否已经准入。
 
+### 5.11.4 文档缓存与内存保留
+
+5.11.1 提到的内存 tracker 还决定驻留量：Session 会缓存加载过的文档。缓存现在按使用情况有界：没有被 watch 或文档状态观察者持有的文档，在最近一次读写之后超过 `documentRetentionMs` 即离开内存，下次访问重新从 Storage 加载。默认 10 分钟，`0` 表示用后立即驱逐，`Infinity` 表示保留。设置位于 `HarnessSettings`（[types.ts L563](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/src/harness/types.ts#L563)）与 `createSession()` 选项（[session.ts L78-L101](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/src/session/session.ts#L78-L101)）。驱逐以最旧的空闲文档为调度对象，缩短保留期会提前触发，见 [session.ts L631-L690](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/src/session/session.ts#L631-L690)。在 5,000 个会话的基准中，这一缓存曾保留进程生命周期内所有被触碰的文档；启用保留后不再累积（`npm run bench:document-cache`）。
+
 ## 5.12 参考实现的覆盖范围
 
 以上恢复机制围绕单进程、单存储中的任务记录与执行选择。更大范围的协调没有在这套库里实现：
 
 - mutation line 只协调本进程里的会话；多主节点共识和跨进程事务协调未实现。
+- 睡眠依赖宿主提供一致的时钟与计时器：同一存储的所有进程必须共用同一个 `now`，睡眠任务要由 `setTimer` 计时器或宿主的 `onWake`/alarm 机制按时唤醒。内存中的计时器本身不持久，进程退出后只剩记录里的绝对时间。
 - 等待规则按任务定义是否可运行推进，没有队列自动重试次数策略；任务 lease、分布式抢占、共识，以及多个进程共同持有同一存储的协调也未实现。
 - 通用外部副作用的 exactly-once 保证和分布式事务未实现。必须发生的效果需要稳定 intent/key，加上外部幂等调用或 receipt 核对；多个独立系统要同时改变，还需另行设计协调协议。
 - 这仍是实验路径；稳定 coding-agent 的各类 session 并没有自动采用它。
@@ -263,6 +285,8 @@ Storage 错误的处理见 [packages/durable/src/session/session.ts L1049-L1075]
 
 | 阅读位置 | 覆盖的故障点 |
 | --- | --- |
+| [packages/durable/test/harness-sleep.test.ts L88-L166](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/test/harness-sleep.test.ts#L88-L166) | 睡眠不持有 invocation、跨重开存活、按检查点恢复 |
+| [packages/durable/test/harness-sleep.test.ts L260-L293](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/test/harness-sleep.test.ts#L260-L293) | `onWake` 下不为睡眠武装计时器；宿主拒绝的计时器退回 `setTimeout` |
 | [packages/durable/test/harness-tasks-recovery.test.ts L291-L425](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/test/harness-tasks-recovery.test.ts#L291-L425) | mark、abort、terminal、reservation 提交前后 |
 | [packages/durable/test/harness-tasks-recovery.test.ts L429-L524](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/test/harness-tasks-recovery.test.ts#L429-L524) | 缺定义、版本不兼容、migration 失败与更换定义 |
 | [packages/durable/test/harness-tools-recovery.test.ts L109-L163](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/test/harness-tools-recovery.test.ts#L109-L163) | unsafe interrupted；保存策略与当前声明都为 safe 的判定 |
@@ -282,6 +306,8 @@ Storage 错误的处理见 [packages/durable/src/session/session.ts L1049-L1075]
 | 状态迁移 | 将旧版本输入和检查点转换为当前定义可解释的数据 |
 | 重放策略 | 工具作者声明的重新调用许可；实际幂等性仍由工具与外部系统保证 |
 | mutation line | Session 内串行处理提交与一致快照读取的队列 |
+| Sleeping | 任务以 `{ until, checkpoint }` 检查点入睡的持久状态；不持有 invocation，到期后从检查点恢复 |
+| Wake / onWake | 宿主提示 `{ active, at }`：现在是否有工作、最早的睡眠时间；提供 `onWake` 后由宿主负责按时唤醒进程 |
 
 ## 5.15 练习
 

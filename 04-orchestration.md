@@ -128,7 +128,7 @@ Human-in-the-loop 指工作流在指定步骤等待人的输入或决定。本�
 
 ## 4.7 参考实现：Pi 的父子任务与工具委派
 
-以下实现主要位于 `packages/durable`；[README](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/README.md#L1-L7) 标明了它的 Experimental 状态，子任务、取消与 task graph 的说明见 [packages/durable/README.md L508-L596](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/README.md#L508-L596)。稳定 coding-agent 的 subagent 扩展与实验 durable TUI 各有入口。阅读时需确认所在路径，不能把实验任务的恢复行为视为默认 CLI 的能力。
+以下实现主要位于 `packages/durable`；[README](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/README.md#L1-L7) 标明了它的 Experimental 状态，子任务、取消与 task graph 的说明见 [packages/durable/README.md L624-L712](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/README.md#L624-L712)。稳定 coding-agent 的 subagent 扩展与实验 durable TUI 各有入口。阅读时需确认所在路径，不能把实验任务的恢复行为视为默认 CLI 的能力。
 
 ### 4.7.1 前台委派的执行与结果返回
 
@@ -212,13 +212,15 @@ durable plan 示例 [packages/durable/test/examples/27-plan-mode.ts L28-L62](htt
 
 提交时还有一条约束：owner 若已是 `terminal`、正在 `completing`，或带有 abort mark，就不能再接收新工作。[packages/durable/src/session/transaction.ts L852-L874](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/session/transaction.ts#L852-L874) 在组装提交时检查这一点。因而创建 child 并把父任务设为 waiting 可以在同一次提交中完成；若同一提交又结束 owner，则会被拒绝。父任务发出结束请求后等待的，是已经归属自己的工作。
 
+任务被反复切断时有崩溃循环保护：崩溃、驱逐或 reset 切断的任务在每次重开时计一次重启，连续达到 `settings.restartLimit`（默认 5）的任务会被停置，阻塞原因显示为 `restart_limit`，由报告回调给出一次 `task_parked`；`harness.retryTask(id)` 可以重新运行它，任务提交新状态后计数归零。见 [崩溃循环保护](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/README.md#L204) 与 [重启上限判定](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/src/harness/scheduler.ts#L421-L442)。
+
 ### 4.9.1 活跃任务关系视图
 
 Pi 的 live task graph 展示当前活跃任务的所有权与等待关系，供运行时观察使用。它与工作流设计中的概念依赖图用途不同；读取同一视图中的边时，仍需区分生命周期归属和显式等待。
 
-运行时可用 `Harness.taskGraph()` 查看仍在进行的任务。[packages/durable/src/harness/task-graph.ts L18-L43](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/harness/task-graph.ts#L18-L43) 的节点包含 live status、phase、owner、background、abortRequested、waiting.on/policy，以及任务拥有的 conversations。初始图由 [packages/durable/src/harness/task-graph.ts L107-L148](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/harness/task-graph.ts#L107-L148) 在 Session line 上原子构造，之后随 commit publication 更新，见 [packages/durable/src/harness/task-graph.ts L155-L207](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/harness/task-graph.ts#L155-L207)；terminal 节点会离开 live graph。
+运行时可用 `Harness.taskGraph()` 查看仍在进行的任务。[packages/durable/src/harness/task-graph.ts L19-L49](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/src/harness/task-graph.ts#L19-L49) 的状态包含 live status（`pending`/`running`/`waiting`/`sleeping`/`completing`，`sleeping` 带 `until`）与 phase，节点包含 owner、background、abortRequested、`blocked` 原因，以及任务拥有的 conversations。初始图由 [build](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/src/harness/task-graph.ts#L180-L200) 在 Session line 上原子构造，之后随 commit publication 更新，见 [advance](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/src/harness/task-graph.ts#L203-L251)；registry 变化或迁移失败后由 [refreshBlocked](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/src/harness/task-graph.ts#L159-L178) 重新推导阻塞原因。terminal 节点会离开 live graph。
 
-这个视图只保留 live records，完整历史以及 checkpoint/outcome 的大载荷要从其他入口读取。它也不说明 pending 为何 blocked；排查时可用 `harness.inspect()`，见[可观测性与调试](11-observability-debugging.md)。
+这个视图只保留 live records，完整历史以及 checkpoint/outcome 的大载荷要从其他入口读取。阻塞原因（`missing_task`、`task_too_old`、`migration_failed`、`restart_limit`）直接显示在节点上，并随注册表变化更新；更完整的检查仍可用 `harness.inspect()`，见[可观测性与调试](11-observability-debugging.md)。
 
 ## 4.10 参考实现：通用工作流的能力边界
 
@@ -228,7 +230,7 @@ Pi 的等待校验没有遍历全图找环。两个独立任务通过 `allSettle
 
 稳定 coding-agent subagent 扩展示例把执行状态留在一次调用的内存中。重启恢复需另外保存 checkpoint；这条路径也没有共享 broker 或跨主机调度。Reviewer 示例在临时目录和 MemoryStorage 中运行，没有创建真实 git worktree，也没有演示跨进程保存；其中角色和配置可以随 Harness 存储，跨进程保留仍取决于后端。Reviewer 不会自动把发现转成补丁或合并闸门，示例也没有设循环最大轮数。
 
-`TaskScheduler` 只在一个 Harness 实例内调度，目前没有跨机器编排服务或 worker lease。实验 services 也只暴露 root conversation；[packages/coding-agent/src/experimental/services/README.md L38-L45](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/experimental/services/README.md#L38-L45) 将 keyed subagent services 列为后续工作。因此前后台示例中的 conversation 关系尚未全部成为远端服务接口。
+`TaskScheduler` 只在一个 Harness 实例内调度，目前没有跨机器编排服务或 worker lease。早期的实验 services 层曾只暴露 root conversation，并把 keyed subagent services 列为后续工作；这批包与入口已整体移除，库内没有远端服务接口。因此前后台示例中的 conversation 关系只在本 Harness 实例内成立。
 
 ## 4.11 源码定位
 
@@ -271,5 +273,6 @@ Pi 的等待校验没有遍历全图找环。两个独立任务通过 `allSettle
 | [packages/durable/test/harness-task-graph.test.ts L84-L166](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/test/harness-task-graph.test.ts#L84-L166) | waiting、completing、owner conversations，以及 terminal 节点删除 |
 | [packages/durable/test/harness-task-graph.test.ts L168-L238](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/test/harness-task-graph.test.ts#L168-L238) | 重开后变为 pending，重放 graph operations |
 | [packages/durable/test/harness-tasks-recovery.test.ts L176-L245](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/test/harness-tasks-recovery.test.ts#L176-L245) | 取消 mark、abort handler 和 terminal 各阶段的恢复 |
+| [packages/durable/test/harness-tasks-recovery.test.ts L513-L526](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/test/harness-tasks-recovery.test.ts#L513-L526) | 定义无法迁移时任务保持阻塞；取消阻塞任务按条件结算为 orphaned |
 
 若自行验证，从 `packages/durable` 运行 `node ../../node_modules/vitest/dist/cli.js --run test/harness-task-graph.test.ts`，无需真实模型。支付示例使用内存假银行，其中的退款行为没有给真实外部系统增加事务保证。

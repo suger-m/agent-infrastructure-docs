@@ -2,11 +2,11 @@
 
 [返回目录](README.md) · [上一章：第 6 章 重试、超时与幂等](06-retry-timeout-idempotency.md) · [下一章：第 8 章 沙箱与执行环境](08-sandbox-environment.md)
 
-多个执行者共享任务时，系统需要确定状态更新如何共同提交、哪一个执行者拥有处理资格，以及读到的状态允许落后多久。本章先以两个 Worker 的任务领取和故障接管说明事务、租约与写入校验，再讨论数据库复制和一致性；随后介绍 Pi 的单进程 durable 存储与 Chord 只读状态同步，区分任务执行权和界面观察状态。
+多个执行者共享任务时，系统需要确定状态更新如何共同提交、哪一个执行者拥有处理资格，以及读到的状态允许落后多久。本章先以两个 Worker 的任务领取和故障接管说明事务、租约与写入校验，再讨论数据库复制和一致性；随后介绍 Pi 的单进程 durable 存储与 Chord 的对象状态同步，区分任务执行权和界面观察状态。
 
 假设 Agent 服务收到“读取资料并生成报告”的任务，将它存入数据库。Worker A 和 B 都能查询待办，用户在网页查看进度。两者可能同时发现同一任务，A 也可能在运行中失联，再于 B 接管后恢复；与此同时，页面还可能显示数据库副本中的旧状态。这些情况分别涉及并发领取、执行权换代和读取可见性，需要配合处理。
 
-下面先用共享数据库的双 Worker 系统说明通用设计。示例中的任务表、跨主机租约与接管协议属于教学架构，Pi 当前没有实现这套分布式调度；后半章再对照 Pi 的实验 durable 存储与 Chord 只读状态复制。本文的源码基线为提交 `96abe9a5ad45005cae34ed1c52d42f71fc88bedc`，持久化的提交顺序见[第 5 章 持久执行与恢复](05-durable-execution.md)，客户端与工具边界见[第 9 章 工具基础设施与 MCP](09-tools-mcp.md)。
+下面先用共享数据库的双 Worker 系统说明通用设计。示例中的任务表、跨主机租约与接管协议属于教学架构，Pi 当前没有实现这套分布式调度；后半章再对照 Pi 的实验 durable 存储与 chord 宿主运行时（Chord 部分按提交 `482c1381a` 重写）。本文的源码基线为提交 `96abe9a5ad45005cae34ed1c52d42f71fc88bedc`，持久化的提交顺序见[第 5 章 持久执行与恢复](05-durable-execution.md)，客户端与工具边界见[第 9 章 工具基础设施与 MCP](09-tools-mcp.md)。
 
 ## 7.1 原子领取与事务不变量
 
@@ -74,19 +74,19 @@ B 完成报告后，权威数据库保存“已完成”。为减轻主存储读
 
 ## 7.6 参考实现：单进程提交与本地所有权
 
-Pi 实验 durable 库以单进程拥有 storage 为前提，实验 Worker 使用本地目录锁维护 Session 所有权。它尚未实现前述跨主机任务租约和接管协议。以下介绍 durable 与 coding-agent services 的实验路径，不应据此将默认 CLI 视为分布式执行器。
+Pi 实验 durable 库以单进程拥有 storage 为前提，README 明确“同一时刻只有一个进程拥有 storage，没有跨进程锁”（[packages/durable/README.md L772](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/README.md#L772)）。它没有跨主机任务租约和接管协议，不应据此把默认 CLI 视为分布式执行器。
 
-Session 通过串行提交线组织状态修改，Node SQLite 使用 `BEGIN IMMEDIATE` / `COMMIT` 原子提交一个批次，并配置 WAL 与 `synchronous = NORMAL`。相关记录因此共享提交边界，重开后可以恢复；掉电仍可能丢失最近提交。Storage 成功后，Session 才采用内存状态并发布更新，conversation view 随 commit 改变。
+Session 通过串行提交线组织状态修改：`commitWith()` 把提交排入一条队列（[packages/durable/src/session/session.ts L232-L244](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/src/session/session.ts#L232-L244)），队列由 `#enqueue` 串行执行并进入 `#runCommit`（L880、L716）。SQLite 存储已迁到 chord 包，Node 适配器在事务开始时执行 `BEGIN IMMEDIATE`（[packages/chord/src/sqlite/node.ts L141](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/chord/src/sqlite/node.ts#L141)），打开时设置 `PRAGMA journal_mode = WAL` 与 `PRAGMA synchronous = NORMAL`（L183-L190）。durable 的 `openNodeSqliteStorage` 只是包一层并支持可选表名前缀（[packages/durable/src/storage/sqlite/node.ts L14-L22](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/src/storage/sqlite/node.ts#L14-L22)）。相关记录因此共享提交边界，重开后可以恢复；掉电仍可能丢失最近提交。
 
-实验目录锁的 stale 检测与周期 update 维护本地所有权，env 连接的定期 ping 与沉默超时负责连接或进程清理。这些机制不包含共享任务表的原子领取、续租、执行代次校验和跨主机接管。扩展为分布式 Worker 时，仍需实现这些职责；状态发布序号和服务实例编号不能充当执行权凭证。
+Storage 成功后 Session 才采用内存状态并发布更新，conversation view 随 commit 改变。扩展为分布式 Worker 时，仍需自行实现共享任务表的原子领取、续租、执行代次校验和跨主机接管；状态发布序号与 Chord 的 codeVersion 都不能充当执行权凭证。
 
-## 7.7 参考实现：Chord 的界面状态副本
+## 7.7 参考实现：Chord 的状态副本
 
-任务输出可能依次变为 `a`、`ab`、`abc`，而界面在任一时刻加入。Worker 维护可修改的权威状态，界面先取得当前内容，再接收后续更新。界面的只读副本用于观察，不能授权进程执行任务或修改持久状态。
+任务输出可能依次变为 `a`、`ab`、`abc`，而界面在任一时刻加入。权威侧维护可修改状态，界面先取得当前内容，再接收后续更新。观察副本用于展示，不能授权进程执行任务或修改持久状态。
 
-Chord 在实验 coding-agent 中负责将 Worker 会话视图交付给客户端。首次传输完整快照，随后可以发送增量（delta），例如在已有 `ab` 末尾追加 `c`。增量依赖前一版本，因此消费者必须先安装快照，再依序应用变化。中途加入的界面由此获得当前状态，无须重放全部业务事件。
+Chord 用“对象 + 引用”组织跨进程状态：对象是某个契约的实例，契约声明对象住在哪个宿主（`hostNamed`/`hostFamily`），调用方只持有引用（[packages/chord/docs/guide.md L102-L113](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/chord/docs/guide.md#L102-L113)）。每个对象还带主体（principal）：同一地址对 owner 和 guest 是不同对象，链路边界负责盖章，调用方无法自选（guide L356-L361）。远端引用先拿到该变体每个 state 成员的一份快照，之后接收增量；重连或重载后收到 `reset` 快照，不重放历史（guide L452）。
 
-durable Storage 负责保存与恢复，Chord 把当前 view 同步给观察者。普通 `replicatedState(initial)` 本身不执行磁盘持久化，可以连接任意权威数据源。实验服务在 [packages/coding-agent/src/experimental/services/transcript-provider.ts L5-L15](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/experimental/services/transcript-provider.ts#L5-L15) 中通过 `createTranscriptServiceFacet()` 直接取得 `conversation.viewState()` 作为 Transcript.state，并在退出时 dispose。Delta 的有序交付、丢包与乱序处理、重新连接和订阅，由协议和宿主共同负责。
+Chord 的 `replicatedState` 既可以是权威可变状态（`change`/`replace`），也可以是外部修订流的只读投影：`replicatedState(source)` 要求 source 原子地 `attach()` 出快照并缓冲之后的每一帧（[packages/chord/src/state.ts L55-L78](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/chord/src/state.ts#L55-L78)）。durable 用它承载 document、view 和 task-graph 状态：会话文档在 [packages/durable/src/session/session.ts L372](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/src/session/session.ts#L372) 处把内部修订流转成 `DocumentState`，view 与 task-graph 分别在 [packages/durable/src/harness/view.ts L118](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/src/harness/view.ts#L118) 和 [packages/durable/src/harness/task-graph.ts L116](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/src/harness/task-graph.ts#L116) 挂接同一机制。
 
 两张图使用不同的示意序号：42、43、44 说明基线后的连续更新及缺帧后的恢复；10、11展示实际订阅建立顺序。箭头表示状态交付，不表示副本取得写权。
 
@@ -98,67 +98,65 @@ durable Storage 负责保存与恢复，Chord 把当前 view 同步给观察者�
 
 同一次状态修改应保持相关字段的一致性。例如任务从“读取中”变成“读取完成”时，应同时发布结果引用。逐字段发布可能使观察者暂时看到完成状态却没有结果，因此发布端先准备完整变化，再统一采用。
 
-草稿（draft）保存一次修改尚未发布的候选状态。调用方修改草稿，准备完成后统一采用并发布；回调抛错则放弃草稿，观察者继续读取原状态。`state.change` 可同时修改多个字段，形成该 state 对象的一次原子 revision（版本变化）。prepare 后没有操作时，直接返回且不增加发布序号。
+Chord 的 state cell 提供草稿式修改：`change(ctx, fn)` 打开的草稿只在回调期间可用，回调抛错则整体放弃，成功时恰好发布一个 revision（[packages/chord/src/cell.ts L194-L219](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/chord/src/cell.ts#L194-L219)）。`change` 只发布被改动的路径，代码不认识的字段得以保留；`replace` 接管整个值，在新值与旧值共享容器（同一状态的不可变新版本）时默认发送结构 diff，也可用 `{ diff: true | false }` 强制（L221-L235）。reload 迁移后的值走 `reset`，硬性建立新基线（L237-L244）。`replicatedState` 的 `change`/`replace` 采用同一模型（[packages/chord/src/state.ts L255-L285](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/chord/src/state.ts#L255-L285)）。
 
-[packages/chord/src/services/state.ts L184-L244](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/chord/src/services/state.ts#L184-L244) 的 `MutableReplicatedStateImpl.change()` 打开 draft，运行 mutate，准备候选值，再采用并发布。回调返回 Promise 也会被拒绝，因此网络等待应放在这个同步回调之外。
-
-这种交接依赖不可变值的所有权约定。状态发布后，使用方不能再修改同一个对象，否则同一 revision 对不同观察者可能呈现不同内容。传给 `track()` 或 `replicatedState()` 的 initial root 转交给 tracker，发布后的 value 和 ops 都不能再改。放进 draft 的外部值会先验证再复制，细节见 [packages/chord/src/delta/README.md L1-L41](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/chord/src/delta/README.md#L1-L41)。
+这种交接依赖不可变值的所有权约定。状态发布后，使用方不能再修改同一个对象，否则同一 revision 对不同观察者可能呈现不同内容。`track()`、`replicatedState()` 和 `replace()` 直接接管别名自由的严格 JSON 根，不做防御性复制也不冻结；放进草稿的外部值会先验证再复制，细节见 [packages/chord/src/delta/README.md L28-L41](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/chord/src/delta/README.md#L28-L41)。
 
 不可变性依赖调用方遵守所有权约定，运行时并未对所有对象执行 deep freeze，TypeScript 只读类型也不会冻结对象。进程内直连可能让提供端与消费端共享容器，消费端修改它会破坏权威状态。向会修改输入的代码交付值时，应先复制或序列化。
 
-增量是一批相对于前一版本的操作。[packages/chord/src/delta/index.ts L21-L41](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/chord/src/delta/index.ts#L21-L41) 定义整值替换、set/delete、字符串追加与截断，以及数组 splice/permutation；[packages/chord/src/delta/index.ts L408-L435](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/chord/src/delta/index.ts#L408-L435) 通过 copy-on-write 应用操作，保留前一版不可变值。输出从 `"a"` 变为 `"ab"` 时，传输时可以只发送 append 操作，副本应用后仍得到完整值 `"ab"`。操作只要求在正确基线上按序应用后结果一致，编码形式不必唯一或最小，也不代表业务事件的含义。
+增量是一批相对于前一版本的操作：整值替换 `r`、set/delete、字符串追加 `a` 与按长度截断 `t`，以及数组 splice `p`/permutation `m`（[packages/chord/src/delta/index.ts L21-L40](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/chord/src/delta/index.ts#L21-L40)）；[packages/chord/src/delta/index.ts L409-L419](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/chord/src/delta/index.ts#L409-L419) 通过 copy-on-write 应用操作，保留前一版不可变值。输出从 `"a"` 变为 `"ab"` 时，传输时可以只发送 append 操作，副本应用后仍得到完整值 `"ab"`。操作只要求在正确基线上按序应用后结果一致，编码形式不必唯一或最小，也不代表业务事件的含义。
 
 ## 7.9 参考实现：快照安装与连续增量交付
 
 建立订阅需要协调快照读取和监听登记。若先读取 `ab`，再登记监听，两步之间发布的 `abc` 可能遗漏；若先交付增量，再安装旧快照，又可能用 `ab` 覆盖较新状态。提供端需要原子捕获快照并登记订阅，消费端则在快照安装完成后启用增量交付。
 
-例如，提供端捕获值 `ab` 与序号 10，同时登记订阅，随后产生的序号 11 暂存。消费者先完成 hydration，即用完整快照建立副本基线，再调用 `activate` 开始接收 11。该顺序同时避免漏更新和旧快照覆盖新内容。
+Chord 用单位（unit）交付解决这一竞争：一个 hold（引用）隐含其变体中每个 state 成员的状态，发送时先交付 shape 帧，再交付每个消费者尚缺的成员快照（[packages/chord/src/wire.ts L9-L11](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/chord/src/wire.ts#L9-L11)）。快照单元是懒构建的，在发送时才从当前值构建；构建期间到达的事件在快照之后按序重放（[packages/chord/src/connection.ts L46-L62](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/chord/src/connection.ts#L46-L62)、[packages/chord/src/connection.ts L89-L95](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/chord/src/connection.ts#L89-L95)）。
 
-[packages/chord/src/services/provider.ts L239-L276](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/chord/src/services/provider.ts#L239-L276) 将 subscriber 加入注册表、捕获 snapshot、记录快照覆盖的 state sequences，再返回 activate/close。[packages/chord/src/services/provider.ts L424-L443](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/chord/src/services/provider.ts#L424-L443) 中，每个 state member 的快照带完整 `r` 和当前 sequence；后续发布通过已经登记的精确操作监听器交付。
+消费侧用 hydration 表示“该状态已有值”。一个引用只有在对象 live 且其变体的每个 state 成员都已 hydrate 后才 resolve；在首次 hydrate 前读取会得到 `not_ready`，等待中的引用在 `readyTimeout`（默认 60 秒）后以 `unavailable/ready_timeout` 失败（guide L276-L281、[packages/chord/src/host.ts L133-L137](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/chord/src/host.ts#L133-L137)）。本地对象也只有在资源打开、声明的引用就绪、`init` 运行完之后才 live，因此方法、监听和任务都看不到半成品状态（guide L247-L256）。
 
-consumer 的 singleton 入口在 [packages/chord/src/services/consumer.ts L594-L633](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/chord/src/services/consumer.ts#L594-L633)。它先校验并安装 snapshot，再 activate。实际接收增量的是 [packages/chord/src/services/state.ts L376-L415](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/chord/src/services/state.ts#L376-L415) 的 replica，也就是只读副本。它安装完整快照后，要求每个更新序号恰好比上次多一。
+对外部修订流的投影，完整性用游标验证：`replicatedState(source)` 固定快照的 cursor，并要求每一帧恰好是上一个 cursor 加一（[packages/chord/src/state.ts L326-L339](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/chord/src/state.ts#L326-L339)）。出现缺口时按 source 契约失败处理：停用附件并上报错误，最后成功的值仍可读但不再更新（[packages/chord/src/state.ts L341-L359](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/chord/src/state.ts#L341-L359)），而不是继续使用可能错误的值。恢复不是自动的：source 的所有者需要重建附件并重新投影。连续游标用于发现缺失，但不能验证业务内容正确，也不构成多写入方共识。
 
-连续序号用于验证增量交付的完整性。基线为 `a` 时，后续操作依次追加 `b` 和 `c`；若漏掉第一步，直接应用第二步会得到错误的 `ac`。序号跳变使消费者在使用错误值之前发现缺失，但不能验证业务内容正确，也不构成多写入方共识。
+## 7.10 参考实现：副本重建与代码换代
 
-普通 `state` update 即使携带完整 `r`，仍必须遵守严格的 `+1` 连续序号。完整值不能让一个普通 update 自动变成新基线，因为序号之间可能还有实例生命周期变化。只有显式 snapshot/reset hydration 才能建立新起点。收到重复、缺号、无效操作或无效 JSON 结果时，replica 会清空 value 并报错；它不会自行向提供端请求 snapshot。主机或 binding 负责重新绑定、订阅；[packages/chord/src/services/consumer.ts L540-L570](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/chord/src/services/consumer.ts#L540-L570) 展示了这条重建路径。
+缺帧或重连后，提供端会给远端引用发送 `reset` 快照，副本建立新基线，后续增量再按序应用（guide L452）。界面可以保留引用句柄：引用在重新持有期间状态为 `loading`，最后的值仍可读；`gone` 表示对象被强制移除（吊销、归档、宿主死亡），需要重新 `get` 或显示“不可用”（guide L418-L424）。
 
-Chord 的实现见 [packages/chord/README.md L1-L7](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/chord/README.md#L1-L7) 与 [packages/chord/README.md L32-L57](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/chord/README.md#L32-L57)。它是独立的应用组合包，不依赖其他 Pi workspace 包，负责让一个权威状态源向本地和远端消费者发布快照、增量，并维护序号、实例换代和重新绑定。实验 coding-agent services 用它把 worker 的会话视图交给客户端；durable 和这组 services 的入口仍属于实验层。
+Chord 的“实例换代”由代码版本（codeVersion）表达。每次 `host.reload()` 产生一个新的代码版本：已开始的 root 固定在启动时的代码版本上跑完，新 root 使用新代码（guide L630-L640）。如果某个 cell 的版本号升高，或独占资源发生变化，reload 先进入 gate：等正在访问该对象的旧 root 结束、运行 `migrate`、再同步提交；超时则整个 reload 中止、什么都不改（guide L642-L675）。改 schema 而不升版本会被拒绝，改语义而不升版本无法检测。旧代码版本在它的 root 全部结束后退休；迟迟不结束的 root 至多再等 `retireDeadline`，之后被中止（[packages/chord/src/reload.ts L23-L36](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/chord/src/reload.ts#L23-L36)）。root 的代码版本随调用传播（[packages/chord/src/wire.ts L32](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/chord/src/wire.ts#L32)）：旧 root 碰到已经迁移的对象时得到 `upgrade_conflict`，需要重试为新的 root。
 
-## 7.10 参考实现：副本重建与服务实例换代
+集群 reload 由 server 统一协调：server 先发送 prepare，每个子宿主准备好后投赞成票（vote），server 提交后子宿主依次提交（[packages/chord/src/cluster.ts L130-L157](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/chord/src/cluster.ts#L130-L157)、[packages/chord/src/cluster.ts L173-L206](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/chord/src/cluster.ts#L173-L206)）。任何一处失败或超时，全体中止。落后于 server 的子宿主在放行流量前先被追到当前代码版本（guide L746）。浏览器不参与提交，只通过 shape 与 `reset` 感知新代码；契约不兼容时浏览器调用得到 `upgrade_required`（guide L754）。
 
-缺帧使副本清空后，主机应重新订阅并安装快照，或交付显式 reset。reset 为状态建立完整新基线，后续增量再按连续序号应用。重新绑定同样先清空旧值，再等待新快照；界面可保留句柄，但需要识别数据尚未就绪的阶段。
+契约兼容性由 fingerprint 与覆盖检查把关：同版本要求提供方覆盖消费方的全部成员；破坏性变更必须升版本并提供 `accepts` 适配器，否则绑定以 `contract_mismatch` 失败（[packages/chord/src/contract.ts L288-L349](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/chord/src/contract.ts#L288-L349)；guide L136-L161）。类型住在哪个宿主也是契约（及其 fingerprint）的一部分：换宿主等于换类型，旧引用得到 `upgrade_required`（guide L102-L113）。
 
-断线还可能让旧句柄指向错误的服务实例。假设某个 key 对应的子服务关闭，后来以相同 key 创建新服务。只检查 key 的旧客户端可能把针对旧工作的调用发给新工作。当前 provider 给复用 key 的实例分配新的 generation，区分两段生命周期；[packages/chord/src/services/provider.ts L183-L212](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/chord/src/services/provider.ts#L183-L212) 在复用 key 时增加 generation，[packages/chord/src/services/provider.ts L377-L409](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/chord/src/services/provider.ts#L377-L409) 用它拒绝旧实例调用。这份编号保存在当前 provider 的 Map 中，用于限制旧服务实例访问。
-
-单例服务替换保留对外接口对象，并安装新的状态快照。消费端在重新绑定期间清空旧值，因此接口句柄可以持续存在，数据却暂不可用。generation 只标记服务实例生命周期，不承担持久任务租约代次的职责。
+codeVersion 只标记代码世代，不承担持久任务租约代次的职责。
 
 ## 7.11 参考实现：慢消费者与队列积压
 
-慢订阅者的处理策略取决于交付内容。完整值能够独立解释，可以舍弃中间版本而保留最新值；增量依赖连续基线，直接丢弃中间操作会破坏状态。因此 public state subscription 合并积压的完整值，provider remote subscription 则在积压过多时发送显式 reset。
+慢订阅者的处理策略取决于交付内容。完整值能够独立解释，可以舍弃中间版本而保留最新值；增量依赖基线，直接丢弃中间操作会破坏状态。Chord 因此在连接和订阅两个层面分别限流。
 
-[packages/chord/src/services/state.ts L28-L95](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/chord/src/services/state.ts#L28-L95) 与 [packages/chord/src/services/state.ts L149-L181](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/chord/src/services/state.ts#L149-L181) 为每个 public subscriber 串行调用 callback，正在执行的回调不计入 pending。其他订阅者和同步的精确操作监听器仍能继续处理发布。
+连接层面按确认窗口限流。链路双方在 hello 里声明自己会确认收到的帧（[packages/chord/src/wire.ts L60-L70](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/chord/src/wire.ts#L60-L70)）；未确认 frame 字节超过 window（默认 256 KiB）时，state 帧等待，并按每个成员的流合并（[packages/chord/src/connection.ts L12-L36](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/chord/src/connection.ts#L12-L36)）。等待中的 op 数量还有 pendingCap 上限（默认 4 个 window）；超出的最老流被替换为“当前值”的 reset，内存因此有界（溢出回收的类型见 [packages/chord/src/connection.ts L40-L44](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/chord/src/connection.ts#L40-L44)）。调用、结果和新引用的第一个快照永远不被窗口拦住，一个 `get` 不会排在别的引用的状态后面（guide L744）。这也意味着一项修改在链路满载时，调用返回可能先于其引发的状态更新到达：要等状态就订阅状态，不要假设调用返回时状态已到。
 
 | 位置 | 交付内容 | 溢出后的处理 |
 | --- | --- | --- |
-| public state subscription | 捕获的完整 value/context/delivery | 100 个 pending 后清空旧 pending，保留最新；未开始的 hydration 可保留 |
-| provider remote subscription | 精确 state 操作与实例 lifecycle updates | 新增第 101 个 pending 时换成一个显式 reset，包含当前完整订阅 snapshot |
-| 应用 transport 的异步队列 | 宿主自行定义 | 不自动继承上述上限 |
+| 链路 state 帧 | 精确操作，按成员的流合并 | 未确认字节超过 window 时等待；等待 op 超过 pendingCap 后，最老的流换成当前值的 reset |
+| 公开 state 订阅（replicatedState） | 完整值、上下文与交付元数据 | 100 个 pending 后清空旧 pending，只保留最新；未开始的初次 hydration 保留 |
+| 链路上的调用名额 | 进行中的调用 | 超过 maxCalls 的调用立即以 `unavailable`（原因 `too_many_calls`）答复，链路保持 |
 
-公开订阅交付完整值，因此允许跳过发布序号。远端订阅交付精确增量，必须保持连续；[packages/chord/src/services/provider.ts L445-L465](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/chord/src/services/provider.ts#L445-L465) 在 pending 达到上限时用 reset 替换积压，给每个状态建立新基线。reset 还会重建 keyed membership，避免遗漏 close/spawn 后仍保留已经不存在的实例。上限按帧数计算，较大的 snapshot 仍可能占用较多字节。应用 transport 的异步队列由宿主定义，不自动继承这两处限制。
+公开订阅交付完整值，因此允许跳过发布序号：[packages/chord/src/state.ts L20-L27](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/chord/src/state.ts#L20-L27) 规定每个订阅最多保留 100 个未交付完整值（不含运行中的回调），溢出时只留最新，[packages/chord/src/state.ts L115-L124](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/chord/src/state.ts#L115-L124) 实现该策略。它是帧数策略而不是字节上限。[packages/chord/src/connection.ts L76-L80](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/chord/src/connection.ts#L76-L80) 的 maxCalls 是每条链路的调用名额：超出者不会执行，但链路不受影响。应用自己在链路之上再加的异步队列由应用定义，不自动继承这些限制。
 
-## 7.12 参考实现：编码字典、校验与边界
+## 7.12 参考实现：编码、校验与边界
 
-Delta encoder 在路径第二次出现时引入 ID，decoder 必须先收到配套定义；具体过程见 [packages/chord/src/delta/index.ts L506-L553](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/chord/src/delta/index.ts#L506-L553) 与 [packages/chord/src/delta/index.ts L622-L662](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/chord/src/delta/index.ts#L622-L662)。同一连接承载多个独立状态时，每个状态都有自己的字典。不同客户端的编码进度可能不同，因此不能用一个有状态编解码器编码一次后复用于所有客户端。
+传输编码有两层优化。第一层是负载压缩：JSON 长度超过 `PACK_THRESHOLD`（64K 字符）的负载被 deflate；只转发、不使用负载的宿主直接传递压缩字节（`Packed`），真正使用负载的宿主再解压（`unpack`），浏览器侧用 `DecompressionStream` 解压后仍按序交付（[packages/chord/src/link.ts L105-L130](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/chord/src/link.ts#L105-L130)）。
 
-[packages/chord/src/services/state-codec.ts L27-L58](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/chord/src/services/state-codec.ts#L27-L58) 按 instance/member 创建 codec；[packages/chord/src/services/state-codec.ts L60-L137](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/chord/src/services/state-codec.ts#L60-L137) 在 snapshot、reset、replacement、unavailable、closed 时重置或移除对应字典。快照、重置和实例替换会处理字典生命周期。它是传输编码状态，不是任务检查点。解码和应用会拒绝 `__proto__`、`constructor`、`prototype` 这类危险路径。[packages/chord/src/delta/index.ts L118-L170](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/chord/src/delta/index.ts#L118-L170) 检查操作形状与路径，整个结果还要通过另一层严格 JSON 验证。
+第二层是 delta 字典：encoder 在路径第二次出现时引入 ID，decoder 必须先收到配套定义（[packages/chord/src/delta/index.ts L542-L659](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/chord/src/delta/index.ts#L542-L659)）。ID 与省略写法都只在一批之内有效，唯一跨批的状态是路径字典；一个基础操作 `r` 会清空字典，使该批成为恢复点（L583-L591）。同一链路承载多个独立状态时，每个状态有自己的编码/解码对（L551-L554）——不同消费者的编码进度可能不同，不能用一个有状态编解码器编码一次后复用于所有客户端。解码端逐操作校验形状与保留路径（[packages/chord/src/delta/index.ts L118-L142](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/chord/src/delta/index.ts#L118-L142)、[packages/chord/src/delta/index.ts L144-L174](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/chord/src/delta/index.ts#L144-L174)），拒绝 `__proto__`、`constructor`、`prototype` 这类可污染原型的路径。
+
+链路握手也带版本：两端在 hello 里声明 link 协议版本（当前为 4，[packages/chord/src/wire.ts L19-L24](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/chord/src/wire.ts#L19-L24)）；版本不同直接关闭链路，由 `onProtocolMismatch` 通知需要换代码的一侧（[packages/chord/src/connection.ts L27-L31](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/chord/src/connection.ts#L27-L31)），例如浏览器刷新页面而不是重连。
 
 本章的有序读副本协议以单一权威源为前提，以下能力需要另外的机制：
 
-- 多写者数据库冲突处理没有实现，包括 Raft/Paxos 共识、leader election、quorum、CRDT 合并和网络分区下的多主写入。Session SQLite 的跨进程共享存储与所有权也需要另行协调。
-- 一次 `state.change` 只形成单个 state 对象的一次原子 revision；跨多个 state members 的强一致事务没有实现。
-- key/generation 编号保存在当前 provider 的 Map 中，只限制旧服务实例访问；它不提供跨主机 worker lease 或持久 leader term。
-- 队列上限只作用于对应队列。实验 worker manager 在 [packages/coding-agent/src/experimental/session-worker-manager.ts L614-L639](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/experimental/session-worker-manager.ts#L614-L639) 用 `deliveryTail` 串行转发服务事件，但这条 Promise 链没有同样的 100-frame 上限，因此整个网络通道还没有端到端背压。
-- 远端服务授权需要单独判断。service token allowlist 和 stale-generation 检查还没有组成完整租户授权；[packages/coding-agent/src/experimental/services/README.md L14-L24](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/experimental/services/README.md#L14-L24) 把认证身份与按客户端投影状态列为后续工作。
+- 多写者数据库冲突处理没有实现，包括 Raft/Paxos 共识、leader election、quorum、CRDT 合并和网络分区下的多主写入。Chord 对象只有唯一权威宿主；durable 的 Session SQLite 由单进程持有，跨进程共享存储需要另行协调。
+- 一次 `change` 只形成单个 cell（或单个 replicated state 对象）的一次原子 revision；跨多个对象或成员的强一致事务没有实现。
+- `codeVersion`/reload 编号保存在宿主内，只标记代码世代；它不提供跨主机 worker lease 或持久 leader term。
+- 流控窗口是每条链路的，public 订阅上限是每个订阅的帧数策略：它们给内存设了上界，但都不是端到端字节背压。
+- variant 不是完整授权：方法仍要校验参数；主体在链路边界盖章，调用方无法自选（guide L356-L361、L389-L392）。
 
 ## 7.13 编号约定与源码定位
 
@@ -166,10 +164,11 @@ Delta encoder 在路径第二次出现时引入 ID，decoder 必须先收到配�
 
 | 标识 | 记录什么 | 范围 |
 | --- | --- | --- |
-| Session commit `Seq` | 原子数据库批次，编号可有间隙 | 不要求等于远端 state 的连续发布序号 |
-| source cursor | attached source 的连续帧 | 没有跨 storage 全局时钟含义 |
-| member sequence | 一个 state stream 的发布基线 | 没有多个 members 的事务边界含义 |
-| key/generation | service instance 生命周期 | 不负责任务续租或共识 term |
+| Session commit `Seq` | 原子数据库批次，编号可有间隙 | 不要求等于任何远端 state 的发布序号 |
+| source cursor | attached source 的连续帧锚点 | 每个附件独立，没有跨 storage 全局时钟含义 |
+| member sequence | 一个 state 流的发布基线 | public 订阅允许跳号；没有多个成员的事务边界含义 |
+| codeVersion / reload id | 宿主的代码世代 | 不是任务续租，也不是共识 term |
+| wire frame id | 一次 hold/call/sub 的编号 | 由发起侧选择，只在一条链路内唯一 |
 
 ## 7.14 本章术语
 
@@ -186,12 +185,12 @@ Delta encoder 在路径第二次出现时引入 ID，decoder 必须先收到配�
 
 | 术语 | 当前实现 | 范围与限制 |
 | --- | --- | --- |
-| Transaction | Session mutation line 串行提交；Node SQLite 用 `BEGIN IMMEDIATE` / `COMMIT` 原子落盘 | 跨主机、跨外部服务的分布式事务尚未实现 |
-| WAL | Node SQLite 用 write-ahead log 先记录日志以支持恢复，配合 `synchronous = NORMAL` | 掉电仍可能丢最新 commit；这份日志用于本地数据库 |
-| Lease | durable task 没有可到期和续租的跨 worker 租约；实验 worker 有本地目录锁的 stale/update | 目录锁不负责 task reservation、多主共识或全局 fencing |
-| Heartbeat | 实验目录锁周期更新；env 连接定期 ping，沉默超时会清理连接/进程 | 用于本地所有权保活与连接活性，无法证明任务仍有执行资格 |
+| Transaction | Session mutation line 串行提交；chord SQLite 适配器用 `BEGIN IMMEDIATE` / `COMMIT` 原子落盘 | 跨主机、跨外部服务的分布式事务尚未实现 |
+| WAL | chord SQLite Node 适配器设置 `journal_mode = WAL` 与 `synchronous = NORMAL` | 掉电仍可能丢最新 commit；这份日志用于本地数据库 |
+| Lease | durable task 没有可到期和续租的跨 worker 租约；Chord 的引用生命周期是引用计数式回收 | 都不负责任务执行权租约、多主共识或全局 fencing |
+| Heartbeat | 链路 ping 与沉默超时（`pingInterval` 15 秒、`pingTimeout` 45 秒）判定连接死亡，并释放经其持有的全部引用 | 只证明连接活性，无法证明任务仍有执行资格 |
 
-Session 提交线在 [packages/durable/src/session/session.ts L220-L245](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/session/session.ts#L220-L245)，SQLite 事务与 WAL 设置在 [packages/durable/src/storage/sqlite/node.ts L140-L159](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/storage/sqlite/node.ts#L140-L159)、[packages/durable/src/storage/sqlite/node.ts L179-L202](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/durable/src/storage/sqlite/node.ts#L179-L202)。实验目录锁则在 [packages/coding-agent/src/experimental/session-worker.ts L517-L522](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/coding-agent/src/experimental/session-worker.ts#L517-L522) 设置 `stale: 2000`、`update: 1000`；env ping 的 Node/Rust 两端和故障处理见[第 8 章 沙箱与执行环境](08-sandbox-environment.md)。
+Session 提交线在 [packages/durable/src/session/session.ts L232-L244](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/src/session/session.ts#L232-L244)，SQLite 事务与 WAL 设置在 [packages/chord/src/sqlite/node.ts L141](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/chord/src/sqlite/node.ts#L141)、[packages/chord/src/sqlite/node.ts L183-L190](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/chord/src/sqlite/node.ts#L183-L190)。链路 ping 与超时见 [packages/chord/src/connection.ts L13-L16](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/chord/src/connection.ts#L13-L16)；环境进程层的连接清理见[第 8 章 沙箱与执行环境](08-sandbox-environment.md)。
 
 ## 7.15 练习
 
@@ -199,16 +198,17 @@ Session 提交线在 [packages/durable/src/session/session.ts L220-L245](https:/
 
 让 B 完成任务后立即打开进度页：主存储已提交，副本尚未应用该次提交。写出强一致读取与最终一致读取各自允许返回的结果，并说明为什么从副本看到“待处理”不能直接授权 Worker 执行。
 
-可以在纸上维护 `{ output: "a" }` 的副本：hydrate 10，append 11，漏掉 12，再收到 13。按连续序号规则，value 会清空；之后显式 reset 把基线设为 20，21 才能继续应用。再试一次让普通 update 13 携带 `r`，检查为什么完整值仍无法免去缺号校验。
+可以在纸上维护 `{ output: "a" }` 的 source 投影：attach 时快照 cursor 为 10，依次收到 11、12。若 12 缺失而先来一帧 13，投影按 source 契约失败：最后成功的值仍可读，但不再更新，需要源端重建附件后重新 attach。再试一次让一帧携带完整值而不推进 cursor，检查为什么完整值仍无法免去游标校验。
 
 下面的测试可以用来核对这些协议行为。
 
 | 阅读位置 | 可观察的协议行为 |
 | --- | --- |
-| [packages/chord/test/services.test.ts L575-L658](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/chord/test/services.test.ts#L575-L658) | hydration 时的竞争；重复与缺号即便带 root replacement 也清空副本 |
-| [packages/chord/test/services.test.ts L660-L771](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/chord/test/services.test.ts#L660-L771) | rebind 后完整 hydration；复用 key 时旧 handle 失效 |
-| [packages/chord/test/state-delivery.test.ts L59-L129](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/chord/test/state-delivery.test.ts#L59-L129) | 慢 public callback 不阻塞精确发布；pending 的限制 |
-| [packages/chord/test/service-delivery.test.ts L78-L135](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/chord/test/service-delivery.test.ts#L78-L135) | provider 显式 overflow reset 与正在交付的帧 |
-| [packages/chord/test/service-delivery.test.ts L211-L335](https://github.com/earendil-works/pi/blob/96abe9a5ad45005cae34ed1c52d42f71fc88bedc/packages/chord/test/service-delivery.test.ts#L211-L335) | codec reset 后继续接增量；重建 keyed membership |
+| [packages/chord/test/flow.test.ts L125-L173](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/chord/test/flow.test.ts#L125-L173) | 窗口满时 state 等待而调用照常；释放后合并为一帧 |
+| [packages/chord/test/flow-units.test.ts L93-L107](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/chord/test/flow-units.test.ts#L93-L107) | 大于窗口的快照整帧到达；之后的变更等待确认 |
+| [packages/chord/test/reload.test.ts L177-L216](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/chord/test/reload.test.ts#L177-L216) | 状态升版本时的 gate、migrate 与旧 root 的 upgrade_conflict |
+| [packages/chord/test/cluster.test.ts L130-L159](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/chord/test/cluster.test.ts#L130-L159) | 跨宿主 reload：每个宿主 prepare，server 先提交，代码版本保持同步 |
+| [packages/chord/test/generations.test.ts L50-L75](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/chord/test/generations.test.ts#L50-L75) | 跨 reload 的引用只保留当前代码世代 |
+| [packages/chord/test/state-draft.test.ts L4-L38](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/chord/test/state-draft.test.ts#L4-L38) | 事务式草稿只复制改动的分支；插入值不与原引用共享 |
 
-若自行运行，从 `packages/chord` 执行 `node ../../node_modules/vitest/dist/cli.js --run test/service-delivery.test.ts`。这是本地协议测试，不需要登录、真实模型或远端部署。
+若自行运行，从 `packages/chord` 执行 `node ../../node_modules/vitest/dist/cli.js --run test/flow.test.ts`。这是本地协议测试，不需要登录、真实模型或远端部署。
