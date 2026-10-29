@@ -288,7 +288,7 @@ classDiagram
 例如前面的“Read 后解释”通常是一个 Maka Turn、两个 step，对应 Pi 默认循环的两个低层 turn。
 这个计数差异不表示某个项目多做了用户工作，只是边界命名不同。
 Pi 的实验 durable 还有自己的 task、checkpoint 和 conversation，不应强行套入默认 agent 的计数模型。
-对照源头：[Pi runLoop](../../../packages/agent/src/agent-loop.ts#L163)、[Pi SessionManager](../../../packages/coding-agent/src/core/session-manager.ts)、[Pi durable](../../../packages/durable/README.md)。
+对照源头：[Pi runLoop](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/agent/src/agent-loop.ts#L163)、[Pi SessionManager](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/coding-agent/src/core/session-manager.ts)、[Pi durable](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/README.md)。
 
 ## 相关专题
 
@@ -297,14 +297,14 @@ Pi 的实验 durable 还有自己的 task、checkpoint 和 conversation，不应
 - [持久化与恢复](../04-state/durable-execution.md)：将进程崩溃插入上述事件序列，判断能够确认什么、不能确认什么。
 - [设计模式与权衡](design-tradeoffs.md)：解释这些区分如何落实到接口、联合类型和持久提交结构中。
 
-[backend-input]: ../../../../maka/packages/core/src/backend-types.ts#L60
-[event-envelope]: ../../../../maka/packages/core/src/runtime-event.ts#L671
-[invocation-record]: ../../../../maka/packages/core/src/runtime-invocation.ts#L47
-[open-source]: ../../../../maka/packages/core/src/runtime-event.ts#L343
-[roles]: ../../../../maka/packages/core/src/runtime-event.ts#L119
-[visible-content]: ../../../../maka/packages/core/src/runtime-event.ts#L1628
-[opening]: ../../../../maka/packages/core/src/runtime-event.ts#L374
-[build-opening]: ../../../../maka/packages/core/src/runtime-invocation.ts#L107
-[inventory]: ../../../../maka/packages/core/src/runtime-invocation.ts#L66
-[outcome]: ../../../../maka/packages/core/src/runtime-invocation.ts#L214
-[operational]: ../../../../maka/packages/core/src/agent-run.ts#L20
+[backend-input]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/core/src/backend-types.ts#L60
+[event-envelope]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/core/src/runtime-event.ts#L671
+[invocation-record]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/core/src/runtime-invocation.ts#L47
+[open-source]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/core/src/runtime-event.ts#L343
+[roles]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/core/src/runtime-event.ts#L119
+[visible-content]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/core/src/runtime-event.ts#L1628
+[opening]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/core/src/runtime-event.ts#L374
+[build-opening]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/core/src/runtime-invocation.ts#L107
+[inventory]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/core/src/runtime-invocation.ts#L66
+[outcome]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/core/src/runtime-invocation.ts#L214
+[operational]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/core/src/agent-run.ts#L20

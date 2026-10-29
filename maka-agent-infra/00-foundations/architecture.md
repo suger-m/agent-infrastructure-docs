@@ -242,9 +242,9 @@ Pi 的 durable 是另一条实验性任务执行路径，不能因默认 AgentSe
 - [完整请求与事件回程](../01-runtime/request-to-response.md)：沿一条请求定位具体方法与调用顺序。
 - [设计模式与权衡](design-tradeoffs.md)：讨论为何使用接口注入、联合类型和可重建投影，以及它们的成本。
 
-[architecture]: ../../../../maka/ARCHITECTURE.md#L23
-[runtime-event]: ../../../../maka/packages/core/src/runtime-event.ts#L20
-[backend-input]: ../../../../maka/packages/core/src/backend-types.ts#L60
-[backend-port]: ../../../../maka/packages/core/src/backend-types.ts#L20
-[module-recovery]: ../../../../maka/packages/runtime-host/src/server/host-composition.ts#L122
-[root-composition]: ../../../../maka/packages/storage/src/state-root-composition.ts#L54
+[architecture]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/ARCHITECTURE.md#L23
+[runtime-event]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/core/src/runtime-event.ts#L20
+[backend-input]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/core/src/backend-types.ts#L60
+[backend-port]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/core/src/backend-types.ts#L20
+[module-recovery]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime-host/src/server/host-composition.ts#L122
+[root-composition]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/storage/src/state-root-composition.ts#L54

@@ -21,7 +21,7 @@
 
 “投影”指从保存的记录中选出或改写本次模型可见内容。投影可以变短而原记录仍在；长期知识则需要独立的准入、作用范围和读取路径。执行检查点即使持久保存，也不因此成为可供新话题检索的知识。
 
-原始记录与模型视图的分离依据：[Maka 检查点的原始／有效摘要边界](../../../../maka/packages/runtime/src/history-compact-checkpoint.ts#L38)、[Pi 分支和压缩投影](../../../packages/coding-agent/src/core/session-manager.ts#L478)。
+原始记录与模型视图的分离依据：[Maka 检查点的原始／有效摘要边界](https://github.com/suger-m/maka/blob/8320cda1a4229b54124efe91d8830d0a89c39a4f/packages/runtime/src/history-compact-checkpoint.ts#L38)、[Pi 分支和压缩投影](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/coding-agent/src/core/session-manager.ts#L476)。
 
 ## 2. 分析场景：跨会话项目约定复用
 
@@ -37,7 +37,7 @@
 
 当前 Host 打开长期记忆存储，创建提取协调器，并注入会话头、RuntimeEvent、压缩检查点和辅助模型调用接口。查询端使用同一长期存储，形成已接入生产装配的写入与读取路径。
 
-证据：[创建提取协调器](../../../../maka/packages/runtime-host/src/server/execution-composition.ts#L1393)、[长期存储打开 memory.sqlite](../../../../maka/packages/storage/src/long-term-memory-store.ts#L68)、[查询端接入](../../../../maka/packages/runtime-host/src/server/execution-composition.ts#L1019)。
+证据：[创建提取协调器](https://github.com/suger-m/maka/blob/8320cda1a4229b54124efe91d8830d0a89c39a4f/packages/runtime-host/src/server/execution-composition.ts#L1393)、[长期存储打开 memory.sqlite](https://github.com/suger-m/maka/blob/8320cda1a4229b54124efe91d8830d0a89c39a4f/packages/storage/src/long-term-memory-store.ts#L68)、[查询端接入](https://github.com/suger-m/maka/blob/8320cda1a4229b54124efe91d8830d0a89c39a4f/packages/runtime-host/src/server/execution-composition.ts#L1019)。
 
 提取包含三类触发条件，其执行时机与等待成本不同：
 
@@ -45,11 +45,11 @@
 2. 主模型判断存在可保留信息时，可标记附带提取；工具调用阶段仅接受请求，正常回合结束且完成事件被消费后提交后台提取。未标记请求的普通回复不触发该扫描。
 3. 自动容量压缩或溢出恢复形成检查点时，可在检查点持久化成功后启动后台提取。手动压缩入口未传入自动记忆边界，不属于该触发路径。
 
-证据：[两种工具的语义与空参数](../../../../maka/packages/runtime/src/memory-extraction.ts#L290)、[回合完成后的条件派发](../../../../maka/packages/runtime/src/ai-sdk-turn.ts#L2552)、[先存检查点再派发](../../../../maka/packages/runtime/src/ai-sdk-compaction.ts#L1201)、[手动入口](../../../../maka/packages/runtime/src/ai-sdk-backend.ts#L550)。
+证据：[两种工具的语义与空参数](https://github.com/suger-m/maka/blob/8320cda1a4229b54124efe91d8830d0a89c39a4f/packages/runtime/src/memory-extraction.ts#L290)、[回合完成后的条件派发](https://github.com/suger-m/maka/blob/8320cda1a4229b54124efe91d8830d0a89c39a4f/packages/runtime/src/ai-sdk-turn.ts#L2552)、[先存检查点再派发](https://github.com/suger-m/maka/blob/8320cda1a4229b54124efe91d8830d0a89c39a4f/packages/runtime/src/ai-sdk-compaction.ts#L1201)、[手动入口](https://github.com/suger-m/maka/blob/8320cda1a4229b54124efe91d8830d0a89c39a4f/packages/runtime/src/ai-sdk-backend.ts#L550)。
 
 普通 Host 后端对该能力设置了装配条件：自定义工具集合、子会话和计划模式不使用此装配；headless coding 与 WorkHub 协调配置显式关闭提取。执行阶段还检查记忆开关、隐私模式和会话归档状态。原生 OpenAI Responses 路径存在不支持的分支。
 
-生产装配不意味着所有会话均启用自动提取。适用条件见：[装配条件](../../../../maka/packages/runtime-host/src/server/execution-model-composition.ts#L458)、[运行配置](../../../../maka/packages/runtime-host/src/server/hosted-execution-tool-profile.ts#L96)、[执行时门控](../../../../maka/packages/runtime-host/src/server/memory-extraction-coordinator.ts#L166)、[后端限制](../../../../maka/packages/runtime/src/ai-sdk-backend.ts#L444)。
+生产装配不意味着所有会话均启用自动提取。适用条件见：[装配条件](https://github.com/suger-m/maka/blob/8320cda1a4229b54124efe91d8830d0a89c39a4f/packages/runtime-host/src/server/execution-model-composition.ts#L458)、[运行配置](https://github.com/suger-m/maka/blob/8320cda1a4229b54124efe91d8830d0a89c39a4f/packages/runtime-host/src/server/hosted-execution-tool-profile.ts#L96)、[执行时门控](https://github.com/suger-m/maka/blob/8320cda1a4229b54124efe91d8830d0a89c39a4f/packages/runtime-host/src/server/memory-extraction-coordinator.ts#L166)、[后端限制](https://github.com/suger-m/maka/blob/8320cda1a4229b54124efe91d8830d0a89c39a4f/packages/runtime/src/ai-sdk-backend.ts#L444)。
 
 ### 用户原文证据准入与候选规范化
 
@@ -57,17 +57,17 @@
 
 压缩触发的辅助上下文可以带前一份文字摘要，以及边界内的用户和助手文本；摘要用于理解前文，不能替代可校验的用户引用。提供商的不透明压缩状态也不是记忆证据。
 
-证据：[证据筛选实现](../../../../maka/packages/runtime/src/memory-extraction-evidence.ts#L95)、[压缩上下文重建](../../../../maka/packages/runtime/src/memory-extraction.ts#L209)、[排除工具等来源的测试](../../../../maka/packages/runtime/src/__tests__/memory-extraction.test.ts#L256)。
+证据：[证据筛选实现](https://github.com/suger-m/maka/blob/8320cda1a4229b54124efe91d8830d0a89c39a4f/packages/runtime/src/memory-extraction-evidence.ts#L95)、[压缩上下文重建](https://github.com/suger-m/maka/blob/8320cda1a4229b54124efe91d8830d0a89c39a4f/packages/runtime/src/memory-extraction.ts#L209)、[排除工具等来源的测试](https://github.com/suger-m/maka/blob/8320cda1a4229b54124efe91d8830d0a89c39a4f/packages/runtime/src/__tests__/memory-extraction.test.ts#L256)。
 
 若用户在 S1 明确陈述该约定并提出记忆请求，则存在合格来源。提取器生成候选后，程序校验引用与用户原文的一致性，再通过隔离的模型阶段将候选规范化为简洁断言，最终重新校验并提交。
 
 对于“记住刚才那个约定”等省略表达，系统允许一次有界的同会话历史搜索以解析指代。助手文本可辅助解释，但最终证据仍须来自用户原文。该机制不提供面向任意外部资料的自动提取保证。
 
-证据：[引用准入](../../../../maka/packages/runtime/src/memory-extraction-proposal.ts#L307)、[隔离规范化提示](../../../../maka/packages/runtime/src/memory-extraction-proposal.ts#L200)、[同会话定位分支](../../../../maka/packages/runtime/src/memory-extraction.ts#L881)。
+证据：[引用准入](https://github.com/suger-m/maka/blob/8320cda1a4229b54124efe91d8830d0a89c39a4f/packages/runtime/src/memory-extraction-proposal.ts#L307)、[隔离规范化提示](https://github.com/suger-m/maka/blob/8320cda1a4229b54124efe91d8830d0a89c39a4f/packages/runtime/src/memory-extraction-proposal.ts#L200)、[同会话定位分支](https://github.com/suger-m/maka/blob/8320cda1a4229b54124efe91d8830d0a89c39a4f/packages/runtime/src/memory-extraction.ts#L881)。
 
 候选接受与拒绝由程序校验和模型规范化流程决定，不包含人工逐项审批。通过的条目直接写为 active；显式请求返回保存回执，附带提取可在后台完成。
 
-证据：[规范化结果到提交](../../../../maka/packages/runtime/src/memory-extraction.ts#L1022)、[新条目直接 active](../../../../maka/packages/storage/src/sqlite-long-term-memory-store.ts#L921)。
+证据：[规范化结果到提交](https://github.com/suger-m/maka/blob/8320cda1a4229b54124efe91d8830d0a89c39a4f/packages/runtime/src/memory-extraction.ts#L1022)、[新条目直接 active](https://github.com/suger-m/maka/blob/8320cda1a4229b54124efe91d8830d0a89c39a4f/packages/storage/src/sqlite-long-term-memory-store.ts#L921)。
 
 ### 长期条目、来源引用与提取进度
 
@@ -75,15 +75,15 @@
 
 workspace 条目的键取自来源会话的 `workspaceRoot`；global 范围由提取和规范化模型选择，提示要求提供跨工作区复用依据。该范围判定包含模型判断，不构成程序对全局适用性的形式化证明。
 
-证据：[数据库位置](../../../../maka/packages/storage/src/long-term-memory-store.ts#L38)、[条目与来源结构](../../../../maka/packages/core/src/long-term-memory.ts#L95)、[实际生成范围和来源](../../../../maka/packages/runtime/src/memory-extraction.ts#L1874)。
+证据：[数据库位置](https://github.com/suger-m/maka/blob/8320cda1a4229b54124efe91d8830d0a89c39a4f/packages/storage/src/long-term-memory-store.ts#L38)、[条目与来源结构](https://github.com/suger-m/maka/blob/8320cda1a4229b54124efe91d8830d0a89c39a4f/packages/core/src/long-term-memory.ts#L95)、[实际生成范围和来源](https://github.com/suger-m/maka/blob/8320cda1a4229b54124efe91d8830d0a89c39a4f/packages/runtime/src/memory-extraction.ts#L1874)。
 
 同一数据库还保存会话处理游标、操作回执和失败范围，用于恢复提取流程。新条目、游标与回执在同一事务中提交，避免条目写入成功而处理进度未更新所导致的重复处理。
 
 后台提取按会话串行执行，后续触发可尝试恢复未完成范围。每个处理范围至多允许三次模型调用，失败处理可能最终丢弃该范围。该恢复策略具有明确预算，不保证所有合格事实最终入库。
 
-证据：[事务提交](../../../../maka/packages/storage/src/sqlite-long-term-memory-store.ts#L356)、[提交游标与回执](../../../../maka/packages/storage/src/sqlite-long-term-memory-store.ts#L436)、[调用预算](../../../../maka/packages/runtime/src/memory-extraction.ts#L805)、[恢复失败范围](../../../../maka/packages/runtime/src/memory-extraction.ts#L429)。
+证据：[事务提交](https://github.com/suger-m/maka/blob/8320cda1a4229b54124efe91d8830d0a89c39a4f/packages/storage/src/sqlite-long-term-memory-store.ts#L356)、[提交游标与回执](https://github.com/suger-m/maka/blob/8320cda1a4229b54124efe91d8830d0a89c39a4f/packages/storage/src/sqlite-long-term-memory-store.ts#L436)、[调用预算](https://github.com/suger-m/maka/blob/8320cda1a4229b54124efe91d8830d0a89c39a4f/packages/runtime/src/memory-extraction.ts#L805)、[恢复失败范围](https://github.com/suger-m/maka/blob/8320cda1a4229b54124efe91d8830d0a89c39a4f/packages/runtime/src/memory-extraction.ts#L429)。
 
-自动提取提交逐条创建新条目，不使用存储层 update 接口替换既有知识。项目约定变化后，新旧断言可能并存，因此执行修改前仍需核对当前项目文件。[创建行为](../../../../maka/packages/storage/src/sqlite-long-term-memory-store.ts#L415)
+自动提取提交逐条创建新条目，不使用存储层 update 接口替换既有知识。项目约定变化后，新旧断言可能并存，因此执行修改前仍需核对当前项目文件。[创建行为](https://github.com/suger-m/maka/blob/8320cda1a4229b54124efe91d8830d0a89c39a4f/packages/storage/src/sqlite-long-term-memory-store.ts#L415)
 
 ### 长期条目与历史记录的检索及上下文加载
 
@@ -91,15 +91,15 @@ workspace 条目的键取自来源会话的 `workspaceRoot`；global 范围由�
 
 长期事实查询取当前调用会话的 workspace，返回 global 加该 workspace 的 active 条目；没有 workspace 时只取 global。事实层不可用会降级为空，不阻断历史检索。
 
-证据：[生产查询适配](../../../../maka/packages/runtime-host/src/server/execution-composition.ts#L1019)、[键与范围过滤](../../../../maka/packages/storage/src/sqlite-long-term-memory-store.ts#L1266)、[事实层降级](../../../../maka/packages/core/src/recall.ts#L1012)。
+证据：[生产查询适配](https://github.com/suger-m/maka/blob/8320cda1a4229b54124efe91d8830d0a89c39a4f/packages/runtime-host/src/server/execution-composition.ts#L1019)、[键与范围过滤](https://github.com/suger-m/maka/blob/8320cda1a4229b54124efe91d8830d0a89c39a4f/packages/storage/src/sqlite-long-term-memory-store.ts#L1266)、[事实层降级](https://github.com/suger-m/maka/blob/8320cda1a4229b54124efe91d8830d0a89c39a4f/packages/core/src/recall.ts#L1012)。
 
 历史检索范围由 Host 提供的可见会话列表决定，与长期条目的 workspace 过滤规则不同。模型工具可检索归档会话，并排除当前回合，避免将当前输入重复作为独立佐证。
 
 历史检索结果包含会话、消息锚点和邻近对话；长期事实的工具输出仅包含内容、种类与观察时间，不包含数据库中的来源事件引用。因此，存储层来源可追溯不等于模型每次均接收完整引文。
 
-证据：[工具调用与返回投影](../../../../maka/packages/runtime/src/recall-tools.ts#L114)、[历史会话筛选](../../../../maka/packages/core/src/recall.ts#L991)、[来源保存结构](../../../../maka/packages/core/src/long-term-memory.ts#L105)。
+证据：[工具调用与返回投影](https://github.com/suger-m/maka/blob/8320cda1a4229b54124efe91d8830d0a89c39a4f/packages/runtime/src/recall-tools.ts#L114)、[历史会话筛选](https://github.com/suger-m/maka/blob/8320cda1a4229b54124efe91d8830d0a89c39a4f/packages/core/src/recall.ts#L991)、[来源保存结构](https://github.com/suger-m/maka/blob/8320cda1a4229b54124efe91d8830d0a89c39a4f/packages/core/src/long-term-memory.ts#L105)。
 
-即使约定仅存在于 S1 的工具读取记录中，也可能通过历史检索复用，无需先形成长期条目。若工具结果已归档为仅含标识和哈希的记录，则缺少可供文本匹配的正文；检索命中也不证明约定在 S2 执行时仍然有效。[历史文本来源与限制](../../../../maka/packages/core/src/recall.ts#L160)
+即使约定仅存在于 S1 的工具读取记录中，也可能通过历史检索复用，无需先形成长期条目。若工具结果已归档为仅含标识和哈希的记录，则缺少可供文本匹配的正文；检索命中也不证明约定在 S2 执行时仍然有效。[历史文本来源与限制](https://github.com/suger-m/maka/blob/8320cda1a4229b54124efe91d8830d0a89c39a4f/packages/core/src/recall.ts#L160)
 
 ### MEMORY.md 文件记忆流程与独立读取控制
 
@@ -107,11 +107,11 @@ Maka 同时保留 Storage Root 下的 `memory/MEMORY.md` 和 `memory/PENDING.md`
 
 正式文件的 active 内容经过筛选、脱敏和长度限制，才可能作为 `local-memory` 提示片段装配进主会话。读取要求 memory enabled、agentReadEnabled 且不处于隐私模式；默认值是 enabled=true、agentReadEnabled=false。
 
-证据：[文件名](../../../../maka/packages/storage/src/memory-bundle-io.ts#L53)、[提出与审批分支](../../../../maka/packages/runtime-host/src/server/memory-coordinator.ts#L377)、[读取门控](../../../../maka/packages/runtime-host/src/server/memory-coordinator.ts#L162)、[注入提示](../../../../maka/packages/runtime-host/src/server/interactive-run-composer.ts#L837)、[默认开关](../../../../maka/packages/core/src/runtime-policy.ts#L263)。
+证据：[文件名](https://github.com/suger-m/maka/blob/8320cda1a4229b54124efe91d8830d0a89c39a4f/packages/storage/src/memory-bundle-io.ts#L53)、[提出与审批分支](https://github.com/suger-m/maka/blob/8320cda1a4229b54124efe91d8830d0a89c39a4f/packages/runtime-host/src/server/memory-coordinator.ts#L377)、[读取门控](https://github.com/suger-m/maka/blob/8320cda1a4229b54124efe91d8830d0a89c39a4f/packages/runtime-host/src/server/memory-coordinator.ts#L162)、[注入提示](https://github.com/suger-m/maka/blob/8320cda1a4229b54124efe91d8830d0a89c39a4f/packages/runtime-host/src/server/interactive-run-composer.ts#L837)、[默认开关](https://github.com/suger-m/maka/blob/8320cda1a4229b54124efe91d8830d0a89c39a4f/packages/core/src/runtime-policy.ts#L263)。
 
 文件投影限制 session 条目仅在对应会话可见；文件中的 workspace 标签不等同于 SQLite 按 workspaceRoot 执行的精确过滤。`agentReadEnabled` 在已核实路径中控制文件注入，SQLite 提取与 Recall 不使用相同的读取门控。
 
-关闭文件记忆读取不等于关闭全部长期记忆能力。当前装配分别为两个存储提供依赖；未确认存在自动提取结果写入 MEMORY.md，或文件审批结果同步至 SQLite 的桥接机制。[文件筛选](../../../../maka/packages/core/src/local-memory.ts#L291)、[提取门控](../../../../maka/packages/runtime-host/src/server/memory-extraction-coordinator.ts#L179)、[Recall 依赖](../../../../maka/packages/runtime-host/src/server/execution-composition.ts#L989)
+关闭文件记忆读取不等于关闭全部长期记忆能力。当前装配分别为两个存储提供依赖；未确认存在自动提取结果写入 MEMORY.md，或文件审批结果同步至 SQLite 的桥接机制。[文件筛选](https://github.com/suger-m/maka/blob/8320cda1a4229b54124efe91d8830d0a89c39a4f/packages/core/src/local-memory.ts#L291)、[提取门控](https://github.com/suger-m/maka/blob/8320cda1a4229b54124efe91d8830d0a89c39a4f/packages/runtime-host/src/server/memory-extraction-coordinator.ts#L179)、[Recall 依赖](https://github.com/suger-m/maka/blob/8320cda1a4229b54124efe91d8830d0a89c39a4f/packages/runtime-host/src/server/execution-composition.ts#L989)
 
 ```mermaid
 flowchart LR
@@ -138,7 +138,7 @@ flowchart LR
 
 若约定仅存在于 S1 临时读取的其他文件中，资源加载器不会根据历史读取记录自动发现该文件。已运行的资源加载器保留已读内容，显式 reload 才会重新读取；同一进程内创建新会话不保证文件内容从磁盘刷新。
 
-证据：[文件发现规则](../../../packages/coding-agent/src/core/resource-loader.ts#L184)、[祖先目录装配](../../../packages/coding-agent/src/core/resource-loader.ts#L232)、[默认 SDK 加载](../../../packages/coding-agent/src/core/sdk.ts#L200)、[提示来源](../../../packages/coding-agent/src/core/agent-session.ts#L1721)、[显式 reload](../../../packages/coding-agent/src/core/agent-session.ts#L3714)。
+证据：[文件发现规则](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/coding-agent/src/core/resource-loader.ts#L184)、[祖先目录装配](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/coding-agent/src/core/resource-loader.ts#L232)、[默认 SDK 加载](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/coding-agent/src/core/sdk.ts#L200)、[提示来源](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/coding-agent/src/core/agent-session.ts#L1714)、[显式 reload](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/coding-agent/src/core/agent-session.ts#L3690)。
 
 ### JSONL 历史持久化与分支上下文投影
 
@@ -146,21 +146,21 @@ Pi 会话条目通过 id 和 parentId 形成树。普通追加将记录写入 JS
 
 压缩追加 summary 和 firstKeptEntryId，不删除被总结的原始条目。本次模型看到最新压缩摘要、保留的近期消息和后续内容；当前工作区还在压缩条目里保存当时有效的 system message，供恢复提示状态。
 
-证据：[记录类型](../../../packages/coding-agent/src/core/session-manager.ts#L57)、[JSONL 追加](../../../packages/coding-agent/src/core/session-manager.ts#L1180)、[分支投影](../../../packages/coding-agent/src/core/session-manager.ts#L390)、[压缩追加](../../../packages/coding-agent/src/core/session-manager.ts#L1268)。
+证据：[记录类型](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/coding-agent/src/core/session-manager.ts#L57)、[JSONL 追加](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/coding-agent/src/core/session-manager.ts#L1172)、[分支投影](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/coding-agent/src/core/session-manager.ts#L390)、[压缩追加](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/coding-agent/src/core/session-manager.ts#L1260)。
 
 当前工作区的 context_edit 又允许追加“隐藏某条内容”或“替换某条内容”的记录，投影时对同一目标取最后一次编辑。它改变模型视图而保留原记录，并且只作用于包含这条编辑的分支。
 
 例如，S1 读取的大段文件结果可以在模型视图中被裁剪；恢复会话后仍可重建相同投影，但不会因此生成适用于所有新会话的长期知识。该机制同时承担上下文预算管理和恢复后投影一致性维护。
 
-证据：[投影应用编辑](../../../packages/coding-agent/src/core/session-manager.ts#L525)、[追加编辑的分支约束](../../../packages/coding-agent/src/core/session-manager.ts#L1369)、[原记录不变与分支相对性的测试](../../../packages/coding-agent/test/session-context-edit.test.ts#L36)。
+证据：[投影应用编辑](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/coding-agent/src/core/session-manager.ts#L519)、[追加编辑的分支约束](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/coding-agent/src/core/session-manager.ts#L1359)、[原记录不变与分支相对性的测试](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/coding-agent/test/session-context-edit.test.ts#L36)。
 
 ### 摘要与扩展能力的边界
 
-默认 compaction 用于继续当前任务：合并既有摘要与待总结消息，必要时保留拆分回合的前缀说明，并附加文件操作信息。摘要可以包含历史约定，但不提供独立的跨会话检索键、知识审批或失效处理机制。[摘要生成与结果](../../../packages/coding-agent/src/core/compaction/compaction.ts#L965)
+默认 compaction 用于继续当前任务：合并既有摘要与待总结消息，必要时保留拆分回合的前缀说明，并附加文件操作信息。摘要可以包含历史约定，但不提供独立的跨会话检索键、知识审批或失效处理机制。[摘要生成与结果](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/coding-agent/src/core/compaction/compaction.ts#L952)
 
-本次核对范围包括默认 SDK／资源装配、内置扩展注册和随附扩展示例；没有发现类似 Maka 的统一自动长期知识提取与检索链。这个结论限定于这些本地路径，不覆盖用户安装的扩展、外部 MCP 服务或整个 Pi 生态。[默认创建](../../../packages/coding-agent/src/core/sdk.ts#L200)、[内置扩展清单](../../../packages/coding-agent/src/extensions/index.ts#L7)
+本次核对范围包括默认 SDK／资源装配、内置扩展注册和随附扩展示例；没有发现类似 Maka 的统一自动长期知识提取与检索链。这个结论限定于这些本地路径，不覆盖用户安装的扩展、外部 MCP 服务或整个 Pi 生态。[默认创建](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/coding-agent/src/core/sdk.ts#L200)、[内置扩展清单](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/coding-agent/src/extensions/index.ts#L7)
 
-随附 custom-compaction 示例确实能接管压缩并调用另一模型，但它返回的是会话压缩结果，需显式加载；这不是默认启用的长期记忆扩展。SDK 上下文文件示例也允许额外注入资料，资料的整理和维护责任仍在调用方。[压缩示例](../../../packages/coding-agent/examples/extensions/custom-compaction.ts#L1)、[上下文示例](../../../packages/coding-agent/examples/sdk/07-context-files.ts#L14)
+随附 custom-compaction 示例确实能接管压缩并调用另一模型，但它返回的是会话压缩结果，需显式加载；这不是默认启用的长期记忆扩展。SDK 上下文文件示例也允许额外注入资料，资料的整理和维护责任仍在调用方。[压缩示例](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/coding-agent/examples/extensions/custom-compaction.ts#L1)、[上下文示例](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/coding-agent/examples/sdk/07-context-files.ts#L14)
 
 ## 5. durable 执行状态与语义知识的职责分离
 
@@ -168,7 +168,7 @@ Pi 的 durable 是另一个包，定义任务以及 Session／Conversation／Tas
 
 上述能力可作为知识系统的基础，但保存任务阶段的文档主要用于执行恢复。跨会话语义知识仍需另行定义准入、索引、作用域和上下文注入策略。durable 文档、task 或 MemoryStorage 均不直接构成默认语义记忆系统。
 
-证据：[文档语义](../../../packages/durable/src/types.ts#L41)、[独立上下文派生](../../../packages/durable/src/harness/context.ts#L129)、[文档事务测试](../../../packages/durable/test/session-documents.test.ts#L78)、[coding-agent 依赖边界](../../../packages/coding-agent/package.json#L43)。
+证据：[文档语义](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/src/types.ts#L41)、[独立上下文派生](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/src/harness/context.ts#L129)、[文档事务测试](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/test/session-documents.test.ts#L78)、[coding-agent 依赖边界](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/coding-agent/package.json#L43)。
 
 ## 6. 跨会话复用场景对比
 

@@ -136,17 +136,17 @@ Pi 没有 Maka 的连接 generation / 定义指纹 / 调用时绑定快照校验
 - [分层授权与凭据生命周期](permissions-and-secrets.md)：Host 身份、工具权限模式与凭据库。
 - [持久化与恢复](../04-state/durable-execution.md)：T1/T2 事实与客户端能力审批的交汇。
 
-[M7]: ../../../../maka/packages/runtime/src/mcp-tools.ts#L119
-[M8]: ../../../../maka/packages/mcp/src/index.ts#L807
-[M9]: ../../../../maka/packages/mcp/src/tool-discovery.ts#L56
-[M10]: ../../../../maka/packages/runtime/src/__tests__/mcp-tools.test.ts#L293
-[M13]: ../../../../maka/packages/mcp/src/tool-binding.ts#L39
-[m-client-admission]: ../../../../maka/packages/runtime/src/tool-runtime.ts#L1415
-[m-client-test]: ../../../../maka/packages/runtime-host/src/__tests__/client-capability-admission-integration.test.ts#L67
-[m-client-grant]: ../../../../maka/packages/core/src/client-capability-grant.ts#L31
-[p-mcp-name]: ../../../packages/coding-agent/src/extensions/mcp/tools.ts#L84
-[p-register]: ../../../packages/coding-agent/src/extensions/mcp/index.ts#L444
-[p-hooks]: ../../../packages/agent/src/agent-loop.ts#L728
-[p-annotations]: ../../../packages/coding-agent/src/extensions/mcp/tools.ts#L300
-[p-markclosed]: ../../../packages/mcp/src/client.ts#L388
-[p-reconnect]: ../../../packages/coding-agent/src/extensions/mcp/runtime.ts#L420
+[M7]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/mcp-tools.ts#L119
+[M8]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/mcp/src/index.ts#L807
+[M9]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/mcp/src/tool-discovery.ts#L56
+[M10]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/__tests__/mcp-tools.test.ts#L293
+[M13]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/mcp/src/tool-binding.ts#L39
+[m-client-admission]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/tool-runtime.ts#L1415
+[m-client-test]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime-host/src/__tests__/client-capability-admission-integration.test.ts#L67
+[m-client-grant]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/core/src/client-capability-grant.ts#L31
+[p-mcp-name]: https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/coding-agent/src/extensions/mcp/tools.ts#L84
+[p-register]: https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/coding-agent/src/extensions/mcp/index.ts#L444
+[p-hooks]: https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/agent/src/agent-loop.ts#L728
+[p-annotations]: https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/coding-agent/src/extensions/mcp/tools.ts#L300
+[p-markclosed]: https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/mcp/src/client.ts#L388
+[p-reconnect]: https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/coding-agent/src/extensions/mcp/runtime.ts#L420

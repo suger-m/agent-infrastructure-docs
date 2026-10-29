@@ -351,22 +351,22 @@ claim 提交后，源边界被封闭，目标的第一条事件为 continuation-
 
 Pi 默认 `coding-agent` 的 `createAgentSession` 先调用 `sessionManager.buildSessionContext()`，然后创建一个新的 `Agent`，将已有 messages 放入 initialState。
 默认层次中，coding-agent 负责会话装配，agent 负责运行循环，ai 提供模型流与工具消息等能力；这一装配入口没有接入 Maka 式工具 T1/T2 sink。
-这支持的结论是“该恢复入口重建对话上下文”，不是“Pi 没有任何持久化执行能力”。[Pi 会话装配](../../../packages/coding-agent/src/core/sdk.ts#L191)
+这支持的结论是“该恢复入口重建对话上下文”，不是“Pi 没有任何持久化执行能力”。[Pi 会话装配](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/coding-agent/src/core/sdk.ts#L191)
 
 加载条目的测试还验证分支、叶子、标签和压缩引用能恢复：例如恢复后追加的 message，其 parentId 必须等于已加载的最后叶子 ID。
-这解释了用户为何能继续原对话，也说明“上下文连续”与“中断工具是否可重新运行”是不同维度。[Pi 会话加载测试](../../../packages/coding-agent/test/session-manager/load-entries.test.ts#L30)
+这解释了用户为何能继续原对话，也说明“上下文连续”与“中断工具是否可重新运行”是不同维度。[Pi 会话加载测试](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/coding-agent/test/session-manager/load-entries.test.ts#L30)
 
 Pi 的实验 `packages/durable` 则有真正的工具执行意图。`ToolTaskCheckpoint` 分为 call 与 execute；execute 保存最终 arguments 和 replay 策略。
 call 阶段解析工具、校验参数、执行 beforeTool hook，再提交 execute checkpoint，之后才调用工具。
-恢复进入 execute 时，只有“已保存策略”和“当前工具策略”都为 safe 才重新执行；否则用持久化的部分输出结算 interrupted。[Pi ToolTask](../../../packages/durable/src/harness/tool.ts#L74)
+恢复进入 execute 时，只有“已保存策略”和“当前工具策略”都为 safe 才重新执行；否则用持久化的部分输出结算 interrupted。[Pi ToolTask](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/src/harness/tool.ts#L74)
 
 这与 Maka 当前通用工具遇到未知结果时不自动重放的选择不同，但双方都承认：执行意图存在，不代表工具结果已知。
 Pi 的 unsafe 测试重开 SQLite 后断言 checkpoint 仍为 execute/unsafe、实现运行次数仍为 1、错误结果保留 `run 1` 输出和 details。
-另一个表驱动测试覆盖 safe/safe、safe/unsafe、unsafe/safe，只有第一种把运行次数变为 2。[Pi 恢复断言](../../../packages/durable/test/harness-tools-recovery.test.ts#L109)
+另一个表驱动测试覆盖 safe/safe、safe/unsafe、unsafe/safe，只有第一种把运行次数变为 2。[Pi 恢复断言](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/test/harness-tools-recovery.test.ts#L109)
 
 Pi durable 的 `settle` 还把工具结果条目、展示 slot 收尾与任务终态置于同一提交中；嵌套工具改写调用者的结果文档。
 因此两者的比较应落在“哪些事实原子提交、何种条件允许重放”上，而不是以功能有无做二选一。
-`replay: safe` 是工具及调用方承担的安全契约，单凭这个标志也不能证明远程副作用恰好一次。[Pi 结果提交](../../../packages/durable/src/harness/tool.ts#L625)
+`replay: safe` 是工具及调用方承担的安全契约，单凭这个标志也不能证明远程副作用恰好一次。[Pi 结果提交](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/src/harness/tool.ts#L625)
 
 ## 9. 阅读边界与验证方向
 
@@ -380,47 +380,47 @@ Pi durable 的 `settle` 还把工具结果条目、展示 slot 收尾与任务�
 - [重试、超时与幂等](../06-operations/retry-timeout-idempotency.md)：说明为什么未知结果不能等同于失败，以及重试需要何种外部证据。
 - [主机所有权与同步](host-ownership-and-sync.md)：说明谁有权修复和启动已认领的执行；本文仅解释 claim 的事实语义。
 
-[agent-run]: ../../../../maka/packages/core/src/agent-run.ts#L187
-[run-recovery]: ../../../../maka/packages/runtime/src/agent-run-recovery.ts#L49
-[admission]: ../../../../maka/packages/storage/src/message-admission-store.ts#L42
-[persistence]: ../../../../maka/packages/storage/src/runtime-event-persistence.ts#L49
-[operational]: ../../../../maka/packages/storage/src/operational-state-store.ts#L62
-[schema]: ../../../../maka/packages/storage/src/sqlite-runtime-schema.ts#L51
-[core-schema]: ../../../../maka/packages/storage/src/sqlite-core-execution-schema.ts#L28
-[prefix]: ../../../../maka/packages/storage/src/sqlite-runtime-store.ts#L1455
-[inventory]: ../../../../maka/packages/storage/src/sqlite-runtime-store.ts#L779
-[transaction]: ../../../../maka/packages/storage/src/sqlite-runtime-store.ts#L4055
-[lease-transaction]: ../../../../maka/packages/storage/src/operational-state-store.ts#L295
-[sqlite-config]: ../../../../maka/packages/storage/src/sqlite-runtime-schema.ts#L947
-[commit-sink]: ../../../../maka/packages/runtime/src/runtime-commit-sink.ts#L22
-[validation]: ../../../../maka/packages/storage/src/tool-commit-validation.ts#L29
-[prepare]: ../../../../maka/packages/runtime/src/tool-runtime.ts#L1937
-[scanner]: ../../../../maka/packages/core/src/tool-ledger-scanner.ts#L173
-[t1]: ../../../../maka/packages/storage/src/sqlite-runtime-store.ts#L3381
-[execute]: ../../../../maka/packages/runtime/src/tool-runtime.ts#L1092
-[projection]: ../../../../maka/packages/runtime/src/tool-runtime.ts#L833
-[t2]: ../../../../maka/packages/storage/src/sqlite-runtime-store.ts#L3957
-[publish]: ../../../../maka/packages/runtime/src/tool-runtime.ts#L1052
-[execute-errors]: ../../../../maka/packages/runtime/src/tool-runtime.ts#L1766
-[end-turn]: ../../../../maka/packages/runtime/src/tool-runtime.ts#L582
-[store-contract]: ../../../../maka/packages/core/src/runtime-event-store.ts#L22
-[resolver]: ../../../../maka/packages/runtime/src/recovery-resolver.ts#L87
-[uncertain]: ../../../../maka/packages/runtime/src/tool-runtime.ts#L3265
-[resolver-test]: ../../../../maka/packages/runtime/src/__tests__/recovery-resolver.test.ts#L119
-[legacy-bundle]: ../../../../maka/packages/core/src/tool-recovery-bundle.ts#L262
-[rebuild]: ../../../../maka/packages/storage/src/sqlite-runtime-store.ts#L3737
-[managed]: ../../../../maka/packages/storage/src/sqlite-runtime-store.ts#L2382
-[terminal]: ../../../../maka/packages/runtime/src/terminal-run-commit.ts#L104
-[recovered-terminal]: ../../../../maka/packages/storage/src/sqlite-runtime-store.ts#L460
-[restart-test]: ../../../../maka/packages/runtime/src/__tests__/sandbox-boundary-restart-recovery.test.ts#L50
-[ledger-repair]: ../../../../maka/packages/runtime/src/runtime-ledger-repair.ts#L74
-[resume]: ../../../../maka/packages/runtime/src/runtime-resume.ts#L443
-[replay]: ../../../../maka/packages/runtime/src/continuation-replay.ts#L142
-[resume-safety]: ../../../../maka/packages/runtime/src/runtime-resume.ts#L1063
-[resume-ids]: ../../../../maka/packages/runtime/src/runtime-resume.ts#L595
-[claim]: ../../../../maka/packages/storage/src/sqlite-runtime-store.ts#L1697
-[continuation-start]: ../../../../maka/packages/storage/src/sqlite-runtime-store.ts#L1920
-[claim-classification]: ../../../../maka/packages/runtime/src/runtime-resume.ts#L617
-[continuation-test]: ../../../../maka/packages/runtime/src/__tests__/runtime-continuation-crash.test.ts#L58
-[t2-test]: ../../../../maka/packages/runtime/src/__tests__/tool-runtime-sqlite-boundary.test.ts#L516
-[success-test]: ../../../../maka/packages/runtime/src/__tests__/tool-runtime-sqlite-boundary.test.ts#L415
+[agent-run]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/core/src/agent-run.ts#L187
+[run-recovery]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/agent-run-recovery.ts#L49
+[admission]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/storage/src/message-admission-store.ts#L42
+[persistence]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/storage/src/runtime-event-persistence.ts#L49
+[operational]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/storage/src/operational-state-store.ts#L62
+[schema]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/storage/src/sqlite-runtime-schema.ts#L51
+[core-schema]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/storage/src/sqlite-core-execution-schema.ts#L28
+[prefix]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/storage/src/sqlite-runtime-store.ts#L1455
+[inventory]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/storage/src/sqlite-runtime-store.ts#L779
+[transaction]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/storage/src/sqlite-runtime-store.ts#L4055
+[lease-transaction]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/storage/src/operational-state-store.ts#L295
+[sqlite-config]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/storage/src/sqlite-runtime-schema.ts#L947
+[commit-sink]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/runtime-commit-sink.ts#L22
+[validation]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/storage/src/tool-commit-validation.ts#L29
+[prepare]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/tool-runtime.ts#L1937
+[scanner]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/core/src/tool-ledger-scanner.ts#L173
+[t1]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/storage/src/sqlite-runtime-store.ts#L3381
+[execute]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/tool-runtime.ts#L1092
+[projection]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/tool-runtime.ts#L833
+[t2]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/storage/src/sqlite-runtime-store.ts#L3957
+[publish]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/tool-runtime.ts#L1052
+[execute-errors]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/tool-runtime.ts#L1766
+[end-turn]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/tool-runtime.ts#L582
+[store-contract]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/core/src/runtime-event-store.ts#L22
+[resolver]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/recovery-resolver.ts#L87
+[uncertain]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/tool-runtime.ts#L3265
+[resolver-test]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/__tests__/recovery-resolver.test.ts#L119
+[legacy-bundle]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/core/src/tool-recovery-bundle.ts#L262
+[rebuild]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/storage/src/sqlite-runtime-store.ts#L3737
+[managed]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/storage/src/sqlite-runtime-store.ts#L2382
+[terminal]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/terminal-run-commit.ts#L104
+[recovered-terminal]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/storage/src/sqlite-runtime-store.ts#L460
+[restart-test]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/__tests__/sandbox-boundary-restart-recovery.test.ts#L50
+[ledger-repair]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/runtime-ledger-repair.ts#L74
+[resume]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/runtime-resume.ts#L443
+[replay]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/continuation-replay.ts#L142
+[resume-safety]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/runtime-resume.ts#L1063
+[resume-ids]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/runtime-resume.ts#L595
+[claim]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/storage/src/sqlite-runtime-store.ts#L1697
+[continuation-start]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/storage/src/sqlite-runtime-store.ts#L1920
+[claim-classification]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/runtime-resume.ts#L617
+[continuation-test]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/__tests__/runtime-continuation-crash.test.ts#L58
+[t2-test]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/__tests__/tool-runtime-sqlite-boundary.test.ts#L516
+[success-test]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/__tests__/tool-runtime-sqlite-boundary.test.ts#L415

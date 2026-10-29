@@ -412,17 +412,17 @@ RootTurnCoordinator 中，后者来自 `active.done`，即脱离 admission 临�
 ## 10. 与 Pi 对照：按对象寿命比较
 
 Pi 默认 coding-agent 的 `createAgentSession()` 读取 SessionManager 的上下文，构造一个 `Agent`，再交给 `AgentSession`。
-它注入 `streamFn`，由 coding-agent 的 ModelRuntime 连接到模型流；并非每次 prompt 都重建整个会话对象。[Pi 会话组装](../../../packages/coding-agent/src/core/sdk.ts#L196) [Agent 构造与注入](../../../packages/coding-agent/src/core/sdk.ts#L411)
+它注入 `streamFn`，由 coding-agent 的 ModelRuntime 连接到模型流；并非每次 prompt 都重建整个会话对象。[Pi 会话组装](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/coding-agent/src/core/sdk.ts#L196) [Agent 构造与注入](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/coding-agent/src/core/sdk.ts#L411)
 
 `packages/agent` 的 `Agent` 保留 state、监听器与消息队列，每次运行创建带 Promise、resolve 与 AbortController 的 `activeRun`。
 已存在 activeRun 时普通 `prompt()` 拒绝重入；结束后清除本次运行引用，Agent 本身继续存在。
-`abort()` 发送取消，`waitForIdle()` 等待本次运行；`agent_end` 事件也不等于所有异步监听处理均已结束。[Pi Agent 运行生命周期](../../../packages/agent/src/agent.ts#L373) [收尾与 idle](../../../packages/agent/src/agent.ts#L520)
+`abort()` 发送取消，`waitForIdle()` 等待本次运行；`agent_end` 事件也不等于所有异步监听处理均已结束。[Pi Agent 运行生命周期](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/agent/src/agent.ts#L373) [收尾与 idle](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/agent/src/agent.ts#L520)
 
 可以对应的是“长寿命会话对象 + 短寿命一次运行状态”；不应强行将 Pi Agent、Maka AgentRun、Maka AiSdkTurn 视为同一层级。
 默认 `coding-agent` 负责应用会话，`agent` 负责循环及运行状态，`ai` 提供模型接口；它们同样具备历史、取消、流消费与工具能力，并非“没有生命周期管理”。
 
 Pi 的实验 `durable` 则属于另一范围：`HarnessImpl` 持有存储、TaskScheduler 等，打开时恢复调度状态，关闭前等待任务清理。
-这不能由默认 Agent 的 `activeRun` 直接推断，也不能因默认层没有 Maka 这套 generation 结构，就断言整个 Pi 不支持恢复或调度。[durable Harness 构造](../../../packages/durable/src/harness/harness.ts#L184) [打开与关闭](../../../packages/durable/src/harness/harness.ts#L270)
+这不能由默认 Agent 的 `activeRun` 直接推断，也不能因默认层没有 Maka 这套 generation 结构，就断言整个 Pi 不支持恢复或调度。[durable Harness 构造](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/src/harness/harness.ts#L184) [打开与关闭](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/src/harness/harness.ts#L270)
 
 ## 11. 检查方法与阅读边界
 
@@ -434,45 +434,45 @@ Pi 的实验 `durable` 则属于另一范围：`HarnessImpl` 持有存储、Task
 未验证真实 provider 取消延迟、操作系统进程退出效果、所有 hosted continuation 分支或进程崩溃后的完整恢复顺序。
 持久记录能被重新读取，不代表同一个 JavaScript 实例、AbortController 或未完成 Promise 可以跨进程继续使用。
 
-[registry]: ../../../../maka/packages/runtime/src/session-manager.ts#L773
-[manager-constructor]: ../../../../maka/packages/runtime/src/session-manager.ts#L911
-[send-message]: ../../../../maka/packages/runtime/src/session-manager.ts#L2313
-[configuration]: ../../../../maka/packages/runtime/src/session-manager.ts#L1205
-[resource-transition]: ../../../../maka/packages/runtime/src/session-manager.ts#L1888
-[manager-stop]: ../../../../maka/packages/runtime/src/session-manager.ts#L4087
-[kernel-fields]: ../../../../maka/packages/runtime/src/runtime-kernel.ts#L423
-[claims]: ../../../../maka/packages/runtime/src/runtime-kernel.ts#L489
-[start-turn]: ../../../../maka/packages/runtime/src/runtime-kernel.ts#L720
-[run-agent-turn]: ../../../../maka/packages/runtime/src/runtime-kernel.ts#L1409
-[stream-run]: ../../../../maka/packages/runtime/src/runtime-kernel.ts#L1607
-[cleanup]: ../../../../maka/packages/runtime/src/runtime-kernel.ts#L1780
-[backend-stream]: ../../../../maka/packages/runtime/src/runtime-kernel.ts#L1879
-[kernel-stop]: ../../../../maka/packages/runtime/src/runtime-kernel.ts#L2104
-[backend-stop-owner]: ../../../../maka/packages/runtime/src/runtime-kernel.ts#L2609
-[ensure-active]: ../../../../maka/packages/runtime/src/runtime-kernel.ts#L2791
-[generation]: ../../../../maka/packages/runtime/src/runtime-kernel.ts#L2965
-[generation-exit]: ../../../../maka/packages/runtime/src/runtime-kernel.ts#L3054
-[claim-settlement]: ../../../../maka/packages/runtime/src/runtime-kernel.ts#L3716
-[run-fields]: ../../../../maka/packages/runtime/src/agent-run.ts#L242
-[run-constructor]: ../../../../maka/packages/runtime/src/agent-run.ts#L307
-[run-begin]: ../../../../maka/packages/runtime/src/agent-run.ts#L983
-[run-finalize]: ../../../../maka/packages/runtime/src/agent-run.ts#L1333
-[run-event]: ../../../../maka/packages/core/src/agent-run.ts#L187
-[backend-fields]: ../../../../maka/packages/runtime/src/ai-sdk-backend.ts#L294
-[backend-scope]: ../../../../maka/packages/runtime/src/ai-sdk-backend.ts#L551
-[backend-send]: ../../../../maka/packages/runtime/src/ai-sdk-backend.ts#L585
-[turn-fields]: ../../../../maka/packages/runtime/src/ai-sdk-turn.ts#L617
-[turn-loop]: ../../../../maka/packages/runtime/src/ai-sdk-turn.ts#L872
-[turn-drain]: ../../../../maka/packages/runtime/src/ai-sdk-turn.ts#L3070
-[host-admission]: ../../../../maka/packages/runtime-host/src/server/hosted-execution-authority.ts#L76
-[host-wait]: ../../../../maka/packages/runtime-host/src/server/hosted-execution-wait.ts#L111
-[host-task]: ../../../../maka/packages/runtime-host/src/server/root-turn-coordinator.ts#L3024
-[host-drain]: ../../../../maka/packages/runtime-host/src/server/root-turn-coordinator.ts#L3205
-[test-late-build]: ../../../../maka/packages/runtime/src/__tests__/session-manager.test.ts#L11437
-[test-cold]: ../../../../maka/packages/runtime/src/__tests__/session-manager.test.ts#L11736
-[test-stop-retry]: ../../../../maka/packages/runtime/src/__tests__/session-manager.test.ts#L11793
-[test-overlap]: ../../../../maka/packages/runtime/src/__tests__/ai-sdk-backend.test.ts#L13285
-[test-broadcast-stop]: ../../../../maka/packages/runtime/src/__tests__/ai-sdk-backend.test.ts#L13449
+[registry]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/session-manager.ts#L773
+[manager-constructor]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/session-manager.ts#L911
+[send-message]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/session-manager.ts#L2313
+[configuration]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/session-manager.ts#L1205
+[resource-transition]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/session-manager.ts#L1888
+[manager-stop]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/session-manager.ts#L4087
+[kernel-fields]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/runtime-kernel.ts#L423
+[claims]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/runtime-kernel.ts#L489
+[start-turn]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/runtime-kernel.ts#L720
+[run-agent-turn]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/runtime-kernel.ts#L1409
+[stream-run]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/runtime-kernel.ts#L1607
+[cleanup]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/runtime-kernel.ts#L1780
+[backend-stream]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/runtime-kernel.ts#L1879
+[kernel-stop]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/runtime-kernel.ts#L2104
+[backend-stop-owner]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/runtime-kernel.ts#L2609
+[ensure-active]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/runtime-kernel.ts#L2791
+[generation]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/runtime-kernel.ts#L2965
+[generation-exit]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/runtime-kernel.ts#L3054
+[claim-settlement]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/runtime-kernel.ts#L3716
+[run-fields]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/agent-run.ts#L242
+[run-constructor]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/agent-run.ts#L307
+[run-begin]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/agent-run.ts#L983
+[run-finalize]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/agent-run.ts#L1333
+[run-event]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/core/src/agent-run.ts#L187
+[backend-fields]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/ai-sdk-backend.ts#L294
+[backend-scope]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/ai-sdk-backend.ts#L551
+[backend-send]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/ai-sdk-backend.ts#L585
+[turn-fields]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/ai-sdk-turn.ts#L617
+[turn-loop]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/ai-sdk-turn.ts#L872
+[turn-drain]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/ai-sdk-turn.ts#L3070
+[host-admission]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime-host/src/server/hosted-execution-authority.ts#L76
+[host-wait]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime-host/src/server/hosted-execution-wait.ts#L111
+[host-task]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime-host/src/server/root-turn-coordinator.ts#L3024
+[host-drain]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime-host/src/server/root-turn-coordinator.ts#L3205
+[test-late-build]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/__tests__/session-manager.test.ts#L11437
+[test-cold]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/__tests__/session-manager.test.ts#L11736
+[test-stop-retry]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/__tests__/session-manager.test.ts#L11793
+[test-overlap]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/__tests__/ai-sdk-backend.test.ts#L13285
+[test-broadcast-stop]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/__tests__/ai-sdk-backend.test.ts#L13449
 
 ## 相关专题
 

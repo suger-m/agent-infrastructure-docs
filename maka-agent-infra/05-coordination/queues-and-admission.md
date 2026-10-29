@@ -161,7 +161,7 @@ resume() → #kick → #drain → #reserve
 
 ## 8. 源码定位
 
-下列入口可与前述轨迹逐项核对；Maka 与 Pi 均使用本地相对链接，读取当前工作区文件。源码阅读基线见文首。
+下列入口可与前述轨迹逐项核对；Maka 与 Pi 的链接指向 GitHub 上的固定提交。源码阅读基线见文首。
 
 | 源码入口 | 函数或符号 | 阅读时需确认的边界 |
 | --- | --- | --- |
@@ -209,35 +209,35 @@ resume() → #kick → #drain → #reserve
 - [领域模型](../00-foundations/domain-model.md)：确认输入、执行、步骤和尝试的身份边界。
 - [持久化与恢复](../04-state/durable-execution.md)：追踪状态提交与中断后继续执行的条件。
 
-[m-gate]: ../../../../maka/packages/runtime-host/src/server/session-admission-gate.ts#L50
-[m-root-owner]: ../../../../maka/packages/runtime-host/src/server/root-admission-owner.ts#L85
-[m-interactive]: ../../../../maka/packages/runtime-host/src/server/interactive-turn-coordinator.ts#L74
-[m-root-start]: ../../../../maka/packages/runtime-host/src/server/root-turn-coordinator.ts#L2112
-[m-from-message]: ../../../../maka/packages/runtime-host/src/server/root-turn-coordinator.ts#L1412
-[m-detach]: ../../../../maka/packages/runtime-host/src/server/root-turn-coordinator.ts#L3062
-[m-transition]: ../../../../maka/packages/runtime-host/src/server/root-turn-coordinator.ts#L3466
-[m-submit]: ../../../../maka/packages/runtime-host/src/server/message-coordinator.ts#L1329
-[m-admission-record]: ../../../../maka/packages/storage/src/message-admission-store.ts#L42
-[m-commit-message]: ../../../../maka/packages/runtime-host/src/server/message-coordinator.ts#L1656
-[m-pull]: ../../../../maka/packages/runtime-host/src/server/message-coordinator.ts#L2320
-[m-recover]: ../../../../maka/packages/runtime-host/src/server/message-coordinator.ts#L1115
-[m-terminal]: ../../../../maka/packages/runtime-host/src/server/message-coordinator.ts#L911
-[m-successor]: ../../../../maka/packages/runtime-host/src/server/message-coordinator.ts#L2965
-[m-queue-limits]: ../../../../maka/packages/runtime-host/src/protocol/message-queue-limits.ts#L20
-[m-limiter]: ../../../../maka/packages/runtime/src/admission-limiter.ts#L46
-[m-tool-limits]: ../../../../maka/packages/runtime/src/tool-runtime.ts#L336
-[m-child]: ../../../../maka/packages/runtime/src/tool-runtime.ts#L2190
-[m-reset]: ../../../../maka/packages/runtime/src/tool-runtime.ts#L890
-[m-limiter-test]: ../../../../maka/packages/runtime/src/__tests__/admission-limiter.test.ts#L36
-[m-shell-background]: ../../../../maka/packages/runtime/src/shell-run-manager.ts#L330
-[m-shell-start]: ../../../../maka/packages/runtime/src/shell-run-manager.ts#L739
-[m-shell-finalize]: ../../../../maka/packages/runtime/src/shell-run-manager.ts#L1295
-[m-shell-defaults]: ../../../../maka/packages/runtime/src/shell-run-contract.ts#L44
-[m-shell-slot]: ../../../../maka/packages/runtime/src/shell-run-manager.ts#L1967
-[m-shell-recover]: ../../../../maka/packages/runtime/src/shell-run-manager.ts#L665
-[p-agent]: ../../../packages/agent/src/agent.ts#L143
-[p-loop]: ../../../packages/agent/src/agent-loop.ts#L163
-[p-submissions]: ../../../packages/durable/src/harness/submissions.ts#L171
-[p-inbox]: ../../../packages/durable/src/harness/inbox.ts#L70
-[p-scheduler-open]: ../../../packages/durable/src/harness/scheduler.ts#L352
-[p-scheduler-reserve]: ../../../packages/durable/src/harness/scheduler.ts#L1433
+[m-gate]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime-host/src/server/session-admission-gate.ts#L50
+[m-root-owner]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime-host/src/server/root-admission-owner.ts#L85
+[m-interactive]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime-host/src/server/interactive-turn-coordinator.ts#L74
+[m-root-start]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime-host/src/server/root-turn-coordinator.ts#L2112
+[m-from-message]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime-host/src/server/root-turn-coordinator.ts#L1412
+[m-detach]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime-host/src/server/root-turn-coordinator.ts#L3062
+[m-transition]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime-host/src/server/root-turn-coordinator.ts#L3466
+[m-submit]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime-host/src/server/message-coordinator.ts#L1329
+[m-admission-record]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/storage/src/message-admission-store.ts#L42
+[m-commit-message]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime-host/src/server/message-coordinator.ts#L1656
+[m-pull]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime-host/src/server/message-coordinator.ts#L2320
+[m-recover]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime-host/src/server/message-coordinator.ts#L1115
+[m-terminal]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime-host/src/server/message-coordinator.ts#L911
+[m-successor]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime-host/src/server/message-coordinator.ts#L2965
+[m-queue-limits]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime-host/src/protocol/message-queue-limits.ts#L20
+[m-limiter]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/admission-limiter.ts#L46
+[m-tool-limits]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/tool-runtime.ts#L336
+[m-child]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/tool-runtime.ts#L2190
+[m-reset]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/tool-runtime.ts#L890
+[m-limiter-test]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/__tests__/admission-limiter.test.ts#L36
+[m-shell-background]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/shell-run-manager.ts#L330
+[m-shell-start]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/shell-run-manager.ts#L739
+[m-shell-finalize]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/shell-run-manager.ts#L1295
+[m-shell-defaults]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/shell-run-contract.ts#L44
+[m-shell-slot]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/shell-run-manager.ts#L1967
+[m-shell-recover]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/shell-run-manager.ts#L665
+[p-agent]: https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/agent/src/agent.ts#L143
+[p-loop]: https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/agent/src/agent-loop.ts#L163
+[p-submissions]: https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/src/harness/submissions.ts#L171
+[p-inbox]: https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/src/harness/inbox.ts#L70
+[p-scheduler-open]: https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/src/harness/scheduler.ts#L352
+[p-scheduler-reserve]: https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/src/harness/scheduler.ts#L1433

@@ -375,7 +375,7 @@ compaction 指缩减将要发送给模型的上下文，并不等于删除事件
 ## 12. 与 Pi 对照：术语对齐与策略比较
 
 Pi 默认链路从 `coding-agent` 创建 `Agent`，接到 `agent` 的循环，再通过 `ai` 的流接口调用模型。
-`createAgentSession` 注入的 `streamFn` 使用 `modelRuntime.streamSimple`；请求选项中也有 retry/timeout 配置，不能概括为“Pi 不支持重试或超时”。[Pi 默认装配](../../../packages/coding-agent/src/core/sdk.ts#L351)
+`createAgentSession` 注入的 `streamFn` 使用 `modelRuntime.streamSimple`；请求选项中也有 retry/timeout 配置，不能概括为“Pi 不支持重试或超时”。[Pi 默认装配](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/coding-agent/src/core/sdk.ts#L351)
 
 | 观察点 | Maka 本文路径 | Pi 默认 agent 路径 |
 | --- | --- | --- |
@@ -385,14 +385,14 @@ Pi 默认链路从 `coding-agent` 创建 `Agent`，接到 `agent` 的循环，�
 | 完成控制 | `beforeTurnFinish` 可否决 end_turn | `finishTurn` 可明确 end/continue，工具批次也可要求 terminate |
 
 Pi 的 `turn_end` 对应一次助手响应与这一批工具结果，不等于 Maka 整个逻辑 Turn 结束；直接按名称一一对应会误读两侧代码。
-Pi 还有 `prepareNextTurn` / `prepareRequest` 可调整上下文、模型和推理设置，所以“默认内存循环”不意味着没有上下文处理接入点。[Pi 循环](../../../packages/agent/src/agent-loop.ts#L163)
+Pi 还有 `prepareNextTurn` / `prepareRequest` 可调整上下文、模型和推理设置，所以“默认内存循环”不意味着没有上下文处理接入点。[Pi 循环](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/agent/src/agent-loop.ts#L163)
 
 Pi 的流也通过异步迭代产生事件，并提供结果 Promise；两者都需要区分增量展示和最终消息。
-Pi 默认循环对 error/aborted 响应直接结束；对 length 截断响应不执行可能残缺的工具参数，而生成失败结果。[Pi 响应与工具边界](../../../packages/agent/src/agent-loop.ts#L241) [Pi 事件流](../../../packages/ai/src/utils/event-stream.ts#L27)
+Pi 默认循环对 error/aborted 响应直接结束；对 length 截断响应不执行可能残缺的工具参数，而生成失败结果。[Pi 响应与工具边界](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/agent/src/agent-loop.ts#L241) [Pi 事件流](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/ai/src/utils/event-stream.ts#L27)
 
 另有实验性的 `packages/durable`，不能以默认路径代替它得出结论。
 其 `ToolTask` 在执行前写 checkpoint，恢复时要求保存的与当前工具定义都允许 replay-safe（可安全重放），否则报告 interrupted。
-这是另一条明确的恢复安全策略，并非默认 coding-agent 已自动具备的行为，也不是 Pi 完全不具备的能力。[Pi durable 工具恢复](../../../packages/durable/src/harness/tool.ts#L123)
+这是另一条明确的恢复安全策略，并非默认 coding-agent 已自动具备的行为，也不是 Pi 完全不具备的能力。[Pi durable 工具恢复](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/src/harness/tool.ts#L123)
 
 ## 13. 用现有测试验证理解
 
@@ -412,49 +412,49 @@ Pi 默认循环对 error/aborted 响应直接结束；对 length 截断响应不
 本地没有安装可供核对的 AI SDK 依赖，本文未进一步审计 SDK 内部；单 step 语义依据 Maka 的适配代码、明确注释和现有 mock 测试。
 模型配置、OAuth、工具权限实现和压缩算法不在本文范围之内。
 
-[backend-send]: ../../../../maka/packages/runtime/src/ai-sdk-backend.ts#L551
-[backend-tools]: ../../../../maka/packages/runtime/src/ai-sdk-backend.ts#L493
-[turn-fields]: ../../../../maka/packages/runtime/src/ai-sdk-turn.ts#L617
-[turn-flush]: ../../../../maka/packages/runtime/src/ai-sdk-turn.ts#L902
-[turn-pump]: ../../../../maka/packages/runtime/src/ai-sdk-turn.ts#L1292
-[turn-projection]: ../../../../maka/packages/runtime/src/ai-sdk-turn.ts#L1355
-[turn-loop]: ../../../../maka/packages/runtime/src/ai-sdk-turn.ts#L1531
-[turn-attempt]: ../../../../maka/packages/runtime/src/ai-sdk-turn.ts#L1635
-[turn-stream]: ../../../../maka/packages/runtime/src/ai-sdk-turn.ts#L1744
-[turn-completed]: ../../../../maka/packages/runtime/src/ai-sdk-turn.ts#L1923
-[turn-retry]: ../../../../maka/packages/runtime/src/ai-sdk-turn.ts#L2041
-[turn-tools]: ../../../../maka/packages/runtime/src/ai-sdk-turn.ts#L2214
-[turn-tool-finish]: ../../../../maka/packages/runtime/src/ai-sdk-turn.ts#L2304
-[turn-continuation]: ../../../../maka/packages/runtime/src/ai-sdk-turn.ts#L2331
-[turn-finish]: ../../../../maka/packages/runtime/src/ai-sdk-turn.ts#L2351
-[turn-usage]: ../../../../maka/packages/runtime/src/ai-sdk-turn.ts#L2456
-[turn-terminal]: ../../../../maka/packages/runtime/src/ai-sdk-turn.ts#L2584
-[turn-drain]: ../../../../maka/packages/runtime/src/ai-sdk-turn.ts#L3070
-[turn-watchdog]: ../../../../maka/packages/runtime/src/ai-sdk-turn.ts#L1315
-[turn-history]: ../../../../maka/packages/runtime/src/ai-sdk-turn.ts#L2832
-[adapter-input]: ../../../../maka/packages/runtime/src/model-adapter.ts#L124
-[adapter-dispatch]: ../../../../maka/packages/runtime/src/model-adapter.ts#L379
-[adapter-outcome]: ../../../../maka/packages/runtime/src/model-adapter.ts#L435
-[adapter-classify]: ../../../../maka/packages/runtime/src/model-adapter.ts#L726
-[adapter-tools]: ../../../../maka/packages/runtime/src/model-adapter.ts#L1513
-[protocol-message]: ../../../../maka/packages/runtime/src/model-protocol.ts#L139
-[protocol-events]: ../../../../maka/packages/runtime/src/model-protocol.ts#L370
-[protocol-outcome]: ../../../../maka/packages/runtime/src/model-protocol.ts#L417
-[queue]: ../../../../maka/packages/runtime/src/async-queue.ts#L43
-[watchdog]: ../../../../maka/packages/runtime/src/stream-watchdog.ts#L20
-[test-sdk-retry]: ../../../../maka/packages/runtime/src/__tests__/model-adapter-onerror.test.ts#L323
-[test-empty]: ../../../../maka/packages/runtime/src/__tests__/model-adapter-onerror.test.ts#L405
-[test-reasoning-error]: ../../../../maka/packages/runtime/src/__tests__/model-adapter-onerror.test.ts#L127
-[test-activity]: ../../../../maka/packages/runtime/src/__tests__/model-adapter-stream-activity.test.ts#L32
-[test-hook]: ../../../../maka/packages/runtime/src/__tests__/ai-sdk-backend.test.ts#L117
-[test-tool-finish]: ../../../../maka/packages/runtime/src/__tests__/ai-sdk-backend.test.ts#L270
-[test-provider-tool]: ../../../../maka/packages/runtime/src/__tests__/ai-sdk-backend.test.ts#L556
-[test-stop]: ../../../../maka/packages/runtime/src/__tests__/ai-sdk-backend.test.ts#L202
-[test-reader]: ../../../../maka/packages/runtime/src/__tests__/ai-sdk-backend.test.ts#L9118
-[test-discard]: ../../../../maka/packages/runtime/src/__tests__/ai-sdk-backend.test.ts#L11497
-[test-two-step]: ../../../../maka/packages/runtime/src/__tests__/ai-sdk-backend.test.ts#L15914
-[test-after-tool]: ../../../../maka/packages/runtime/src/__tests__/ai-sdk-backend.test.ts#L18830
-[test-harness]: ../../../../maka/packages/runtime/src/__tests__/ai-sdk-backend.test.ts#L18487
+[backend-send]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/ai-sdk-backend.ts#L551
+[backend-tools]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/ai-sdk-backend.ts#L493
+[turn-fields]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/ai-sdk-turn.ts#L617
+[turn-flush]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/ai-sdk-turn.ts#L902
+[turn-pump]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/ai-sdk-turn.ts#L1292
+[turn-projection]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/ai-sdk-turn.ts#L1355
+[turn-loop]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/ai-sdk-turn.ts#L1531
+[turn-attempt]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/ai-sdk-turn.ts#L1635
+[turn-stream]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/ai-sdk-turn.ts#L1744
+[turn-completed]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/ai-sdk-turn.ts#L1923
+[turn-retry]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/ai-sdk-turn.ts#L2041
+[turn-tools]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/ai-sdk-turn.ts#L2214
+[turn-tool-finish]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/ai-sdk-turn.ts#L2304
+[turn-continuation]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/ai-sdk-turn.ts#L2331
+[turn-finish]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/ai-sdk-turn.ts#L2351
+[turn-usage]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/ai-sdk-turn.ts#L2456
+[turn-terminal]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/ai-sdk-turn.ts#L2584
+[turn-drain]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/ai-sdk-turn.ts#L3070
+[turn-watchdog]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/ai-sdk-turn.ts#L1315
+[turn-history]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/ai-sdk-turn.ts#L2832
+[adapter-input]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/model-adapter.ts#L124
+[adapter-dispatch]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/model-adapter.ts#L379
+[adapter-outcome]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/model-adapter.ts#L435
+[adapter-classify]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/model-adapter.ts#L726
+[adapter-tools]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/model-adapter.ts#L1513
+[protocol-message]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/model-protocol.ts#L139
+[protocol-events]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/model-protocol.ts#L370
+[protocol-outcome]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/model-protocol.ts#L417
+[queue]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/async-queue.ts#L43
+[watchdog]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/stream-watchdog.ts#L20
+[test-sdk-retry]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/__tests__/model-adapter-onerror.test.ts#L323
+[test-empty]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/__tests__/model-adapter-onerror.test.ts#L405
+[test-reasoning-error]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/__tests__/model-adapter-onerror.test.ts#L127
+[test-activity]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/__tests__/model-adapter-stream-activity.test.ts#L32
+[test-hook]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/__tests__/ai-sdk-backend.test.ts#L117
+[test-tool-finish]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/__tests__/ai-sdk-backend.test.ts#L270
+[test-provider-tool]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/__tests__/ai-sdk-backend.test.ts#L556
+[test-stop]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/__tests__/ai-sdk-backend.test.ts#L202
+[test-reader]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/__tests__/ai-sdk-backend.test.ts#L9118
+[test-discard]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/__tests__/ai-sdk-backend.test.ts#L11497
+[test-two-step]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/__tests__/ai-sdk-backend.test.ts#L15914
+[test-after-tool]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/__tests__/ai-sdk-backend.test.ts#L18830
+[test-harness]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/__tests__/ai-sdk-backend.test.ts#L18487
 
 ## 相关专题
 

@@ -113,7 +113,7 @@ sequenceDiagram
 
 Pi 的 createAgentSession 同样组装模型运行时、Agent 与会话策略，开发者无需手写整个循环。Maka 的标准路径进一步将配置转换置于 Host 服务边界，通过版本与运行资源状态协调多个客户端。比较应落实到具体入口，而非以 SDK 是否可调用作为区别。
 
-- [Pi SDK](../../../packages/coding-agent/src/core/sdk.ts#L411)：考察模型运行时与 streamFn 的注入方式。
+- [Pi SDK](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/coding-agent/src/core/sdk.ts#L411)：考察模型运行时与 streamFn 的注入方式。
 - [模型循环](model-step.md)：考察配置就绪后一次真实请求如何推进。
 - [请求计量](../06-operations/observability.md)：考察实际 provider 尝试如何留下用量证据。
 
@@ -123,14 +123,14 @@ Pi 的 createAgentSession 同样组装模型运行时、Agent 与会话策略，
 - [分层授权与凭据生命周期](../03-tools/permissions-and-secrets.md)：凭据库、访问凭据与 Managed Secret 的边界。
 - [完整调用链](request-to-response.md)：注入完成的配置在一次真实请求中何时被消费。
 
-[resolve-target]: ../../../../maka/packages/runtime-host/src/server/execution-model-authority.ts#L1089
-[connection-resolve]: ../../../../maka/packages/storage/src/runtime-policy/coordinator.ts#L826
-[vault-document]: ../../../../maka/packages/storage/src/runtime-policy/credential-vault-document.ts#L49
-[vault-codec]: ../../../../maka/packages/core/src/runtime-policy/credential-vault-codec.ts#L42
-[material-assembly]: ../../../../maka/packages/storage/src/runtime-policy/coordinator.ts#L1698
-[oauth-authority]: ../../../../maka/packages/runtime-host/src/server/oauth-execution-authority.ts#L347
-[backend-build]: ../../../../maka/packages/runtime-host/src/server/execution-model-composition.ts#L140
-[host-backend]: ../../../../maka/packages/runtime-host/src/server/execution-composition.ts#L1356
-[driver-model]: ../../../../maka/packages/cli/src/runtime-host-session-driver.ts#L777
-[manager-config]: ../../../../maka/packages/runtime/src/session-manager.ts#L1205
-[manager-transition]: ../../../../maka/packages/runtime/src/session-manager.ts#L1888
+[resolve-target]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime-host/src/server/execution-model-authority.ts#L1089
+[connection-resolve]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/storage/src/runtime-policy/coordinator.ts#L826
+[vault-document]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/storage/src/runtime-policy/credential-vault-document.ts#L49
+[vault-codec]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/core/src/runtime-policy/credential-vault-codec.ts#L42
+[material-assembly]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/storage/src/runtime-policy/coordinator.ts#L1698
+[oauth-authority]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime-host/src/server/oauth-execution-authority.ts#L347
+[backend-build]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime-host/src/server/execution-model-composition.ts#L140
+[host-backend]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime-host/src/server/execution-composition.ts#L1356
+[driver-model]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/cli/src/runtime-host-session-driver.ts#L777
+[manager-config]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/session-manager.ts#L1205
+[manager-transition]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/session-manager.ts#L1888

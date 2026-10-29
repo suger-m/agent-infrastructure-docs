@@ -13,7 +13,7 @@ Pi 的 `coding-agent` 本身就可以被开发者调用：SDK 创建 `AgentSessi
 Maka 同样提供可组合的 runtime 接口；其标准产品入口通过 Runtime Host 组装会话、执行、存储与客户端协议。
 
 两者均支持嵌入式调用，主要差异在于接口所提供的职责范围和默认执行约束。
-源码入口：[Pi createAgentSession](../../../packages/coding-agent/src/core/sdk.ts#L191)、[Maka Host composition](../../../../maka/packages/runtime-host/src/server/execution-composition.ts#L364)。
+源码入口：[Pi createAgentSession](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/coding-agent/src/core/sdk.ts#L191)、[Maka Host composition](https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime-host/src/server/execution-composition.ts#L364)。
 
 Pi 的相关接口分为以下三类：
 
@@ -26,7 +26,7 @@ Pi 的相关接口分为以下三类：
 
 Pi durable 的生产依赖包含 pi-ai、Chord 等，不含 pi-agent-core；coding-agent 的默认组装显式创建 `Agent`。
 这说明两条执行路径不能表示为 `coding-agent → durable → agent`。
-证据：[durable manifest](../../../packages/durable/package.json#L146)、[coding-agent SDK](../../../packages/coding-agent/src/core/sdk.ts#L411)。
+证据：[durable manifest](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/package.json#L146)、[coding-agent SDK](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/coding-agent/src/core/sdk.ts#L411)。
 
 ## 2. 编码会话的嵌入式集成
 
@@ -83,7 +83,7 @@ Pi 默认 Agent：一次 prompt 运行
 ```
 
 这不是某个项目多调用了一次模型，而是术语边界不同。物理请求失败重试还会增加 attempt，不应将 attempt 直接视为 Turn。
-对照 [Pi 事件序列](../../../packages/agent/README.md#event-flow)与 [Maka 模型循环](../01-runtime/model-step.md)。
+对照 [Pi 事件序列](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/agent/README.md#event-flow)与 [Maka 模型循环](../01-runtime/model-step.md)。
 
 ## 3. 多客户端会话观察与执行所有权
 
@@ -116,7 +116,7 @@ sequenceDiagram
 Pi 的 `Agent.activeRun` 处理一个对象中的运行生命周期；它不等于跨进程 State Root 所有权。
 `Agent.subscribe()` 也不是带 `hostEpoch` 的断线重连协议。
 Pi 仓库另有 RPC 和 Chord 等入口，但应以实际装配判断其保证，不能将一个库的能力自动归于默认 SDK。
-证据：[Pi Agent 生命周期](../../../packages/agent/src/agent.ts#L507)、[Chord](../../../packages/chord/README.md)、[Maka 所有权与同步](../04-state/host-ownership-and-sync.md)。
+证据：[Pi Agent 生命周期](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/agent/src/agent.ts#L507)、[Chord](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/chord/README.md)、[Maka 所有权与同步](../04-state/host-ownership-and-sync.md)。
 
 该场景应比较共享服务的生命周期、执行所有权和重连协议。事件回调仅提供观察入口，不构成上述保证的充分条件。
 
@@ -145,7 +145,7 @@ Maka 的正常本地工具顺序是：
 T1/T2 是运行事实的提交边界，不是覆盖文件系统、网络服务和数据库的同一个事务。
 Maka 新工具协议保留 `outcome_unknown` 等不确定状态，不提供“看到 T1 就无条件重做”的策略。
 Pi durable 的恢复测试则显式区分 safe/unsafe，且需要持久策略和当前注册策略共同支持安全重放。
-证据：[Maka 恢复实现详解](../04-state/durable-execution.md)、[Pi durable 恢复测试](../../../packages/durable/test/harness-tools-recovery.test.ts#L109)。
+证据：[Maka 恢复实现详解](../04-state/durable-execution.md)、[Pi durable 恢复测试](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/test/harness-tools-recovery.test.ts#L109)。
 
 恢复过程不重建原 Promise 或调用栈，而是读取已提交事实，确认可信结果并决定是否建立后继执行。
 至于业务动作能否重做，还取决于动作自身的幂等键、外部查询能力和授权；框架无法仅凭一段错误文本证明这些条件。
@@ -167,7 +167,7 @@ Maka 保存 RuntimeEvent 事实，工具结果可带冻结的 `modelProjection`�
 | 摘要对副作用的证明能力 | 不提供副作用完成证明 | 不提供副作用完成证明 |
 
 具体算法以[历史与投影](../02-context/history-and-projection.md)、[压缩](../02-context/compaction.md)为准；
-Pi 当前工作区的入口可从 [buildSessionProjections 所在实现](../../../packages/coding-agent/src/core/session-manager.ts)继续追溯。
+Pi 当前工作区的入口可从 [buildSessionProjections 所在实现](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/coding-agent/src/core/session-manager.ts)继续追溯。
 不能由摘要中“已修改文件”的表述，推导磁盘现状与工具结算已经得到验证。
 
 Maka 模型切换通过带 `expectedRevision` 的 Host 配置更新执行，运行资源转换检查 Session 是否静止并处置旧 backend；
@@ -191,7 +191,7 @@ Pi 默认 coding-agent 可以通过扩展组织子 Agent；durable 则提供独�
 4. C 已被领取后，旧调度器不能凭过期版本再领取一次。
 
 Maka 的 claim、revision fencing 和 handoff 详见[任务图](../05-coordination/agent-graph.md)；
-Pi durable 的独立入口见 [Harness.open](../../../packages/durable/src/harness/harness.ts#L488)。
+Pi durable 的独立入口见 [Harness.open](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/src/harness/harness.ts#L488)。
 此处不将任何一个自动等同于通用工作流引擎，更不将“具备任务关系”推导为完整跨机器调度保证。
 
 ## 7. 集成需求与接口选型

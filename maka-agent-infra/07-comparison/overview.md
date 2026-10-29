@@ -12,7 +12,7 @@ Pi durable 是独立的执行路径，以任务、阶段进度和所有权为核
 
 > 在保持公共接口兼容的前提下修复配置超时。子智能体 A 分析实现，B 分析测试，C 综合两项结果提出修改方案；稳定的项目约定需要支持后续会话复用。
 
-源码基线：Maka 当前本地 `8320cda1a4229b54124efe91d8830d0a89c39a4f`；Pi `482c1381a00d8d00bc81697e4a980c593db6803e`，保留现有工作区修改。核对日期：2026-10-28。源码链接均为本地文件。Maka 的记忆和 Graph 分别有运行模式、配置与能力条件，下文描述的是已接入的相应路径，不表示每次运行都启用。
+源码基线：Maka `8320cda1a4229b54124efe91d8830d0a89c39a4f`；Pi `482c1381a00d8d00bc81697e4a980c593db6803e`，分析包含当时的工作区修改。核对日期：2026-10-28。源码链接指向 GitHub 上的固定提交，未提交的 Pi 修改不在链接目标中。Maka 的记忆和 Graph 分别有运行模式、配置与能力条件，下文描述的是已接入的相应路径，不表示每次运行都启用。
 
 ## 1. 状态分类与设计职责
 
@@ -140,22 +140,22 @@ Pi durable 将工作建模为具有等待关系、所有权和阶段进度的持
 - [端到端执行链路](../01-runtime/request-to-response.md)：定位各机制的具体实现。
 - [执行恢复专题](../04-state/durable-execution.md)：该专题仍以文首旧基线为准，当前核心行为的源码入口见下方。
 
-[p-tools]: ../../../packages/agent/src/agent-loop.ts#L821
-[p-context]: ../../../packages/coding-agent/src/core/session-manager.ts#L478
-[p-project-files]: ../../../packages/coding-agent/src/core/resource-loader.ts#L232
-[p-request-context]: ../../../packages/coding-agent/src/core/agent-session.ts#L791
-[m-tool-commit]: ../../../../maka/packages/runtime/src/tool-runtime.ts#L1960
-[m-checkpoint]: ../../../../maka/packages/runtime/src/history-compact-checkpoint.ts#L715
-[m-continuation]: ../../../../maka/packages/runtime/src/continuation-replay.ts#L142
-[p-tool-replay]: ../../../packages/durable/src/harness/tool.ts#L178
-[m-memory-wiring]: ../../../../maka/packages/runtime-host/src/server/execution-composition.ts#L1393
-[m-memory-evidence]: ../../../../maka/packages/runtime/src/memory-extraction-evidence.ts#L95
-[m-memory-store]: ../../../../maka/packages/storage/src/long-term-memory-store.ts#L38
-[m-recall]: ../../../../maka/packages/runtime/src/recall-tools.ts#L114
-[m-memory-file]: ../../../../maka/packages/runtime-host/src/server/memory-coordinator.ts#L162
-[p-subagent]: ../../../packages/coding-agent/examples/extensions/subagent/index.ts#L270
-[m-child-session]: ../../../../maka/packages/runtime/src/session-manager.ts#L3448
-[m-work-graph]: ../../../../maka/packages/runtime/src/stream-graph-schedule-reconcile.ts#L183
-[m-handoff]: ../../../../maka/packages/runtime/src/stream-graph-handoff.ts#L24
-[p-child-background]: ../../../packages/durable/test/examples/23-subagent-background.ts#L61
-[m-worktree]: ../../../../maka/packages/storage/src/git-worktree-child-executor.ts#L247
+[p-tools]: https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/agent/src/agent-loop.ts#L821
+[p-context]: https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/coding-agent/src/core/session-manager.ts#L476
+[p-project-files]: https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/coding-agent/src/core/resource-loader.ts#L232
+[p-request-context]: https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/coding-agent/src/core/agent-session.ts#L788
+[m-tool-commit]: https://github.com/suger-m/maka/blob/8320cda1a4229b54124efe91d8830d0a89c39a4f/packages/runtime/src/tool-runtime.ts#L1960
+[m-checkpoint]: https://github.com/suger-m/maka/blob/8320cda1a4229b54124efe91d8830d0a89c39a4f/packages/runtime/src/history-compact-checkpoint.ts#L715
+[m-continuation]: https://github.com/suger-m/maka/blob/8320cda1a4229b54124efe91d8830d0a89c39a4f/packages/runtime/src/continuation-replay.ts#L142
+[p-tool-replay]: https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/src/harness/tool.ts#L178
+[m-memory-wiring]: https://github.com/suger-m/maka/blob/8320cda1a4229b54124efe91d8830d0a89c39a4f/packages/runtime-host/src/server/execution-composition.ts#L1393
+[m-memory-evidence]: https://github.com/suger-m/maka/blob/8320cda1a4229b54124efe91d8830d0a89c39a4f/packages/runtime/src/memory-extraction-evidence.ts#L95
+[m-memory-store]: https://github.com/suger-m/maka/blob/8320cda1a4229b54124efe91d8830d0a89c39a4f/packages/storage/src/long-term-memory-store.ts#L38
+[m-recall]: https://github.com/suger-m/maka/blob/8320cda1a4229b54124efe91d8830d0a89c39a4f/packages/runtime/src/recall-tools.ts#L114
+[m-memory-file]: https://github.com/suger-m/maka/blob/8320cda1a4229b54124efe91d8830d0a89c39a4f/packages/runtime-host/src/server/memory-coordinator.ts#L162
+[p-subagent]: https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/coding-agent/examples/extensions/subagent/index.ts#L270
+[m-child-session]: https://github.com/suger-m/maka/blob/8320cda1a4229b54124efe91d8830d0a89c39a4f/packages/runtime/src/session-manager.ts#L3448
+[m-work-graph]: https://github.com/suger-m/maka/blob/8320cda1a4229b54124efe91d8830d0a89c39a4f/packages/runtime/src/stream-graph-schedule-reconcile.ts#L183
+[m-handoff]: https://github.com/suger-m/maka/blob/8320cda1a4229b54124efe91d8830d0a89c39a4f/packages/runtime/src/stream-graph-handoff.ts#L24
+[p-child-background]: https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/test/examples/23-subagent-background.ts#L61
+[m-worktree]: https://github.com/suger-m/maka/blob/8320cda1a4229b54124efe91d8830d0a89c39a4f/packages/storage/src/git-worktree-child-executor.ts#L247

@@ -3,7 +3,7 @@
 [手册目录](../README.md)
 
 适用范围：Maka 固定提交 `15d0a0dd19d39e2bc09ae35940e432c636982315`，重点是 RuntimeEvent 到模型请求的历史投影，以及 history compaction checkpoint。
-Pi 以 `482c1381a00d8d00bc81697e4a980c593db6803e` 为基线；相关源码存在用户未提交修改，本文保留这些修改，链接行号按当前工作区核对。
+Pi 以 `482c1381a00d8d00bc81697e4a980c593db6803e` 为基线；分析包含当时未提交的修改，源码链接指向该提交的对应位置，不包含这些修改。
 本文依据源码和测试断言做静态追踪，未运行测试或付费模型调用；不把注释中的目标当作已实现能力。
 
 ## 1. 问题：模型记忆与全部历史的差异
@@ -34,7 +34,7 @@ Pi 以 `482c1381a00d8d00bc81697e4a980c593db6803e` 为基线；相关源码存在
 `RuntimeEventFunctionResponseContent` 同时容纳原始 `result`、可选供应商输出和冻结的 `modelProjection`。
 后续 `reduceEffectiveModelProjections()` 按 transition 链生成有效视图，校验前驱与来源摘要，而不是回写原始事件。
 历史中的 `partial` 表示尚未完成的片段，不能与完整的稳定事实同等处理；compaction 只接受符合覆盖规则的稳定来源。
-对应定义见 [RuntimeEvent 工具响应](../../../../maka/packages/core/src/runtime-event.ts#L224)与 [projection reducer](../../../../maka/packages/runtime/src/model-projection-transition-ledger.ts#L165)。
+对应定义见 [RuntimeEvent 工具响应](https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/core/src/runtime-event.ts#L224)与 [projection reducer](https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/model-projection-transition-ledger.ts#L165)。
 
 ## 3. text 请求的历史构建过程
 
@@ -63,7 +63,7 @@ AiSdkTurn.runWithinScope()
 
 无 checkpoint 时，普通文本历史仍是 U0、A0，再接 U1；有有效文本 checkpoint 时，已覆盖前缀改为摘要消息，再接未覆盖尾部。
 持久化 reader 分支不能省略：实际发送前可能重新读取已落盘的本轮事件，初始数组不是所有配置下的最终请求。
-入口见 [`buildPriorMessages()`](../../../../maka/packages/runtime/src/ai-sdk-turn.ts#L2832)与 [`startStream()` 调用点](../../../../maka/packages/runtime/src/ai-sdk-turn.ts#L1707)。
+入口见 [`buildPriorMessages()`](https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/ai-sdk-turn.ts#L2832)与 [`startStream()` 调用点](https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/ai-sdk-turn.ts#L1707)。
 
 此处存在一个容易读反的顺序：预算准备会读取有效投影，但 checkpoint 的前缀匹配仍使用原始候选事件；匹配完成后，再用同一份 transition 快照折叠重放内容。
 否则，检查摘要时看到一种工具结果，发送请求时却看到另一种，摘要就可能意外过期。
@@ -94,7 +94,7 @@ flowchart TB
 还需区分调用时机：`standalone` 是独立压缩，`pre_turn` 在新轮请求前准备，`mid_turn` 在同一轮内部压缩。
 mid-turn checkpoint 要验证并保留该 turn 的用户 head anchor；重放时可把锚点原文接回，避免当前任务本身在摘要中丢失。
 `compactActiveRequestHistory()` 会等待已完成步骤进入可读取的持久化历史，校验重放可用性，记录 checkpoint 后才应用到活动请求。
-这些步骤见 [安全前缀选择](../../../../maka/packages/runtime/src/history-compaction.ts#L91)、[规划器](../../../../maka/packages/runtime/src/history-compaction.ts#L287)和 [mid-turn 压缩入口](../../../../maka/packages/runtime/src/ai-sdk-compaction.ts#L972)。
+这些步骤见 [安全前缀选择](https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/history-compaction.ts#L91)、[规划器](https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/history-compaction.ts#L287)和 [mid-turn 压缩入口](https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/ai-sdk-compaction.ts#L972)。
 
 ### 4.1. Source coverage 的证明范围
 
@@ -123,7 +123,7 @@ checkpoint 校验失败时，历史重放有拒用摘要、保留原历史并附
 此处恢复的是“下一次请求应看到哪份历史”，不是任意暂停位置的执行。
 checkpoint 不包含恢复 JavaScript 调用栈或确认所有外部副作用的充分信息；执行 continuation 另有 claim、边界摘要及 replay manifest 等结构。
 因此应说“可重建上下文投影”，不能仅凭 history checkpoint 就说“任务从该指令继续执行”。
-参见 [checkpoint 重放](../../../../maka/packages/runtime/src/history-compact-checkpoint.ts#L749)和 [continuation 边界类型](../../../../maka/packages/core/src/runtime-event.ts#L510)。
+参见 [checkpoint 重放](https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/history-compact-checkpoint.ts#L749)和 [continuation 边界类型](https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/core/src/runtime-event.ts#L510)。
 
 ## 5. 新版 reasoning admission：空文本也可能是历史
 
@@ -134,7 +134,7 @@ reasoning admission 指“某类推理内容是否获准进入某一处理阶段
 `compatibleProviderReasoningReplayEventIds()` 允许当前 run；历史 run 则要求 runtime provenance、匹配的 `providerStateIdentity` 和 modelId。
 同名模型不足以证明旧 reasoning 仍适用于新凭据或端点；非 reasoning 的文本/工具内容也不能随之被一概删除。
 这与原生 compaction checkpoint 的 connectionId/modelId 检查相关，但不是同一个检查函数或身份字段。
-参见 [来源准入](../../../../maka/packages/runtime/src/history-compact-checkpoint.ts#L892)和 [reasoning 重放准入](../../../../maka/packages/runtime/src/model-history.ts#L307)。
+参见 [来源准入](https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/history-compact-checkpoint.ts#L892)和 [reasoning 重放准入](https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/model-history.ts#L307)。
 
 ### 5.1. 旧 checkpoint 与 eventCount 切分的失效
 
@@ -172,28 +172,28 @@ A(user) → B(assistant) → C(user) → D(assistant)
 Pi 的内部 `compactionSummary` 消息经 `convertToLlm()` 转为 user 消息，并非提升为 system 指令。
 `appendCompaction()` 追加记录；`appendContextEdit()` 校验目标后追加编辑记录；这两项都不是删除原消息。
 `prepareCompaction()` 使用投影后的消息做摘要，因此已隐藏的内容不会仅因开始压缩就重新出现。
-见 [上下文选择](../../../packages/coding-agent/src/core/session-manager.ts#L478)、[会话投影](../../../packages/coding-agent/src/core/session-manager.ts#L550)、[摘要输入准备](../../../packages/coding-agent/src/core/compaction/compaction.ts#L867)与 [消息转换](../../../packages/coding-agent/src/core/messages.ts#L148)。
+见 [上下文选择](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/coding-agent/src/core/session-manager.ts#L476)、[会话投影](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/coding-agent/src/core/session-manager.ts#L543)、[摘要输入准备](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/coding-agent/src/core/compaction/compaction.ts#L859)与 [消息转换](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/coding-agent/src/core/messages.ts#L148)。
 
 Pi 另有实验性 `packages/durable`：恢复示例在 task checkpoint 中保存 phase/n，关闭 Harness 后用同一 SQLite 存储重开，再等待任务完成。
 那是按持久化阶段重新进入任务的机制，不是普通会话摘要，也不是恢复原 JavaScript 栈；不应据默认会话路径断言“Pi 没有恢复或编排”。
-本章不评估两者的沙箱能力，不能从上下文机制推断沙箱存在与否。参见 [durable 恢复示例](../../../packages/durable/test/examples/13-recovery.ts#L21)。
+本章不评估两者的沙箱能力，不能从上下文机制推断沙箱存在与否。参见 [durable 恢复示例](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/test/examples/13-recovery.ts#L21)。
 
 ## 7. 源码定位
 
 | 要回答的问题 | 文件与准确入口 |
 | --- | --- |
-| 运行事实有哪些身份字段？ | Maka [`RuntimeEvent`](../../../../maka/packages/core/src/runtime-event.ts#L671) |
-| 旧事件如何成为模型消息？ | Maka [`AiSdkTurn.buildPriorMessages()`](../../../../maka/packages/runtime/src/ai-sdk-turn.ts#L2832) |
-| 哪些事件进入重放计划？ | Maka [`buildRuntimeEventModelReplayPlan()`](../../../../maka/packages/runtime/src/model-history.ts#L828) |
-| reasoning 和工具消息如何物化？ | Maka [`materializeRuntimeReplayPlan()`](../../../../maka/packages/runtime/src/ai-sdk-message-projection.ts#L270) |
-| checkpoint 如何形成覆盖证明？ | Maka [`buildHistoryCompactCheckpoint()`](../../../../maka/packages/runtime/src/history-compact-checkpoint.ts#L210) |
-| 原始匹配成功为何还可能过期？ | Maka [`checkHistoryCompactCheckpointCurrency()`](../../../../maka/packages/runtime/src/history-compact-checkpoint.ts#L715) |
-| 如何避免检查与请求使用不同快照？ | Maka [`prepareContextBudgetPolicy()`](../../../../maka/packages/runtime/src/ai-sdk-compaction.ts#L678) |
-| 原生 checkpoint 能否换连接使用？ | Maka [`canReplayHistoryCompactCheckpointForModel()`](../../../../maka/packages/runtime/src/history-compact-checkpoint.ts#L414) |
-| Pi 如何从 leaf 找到当前分支？ | Pi [`buildSessionPath()`](../../../packages/coding-agent/src/core/session-manager.ts#L390) |
-| Pi 如何追加压缩而不删除历史？ | Pi [`SessionManager.appendCompaction()`](../../../packages/coding-agent/src/core/session-manager.ts#L1269) |
-| Pi 如何保存一次局部编辑？ | Pi [`SessionManager.appendContextEdit()`](../../../packages/coding-agent/src/core/session-manager.ts#L1370) |
-| 哪些测试证明编辑不改原记录？ | Pi [`session-context-edit.test.ts`](../../../packages/coding-agent/test/session-context-edit.test.ts#L36) |
+| 运行事实有哪些身份字段？ | Maka [`RuntimeEvent`](https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/core/src/runtime-event.ts#L671) |
+| 旧事件如何成为模型消息？ | Maka [`AiSdkTurn.buildPriorMessages()`](https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/ai-sdk-turn.ts#L2832) |
+| 哪些事件进入重放计划？ | Maka [`buildRuntimeEventModelReplayPlan()`](https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/model-history.ts#L828) |
+| reasoning 和工具消息如何物化？ | Maka [`materializeRuntimeReplayPlan()`](https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/ai-sdk-message-projection.ts#L270) |
+| checkpoint 如何形成覆盖证明？ | Maka [`buildHistoryCompactCheckpoint()`](https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/history-compact-checkpoint.ts#L210) |
+| 原始匹配成功为何还可能过期？ | Maka [`checkHistoryCompactCheckpointCurrency()`](https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/history-compact-checkpoint.ts#L715) |
+| 如何避免检查与请求使用不同快照？ | Maka [`prepareContextBudgetPolicy()`](https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/ai-sdk-compaction.ts#L678) |
+| 原生 checkpoint 能否换连接使用？ | Maka [`canReplayHistoryCompactCheckpointForModel()`](https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/history-compact-checkpoint.ts#L414) |
+| Pi 如何从 leaf 找到当前分支？ | Pi [`buildSessionPath()`](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/coding-agent/src/core/session-manager.ts#L390) |
+| Pi 如何追加压缩而不删除历史？ | Pi [`SessionManager.appendCompaction()`](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/coding-agent/src/core/session-manager.ts#L1261) |
+| Pi 如何保存一次局部编辑？ | Pi [`SessionManager.appendContextEdit()`](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/coding-agent/src/core/session-manager.ts#L1360) |
+| 哪些测试证明编辑不改原记录？ | Pi [`session-context-edit.test.ts`](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/coding-agent/test/session-context-edit.test.ts#L36) |
 
 ## 8. 术语速查
 
@@ -207,9 +207,9 @@ Pi 另有实验性 `packages/durable`：恢复示例在 task checkpoint 中保�
 
 ## 9. 源码练习
 
-1. 在纸面上重放 reasoning 迁移：将第 5 节示例中的 `R_old` 移到 B 之后，再分别删除 B、修改 A。预测覆盖匹配与尾部结果，核对 [兼容与拒绝断言](../../../../maka/packages/runtime/src/__tests__/history-compact-checkpoint.test.ts#L1106)。重点解释为什么尾部不能用旧 eventCount 切分。
-2. 区分两种摘要值：原 `result` 变化、`modelProjection` 不变；原事件不变、后续添加 projection transition；只改变未覆盖尾部。分别判断来源匹配与有效性检查应如何变化，对照 [工具结果摘要测试](../../../../maka/packages/runtime/src/__tests__/effective-history-compaction.test.ts#L106)与 [有效投影变化测试](../../../../maka/packages/runtime/src/__tests__/history-compact-checkpoint.test.ts#L1216)。
-3. 绘制 Pi 的 A—G 分支图，将 F 改为替换 D 的文本，再从 D 分叉。分别列出原始条目、当前分支投影、摘要输入；核对 [分支相关编辑测试](../../../packages/coding-agent/test/session-context-edit.test.ts#L119)。最后说明这些结果为何仍不足以证明一次外部工具副作用可以安全重试。
+1. 在纸面上重放 reasoning 迁移：将第 5 节示例中的 `R_old` 移到 B 之后，再分别删除 B、修改 A。预测覆盖匹配与尾部结果，核对 [兼容与拒绝断言](https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/__tests__/history-compact-checkpoint.test.ts#L1106)。重点解释为什么尾部不能用旧 eventCount 切分。
+2. 区分两种摘要值：原 `result` 变化、`modelProjection` 不变；原事件不变、后续添加 projection transition；只改变未覆盖尾部。分别判断来源匹配与有效性检查应如何变化，对照 [工具结果摘要测试](https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/__tests__/effective-history-compaction.test.ts#L106)与 [有效投影变化测试](https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/__tests__/history-compact-checkpoint.test.ts#L1216)。
+3. 绘制 Pi 的 A—G 分支图，将 F 改为替换 D 的文本，再从 D 分叉。分别列出原始条目、当前分支投影、摘要输入；核对 [分支相关编辑测试](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/coding-agent/test/session-context-edit.test.ts#L119)。最后说明这些结果为何仍不足以证明一次外部工具副作用可以安全重试。
 
 本章的边界是上下文事实与投影：压缩不等于抹除历史，重放摘要不等于恢复执行。
 

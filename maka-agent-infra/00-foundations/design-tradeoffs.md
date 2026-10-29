@@ -274,15 +274,15 @@ Pi 也有依赖注入、事件流、会话投影和持久任务，不应用模�
 - [可观测性](../06-operations/observability.md)：继续追踪 ModelCallCommit、latest_context 和计量覆盖。
 - [Host 所有权与同步](../04-state/host-ownership-and-sync.md)：考察单写者、快照与增量边界如何落地。
 
-[backend]: ../../../../maka/packages/core/src/backend-types.ts#L246
-[public-seam]: ../../../../maka/packages/runtime/README.md#L25
-[backend-send]: ../../../../maka/packages/runtime/src/ai-sdk-backend.ts#L551
-[event-unions]: ../../../../maka/packages/core/src/runtime-event.ts#L310
-[execution-match]: ../../../../maka/packages/core/src/runtime-invocation.ts#L343
-[decode-event]: ../../../../maka/packages/core/src/runtime-event.ts#L1015
-[runtime-event]: ../../../../maka/packages/core/src/runtime-event.ts#L20
-[run-event]: ../../../../maka/packages/core/src/agent-run.ts#L20
-[latest-order]: ../../../../maka/packages/core/src/agent-run.ts#L170
-[commit]: ../../../../maka/packages/core/src/agent-run.ts#L133
-[run-event-types]: ../../../../maka/packages/core/src/agent-run.ts#L187
-[host-lifecycle]: ../../../../maka/packages/runtime-host/src/server/host-composition.ts#L56
+[backend]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/core/src/backend-types.ts#L246
+[public-seam]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/README.md#L25
+[backend-send]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/ai-sdk-backend.ts#L551
+[event-unions]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/core/src/runtime-event.ts#L310
+[execution-match]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/core/src/runtime-invocation.ts#L343
+[decode-event]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/core/src/runtime-event.ts#L1015
+[runtime-event]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/core/src/runtime-event.ts#L20
+[run-event]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/core/src/agent-run.ts#L20
+[latest-order]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/core/src/agent-run.ts#L170
+[commit]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/core/src/agent-run.ts#L133
+[run-event-types]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/core/src/agent-run.ts#L187
+[host-lifecycle]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime-host/src/server/host-composition.ts#L56

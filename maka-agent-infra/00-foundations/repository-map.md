@@ -386,14 +386,14 @@ UI 也不只是按钮集合。
 ## 10. 与 Pi 对照：先固定比较层级
 
 Pi 默认 coding-agent 清单依赖 agent、ai、MCP、codemode、TUI 等包；agent 再依赖 ai。
-这是包组织事实，不足以推出“Pi 没有状态、工具或扩展能力”。[coding-agent 依赖](../../../packages/coding-agent/package.json#L43)、[agent 依赖](../../../packages/agent/package.json#L25)
+这是包组织事实，不足以推出“Pi 没有状态、工具或扩展能力”。[coding-agent 依赖](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/coding-agent/package.json#L43)、[agent 依赖](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/agent/package.json#L25)
 
 `packages/agent/src/index.ts` 导出 agent 与 agent-loop；`packages/ai/src/index.ts` 明确区分核心、provider factories、API 实现和兼容入口。
-学习 Maka 时，可以将它们作为循环与模型接入的对照入口，而不是将 Maka 的整个 Host 等同于 Pi 的 ai 包。[agent 入口](../../../packages/agent/src/index.ts#L1)、[ai 入口](../../../packages/ai/src/index.ts#L4)
+学习 Maka 时，可以将它们作为循环与模型接入的对照入口，而不是将 Maka 的整个 Host 等同于 Pi 的 ai 包。[agent 入口](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/agent/src/index.ts#L1)、[ai 入口](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/ai/src/index.ts#L4)
 
 Pi 还有单独的实验性 `packages/durable`，公开导出 Harness、GenerationTask、ToolTask、任务图类型、Storage 和 defineTask，并提供 SQLite、JSONL 等子路径。
-这些是独立接入面；默认 coding-agent 的依赖表没有因此自动变成 durable Harness。[durable 入口](../../../packages/durable/src/index.ts#L35)、[存储 exports](../../../packages/durable/package.json#L63)
-其 README 明确标注 Experimental；本节仅核对公开入口与依赖，不对两项目所有恢复保证作等价判断。[实验状态](../../../packages/durable/README.md#L3)
+这些是独立接入面；默认 coding-agent 的依赖表没有因此自动变成 durable Harness。[durable 入口](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/src/index.ts#L35)、[存储 exports](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/package.json#L63)
+其 README 明确标注 Experimental；本节仅核对公开入口与依赖，不对两项目所有恢复保证作等价判断。[实验状态](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/README.md#L3)
 
 ## 11. 地图的使用方式与边界
 
@@ -412,70 +412,70 @@ Pi 还有单独的实验性 `packages/durable`，公开导出 Harness、Generati
 - [MCP 与客户端能力](../03-tools/mcp-and-client-capabilities.md)：展开工具发现、发布、绑定和断线失效之间的区别。
 - [Host 所有权与同步](../04-state/host-ownership-and-sync.md)：深入租约、连接和状态同步，而不把 npm 依赖误认为执行权。
 
-[root-manifest]: ../../../../maka/package.json#L16
-[root-scripts]: ../../../../maka/package.json#L31
-[core-manifest]: ../../../../maka/packages/core/package.json#L7
-[core-deps]: ../../../../maka/packages/core/package.json#L185
-[storage-manifest]: ../../../../maka/packages/storage/package.json#L7
-[mcp-manifest]: ../../../../maka/packages/mcp/package.json#L7
-[runtime-manifest]: ../../../../maka/packages/runtime/package.json#L8
-[runtime-deps]: ../../../../maka/packages/runtime/package.json#L162
-[runtime-tsconfig]: ../../../../maka/packages/runtime/tsconfig.json#L1
-[acp-manifest]: ../../../../maka/packages/acp-executor-plugin/package.json#L13
-[host-manifest]: ../../../../maka/packages/runtime-host/package.json#L8
-[eval-manifest]: ../../../../maka/packages/eval/package.json#L23
-[cu-manifest]: ../../../../maka/packages/computer-use/package.json#L7
-[cli-manifest]: ../../../../maka/packages/cli/package.json#L2
-[ui-manifest]: ../../../../maka/packages/ui/package.json#L7
-[desktop-manifest]: ../../../../maka/apps/desktop/package.json#L12
-[desktop-bundled]: ../../../../maka/apps/desktop/package.json#L87
-[website-manifest]: ../../../../maka/website/package.json#L1
-[runtime-readme]: ../../../../maka/packages/runtime/README.md#L24
-[runtime-test-contract]: ../../../../maka/packages/runtime/README.md#L38
-[runtime-boundaries]: ../../../../maka/packages/runtime/README.md#L111
-[host-server]: ../../../../maka/packages/runtime-host/src/server/index.ts#L20
-[backend-port]: ../../../../maka/packages/core/src/backend-types.ts#L20
-[backend-input]: ../../../../maka/packages/core/src/backend-types.ts#L60
-[backend-interface]: ../../../../maka/packages/core/src/backend-types.ts#L246
-[commit-sink]: ../../../../maka/packages/runtime/src/runtime-commit-sink.ts#L52
-[commit-shapes]: ../../../../maka/packages/runtime/src/runtime-commit-sink.ts#L26
-[persistence]: ../../../../maka/packages/storage/src/execution-persistence-provider.ts#L49
-[architecture]: ../../../../maka/ARCHITECTURE.md#L24
-[architecture-eval]: ../../../../maka/ARCHITECTURE.md#L41
-[model-compose]: ../../../../maka/packages/runtime-host/src/server/execution-model-composition.ts#L83
-[model-build]: ../../../../maka/packages/runtime-host/src/server/execution-model-composition.ts#L124
-[model-dispose]: ../../../../maka/packages/runtime-host/src/server/execution-model-composition.ts#L562
-[host-module]: ../../../../maka/packages/runtime-host/src/server/host-composition.ts#L40
-[host-module-create]: ../../../../maka/packages/runtime-host/src/server/host-composition.ts#L58
-[host-module-handlers]: ../../../../maka/packages/runtime-host/src/server/host-composition.ts#L101
-[host-module-lifecycle]: ../../../../maka/packages/runtime-host/src/server/host-composition.ts#L122
-[host-module-test]: ../../../../maka/packages/runtime-host/src/__tests__/host-composition.test.ts#L40
-[storage-writers]: ../../../../maka/packages/storage/src/storage-writer-composition.ts#L98
-[storage-optional]: ../../../../maka/packages/storage/src/storage-writer-composition.ts#L189
-[mcp-provider]: ../../../../maka/packages/runtime/src/mcp-tools.ts#L50
-[mcp-build]: ../../../../maka/packages/runtime/src/mcp-tools.ts#L112
-[mcp-security]: ../../../../maka/packages/runtime/src/mcp-tools.ts#L142
-[mcp-test]: ../../../../maka/packages/runtime/src/__tests__/mcp-tools.test.ts#L39
-[mcp-test-prepared]: ../../../../maka/packages/runtime/src/__tests__/mcp-tools.test.ts#L201
-[mcp-manager]: ../../../../maka/packages/mcp/src/index.ts#L289
-[mcp-sync]: ../../../../maka/packages/mcp/src/index.ts#L452
-[mcp-call]: ../../../../maka/packages/mcp/src/index.ts#L807
-[mcp-transport]: ../../../../maka/packages/mcp/src/index.ts#L1368
-[run-mcp-create]: ../../../../maka/packages/cli/src/runtime-host-run-mcp.ts#L33
-[run-mcp-prepare]: ../../../../maka/packages/cli/src/runtime-host-run-mcp.ts#L91
-[run-mcp-close]: ../../../../maka/packages/cli/src/runtime-host-run-mcp.ts#L159
-[run-mcp-test]: ../../../../maka/packages/cli/src/__tests__/runtime-host-run-mcp.test.ts#L28
-[antigravity-entry]: ../../../../maka/packages/antigravity-acp-plugin/src/index.ts#L20
-[antigravity-register]: ../../../../maka/packages/antigravity-acp-plugin/src/index.ts#L93
-[cu-select]: ../../../../maka/packages/computer-use/src/select-backend.ts#L100
-[cu-start]: ../../../../maka/packages/computer-use/src/maka-cu-service.ts#L225
-[cu-spawn]: ../../../../maka/packages/computer-use/src/maka-cu-service.ts#L373
-[cu-exit]: ../../../../maka/packages/computer-use/src/maka-cu-service.ts#L576
-[cu-budget]: ../../../../maka/packages/computer-use/src/maka-cu-service.ts#L314
-[desktop-native]: ../../../../maka/apps/desktop/src/main/desktop-native-capability-assembly.ts#L47
-[peer-cargo]: ../../../../maka/native/runtime-host-peer/Cargo.toml#L25
-[peer-load]: ../../../../maka/packages/runtime-host/src/transport/peer-native.ts#L277
-[gitoxide-cargo]: ../../../../maka/native/gitoxide-helper/Cargo.toml#L26
-[windows-cargo]: ../../../../maka/native/runtime-host-windows-task-launcher/Cargo.toml#L26
-[eval-subject]: ../../../../maka/packages/eval/src/maka-subject.ts#L36
-[ui-entry]: ../../../../maka/packages/ui/src/index.ts#L20
+[root-manifest]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/package.json#L16
+[root-scripts]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/package.json#L31
+[core-manifest]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/core/package.json#L7
+[core-deps]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/core/package.json#L185
+[storage-manifest]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/storage/package.json#L7
+[mcp-manifest]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/mcp/package.json#L7
+[runtime-manifest]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/package.json#L8
+[runtime-deps]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/package.json#L162
+[runtime-tsconfig]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/tsconfig.json#L1
+[acp-manifest]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/acp-executor-plugin/package.json#L13
+[host-manifest]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime-host/package.json#L8
+[eval-manifest]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/eval/package.json#L23
+[cu-manifest]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/computer-use/package.json#L7
+[cli-manifest]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/cli/package.json#L2
+[ui-manifest]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/ui/package.json#L7
+[desktop-manifest]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/apps/desktop/package.json#L12
+[desktop-bundled]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/apps/desktop/package.json#L87
+[website-manifest]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/website/package.json#L1
+[runtime-readme]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/README.md#L24
+[runtime-test-contract]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/README.md#L38
+[runtime-boundaries]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/README.md#L111
+[host-server]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime-host/src/server/index.ts#L20
+[backend-port]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/core/src/backend-types.ts#L20
+[backend-input]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/core/src/backend-types.ts#L60
+[backend-interface]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/core/src/backend-types.ts#L246
+[commit-sink]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/runtime-commit-sink.ts#L52
+[commit-shapes]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/runtime-commit-sink.ts#L26
+[persistence]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/storage/src/execution-persistence-provider.ts#L49
+[architecture]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/ARCHITECTURE.md#L24
+[architecture-eval]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/ARCHITECTURE.md#L41
+[model-compose]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime-host/src/server/execution-model-composition.ts#L83
+[model-build]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime-host/src/server/execution-model-composition.ts#L124
+[model-dispose]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime-host/src/server/execution-model-composition.ts#L562
+[host-module]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime-host/src/server/host-composition.ts#L40
+[host-module-create]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime-host/src/server/host-composition.ts#L58
+[host-module-handlers]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime-host/src/server/host-composition.ts#L101
+[host-module-lifecycle]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime-host/src/server/host-composition.ts#L122
+[host-module-test]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime-host/src/__tests__/host-composition.test.ts#L40
+[storage-writers]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/storage/src/storage-writer-composition.ts#L98
+[storage-optional]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/storage/src/storage-writer-composition.ts#L189
+[mcp-provider]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/mcp-tools.ts#L50
+[mcp-build]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/mcp-tools.ts#L112
+[mcp-security]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/mcp-tools.ts#L142
+[mcp-test]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/__tests__/mcp-tools.test.ts#L39
+[mcp-test-prepared]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/__tests__/mcp-tools.test.ts#L201
+[mcp-manager]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/mcp/src/index.ts#L289
+[mcp-sync]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/mcp/src/index.ts#L452
+[mcp-call]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/mcp/src/index.ts#L807
+[mcp-transport]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/mcp/src/index.ts#L1368
+[run-mcp-create]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/cli/src/runtime-host-run-mcp.ts#L33
+[run-mcp-prepare]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/cli/src/runtime-host-run-mcp.ts#L91
+[run-mcp-close]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/cli/src/runtime-host-run-mcp.ts#L159
+[run-mcp-test]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/cli/src/__tests__/runtime-host-run-mcp.test.ts#L28
+[antigravity-entry]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/antigravity-acp-plugin/src/index.ts#L20
+[antigravity-register]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/antigravity-acp-plugin/src/index.ts#L93
+[cu-select]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/computer-use/src/select-backend.ts#L100
+[cu-start]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/computer-use/src/maka-cu-service.ts#L225
+[cu-spawn]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/computer-use/src/maka-cu-service.ts#L373
+[cu-exit]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/computer-use/src/maka-cu-service.ts#L576
+[cu-budget]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/computer-use/src/maka-cu-service.ts#L314
+[desktop-native]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/apps/desktop/src/main/desktop-native-capability-assembly.ts#L47
+[peer-cargo]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/native/runtime-host-peer/Cargo.toml#L25
+[peer-load]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime-host/src/transport/peer-native.ts#L277
+[gitoxide-cargo]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/native/gitoxide-helper/Cargo.toml#L26
+[windows-cargo]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/native/runtime-host-windows-task-launcher/Cargo.toml#L26
+[eval-subject]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/eval/src/maka-subject.ts#L36
+[ui-entry]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/ui/src/index.ts#L20

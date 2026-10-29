@@ -144,18 +144,18 @@ Pi 并不是“没有状态同步”。区别在于 Maka 把共享执行、存�
 
 | 入口 | 核对内容 |
 | --- | --- |
-| [resolveStorageRoot](../../../../maka/packages/storage/src/root-authority.ts#L210) | 路径、标记和目录身份 |
-| [resolveRootOwnershipNamespace](../../../../maka/packages/storage/src/root-authority.ts#L568) | 持久锁位置与缓存分离 |
-| [acquireStateRootLock](../../../../maka/packages/storage/src/root-authority.ts#L806) | OS 锁、活动操作、关闭顺序 |
-| [runWithStorageRootLease](../../../../maka/packages/storage/src/root-authority.ts#L735) | 存储操作的资格和身份检查 |
-| [bindStateRootComposition](../../../../maka/packages/storage/src/state-root-composition.ts#L54) | 数据根与程序组合绑定 |
-| [Host 模块恢复与关闭](../../../../maka/packages/runtime-host/src/server/host-composition.ts#L122) | 分阶段恢复，逆序释放 |
-| [订阅协议与 ready](../../../../maka/packages/runtime-host/src/protocol/session-continuity.ts#L107) | 快照、序号和门控的数据契约 |
-| [ClientSessionSubscription.accept](../../../../maka/packages/runtime-host/src/client/session-subscription.ts#L431) | 拒绝代际、序号和关联错误 |
-| [客户端队列边界](../../../../maka/packages/runtime-host/src/client/session-subscription.ts#L566) | 慢消费的处理 |
-| [Host 架构当前契约](../../../../maka/docs/architecture/runtime-host-architecture.md) | 观察、命令结果未知和进程生命周期 |
-| [Peer Mesh 边界](../../../../maka/docs/architecture/peer-mesh-architecture.md#L37) | 网络成员不等于执行权 |
-| [Pi Agent 的 activeRun](../../../packages/agent/src/agent.ts#L507)、[durable 存储约束](../../../packages/durable/README.md#L772)、[Chord](../../../packages/chord/README.md) | 对照不同层次的运行与状态能力 |
+| [resolveStorageRoot](https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/storage/src/root-authority.ts#L210) | 路径、标记和目录身份 |
+| [resolveRootOwnershipNamespace](https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/storage/src/root-authority.ts#L568) | 持久锁位置与缓存分离 |
+| [acquireStateRootLock](https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/storage/src/root-authority.ts#L806) | OS 锁、活动操作、关闭顺序 |
+| [runWithStorageRootLease](https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/storage/src/root-authority.ts#L735) | 存储操作的资格和身份检查 |
+| [bindStateRootComposition](https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/storage/src/state-root-composition.ts#L54) | 数据根与程序组合绑定 |
+| [Host 模块恢复与关闭](https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime-host/src/server/host-composition.ts#L122) | 分阶段恢复，逆序释放 |
+| [订阅协议与 ready](https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime-host/src/protocol/session-continuity.ts#L107) | 快照、序号和门控的数据契约 |
+| [ClientSessionSubscription.accept](https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime-host/src/client/session-subscription.ts#L431) | 拒绝代际、序号和关联错误 |
+| [客户端队列边界](https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime-host/src/client/session-subscription.ts#L566) | 慢消费的处理 |
+| [Host 架构当前契约](https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/docs/architecture/runtime-host-architecture.md) | 观察、命令结果未知和进程生命周期 |
+| [Peer Mesh 边界](https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/docs/architecture/peer-mesh-architecture.md#L37) | 网络成员不等于执行权 |
+| [Pi Agent 的 activeRun](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/agent/src/agent.ts#L507)、[durable 存储约束](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/README.md#L772)、[Chord](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/chord/README.md) | 对照不同层次的运行与状态能力 |
 
 ## 10. 本章术语
 
@@ -169,9 +169,9 @@ Pi 并不是“没有状态同步”。区别在于 Maka 把共享执行、存�
 
 ## 11. 源码练习
 
-1. 客户端期望第 5 帧，却收到第 7 帧。需判断应当重新运行原任务，还是重新读取状态。沿[缺帧测试](../../../../maka/packages/runtime-host/src/__tests__/session-subscription-client.test.ts#L233)核对。
+1. 客户端期望第 5 帧，却收到第 7 帧。需判断应当重新运行原任务，还是重新读取状态。沿[缺帧测试](https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime-host/src/__tests__/session-subscription-client.test.ts#L233)核对。
 2. 修改配置的命令返回前连接断开。说明为什么不能用“超时”证明它没有执行。列出需要查询的身份和持久记录，不发起真实写入。
-3. 比较 Maka 的 32 帧/256 KiB 限制与 [Chord 公共状态订阅](../../../packages/chord/README.md#L127)的完整值合并规则：说明为何不能把跳过完整快照的通知，等同于丢失不可独立应用的增量。
+3. 比较 Maka 的 32 帧/256 KiB 限制与 [Chord 公共状态订阅](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/chord/README.md#L127)的完整值合并规则：说明为何不能把跳过完整快照的通知，等同于丢失不可独立应用的增量。
 
 ## 相关专题
 
