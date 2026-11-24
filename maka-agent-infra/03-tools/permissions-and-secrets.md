@@ -1,112 +1,172 @@
-# 分层授权与凭据生命周期
+# 分层授权与凭据生命期
 
 [返回手册目录](../README.md)
 
-设想一个团队协作场景：同事通过共享会话向你的工作区发送一条指令——**“帮我查询浏览器里已登录的工单系统，并生成一份修复报告写入项目目录”**。
+想象一个多人协作场景：同事通过共享会话向你的工作区发送了一条任务——**“帮我查询浏览器里已登录的工单后台，根据异常栈修好项目配置，最后用部署密钥执行一次验证脚本。”**
 
-在这条短短的指令背后，潜藏着四个不同层级的安全风险：
-1. **身份伪造**：向 Host 发起请求的人，真的有权操作这个工作区吗？一个仅被邀请旁观的访客（Guest）能随便启动高成本的模型运行吗？
-2. **越权浏览**：浏览器工具如果被诱导访问了财务后台而不是工单系统，怎么办？
-3. **文件越界**：模型在写报告时，试图覆写工作区之外的系统配置，怎么拦？
-4. **密钥泄漏**：模型调用 API Key、连接 MCP 的 OAuth Token、或者部署脚本所需的云端 Secret，如果直接塞进环境变量或 Prompt 上下文，模型一旦执行 `env` 命令或打印日志，密钥就会瞬间泄漏！
+这条指令穿越了系统内多个安全边界：
+1. **接入主体身份**：发请求的是会话所有者（Owner）还是受邀旁观的访客（Guest）？他的连接凭证是否被吊销过？
+2. **共享操作许可**：访客能不能直接绕过所有者消耗算力、修改本地工作区？
+3. **浏览器与端能力域隔离**：模型打开的浏览器标签页属于哪个域名 Origin？有没有授权访问公司内网后台？
+4. **本地文件沙箱边界**：修改配置是否越出了工作区安全边界？
+5. **高敏密钥生命周期**：大模型 API Key、MCP OAuth Token 以及部署脚本需要的业务密钥，如何做到**“能被程序或工具合法使用，却绝不被大模型通过 `env` 或读取日志窃取”**？
 
-Maka 通过**纵深防御（Defense in Depth）**构建了五层互不替代的权限与凭据防线。本章全面拆解这套安全体系的设计原理与实现机制。
+Maka 建立了一套互不替代的**五层纵深防御（Defense in Depth）体系**。本章全面拆解各层授权门控与四类凭据的物理隔离机制。
 
 ---
 
 ## 1. 概念先行：五层纵深防御模型
 
-在设计安全架构时，一个常见误区是把“用户登录认证”、“工具执行权限”和“密钥管理”混为一谈。Maka 严格遵循**最小权限原则（Principle of Least Privilege）**，将安全核验拆解为自外向内的五道关卡：
+在 Agent 系统中，“身份认证通过”绝不等于“有权调用所有工具”，而“获准运行工具”也绝不等于“可以读取全局环境变量里的密钥”。Maka 沿请求自外向内的推进路径，设置了五道独立防线：
 
 ```mermaid
 flowchart TD
-    Req["外部请求 / 工具动作"] --> L1["第 1 层：Host 连接认证<br/>核验访问令牌散列，确定主体身份与 operationGrants"]
-    L1 --> L2["第 2 层：共享会话操作授权<br/>核验 Guest 是否有 session_turn_request 许可并经 Owner 批准"]
-    L2 --> L3["第 3 层：客户端能力门控<br/>按 [会话 + 提供方 + 页面 Origin] 核验浏览器等端能力"]
-    L3 --> L4["第 4 层：工作区执行边界 (ExecutionBoundary)<br/>控制文件 Worker 与 Bash 沙箱的目录与网络范围"]
-    L4 --> L5["第 5 层：凭据隔离与临时注入<br/>Vault 与 Managed Secrets 仅在执行瞬间注入，结束后立即抹除"]
+    Req["外部请求 / 工具动作"] --> L1["第 1 层：Host 连接认证与操作授权<br/>FileRuntimeHostAccessAuthority 核验凭证散列与 operationGrants"]
+    L1 --> L2["第 2 层：共享会话访客控制<br/>session_guest 必须具备 session_turn_request 许可并经 Owner 批准"]
+    L2 --> L3["第 3 层：客户端能力域门控<br/>ClientCapabilityGrant 按 [会话 + 提供方 + 真实 Origin] 匹配审批"]
+    L3 --> L4["第 4 层：工作区执行边界<br/>ExecutionBoundary 控制文件 Worker 与 Bash 沙箱范围"]
+    L4 --> L5["第 5 层：凭据库物理隔离与作用域注入<br/>Vault 与 AES-256-GCM 托管密钥按需注入叠加环境，用后必擦除"]
 ```
 
 ---
 
-## 2. 访问控制：从连接认证到会话边界
+## 2. 访问控制：从 Host 接入到共享会话协同
 
-### 2.1 第 1~2 层：Host 认证与共享会话准入
-任何客户端（CLI、Desktop、Web 或协作同事的端）接入 Runtime Host 时，都必须通过访问权威（`FileRuntimeHostAccessAuthority`）的核验：
-1. **连接认证**：系统核对传入凭证的加密散列，解析出调用主体（Principal）以及允许调用的协议操作清单（`operationGrants`）。并非所有连接都能执行高危操作（如修改系统策略）。
-2. **操作授权**：协议分发器针对具体 RPC 操作校验许可。
-3. **访客协同（Guest 授权）**：如果同事以 `session_guest` 身份向你的会话提交了一条运行请求，Host 会检查该会话的 `session_turn_request` 授权，并在需要时由会话所有者（Owner）点击批准，之后才会放入执行准入队列。
+### 2.1 第 1 层：Host 接入认证与 `operationGrants`
+所有外部接入端（CLI、Desktop、Web 控制台、协作 Guest、外部评测引擎）连接 Runtime Host 时，均由 `FileRuntimeHostAccessAuthority.authenticate()` 基于持久化的 `runtime-host-access.json` 校验访问凭据：
+- **抗计时攻击比对**：底层存储凭据的不可逆密码学散列（`runtimeHostAccessCredentialHash`），并使用常量时间比对（`timingSafeEqual`）验证令牌。
+- **最小操作集授予**：认证通过后解析出主体（Principal）及其携带的 `operationGrants` 集合。随后 `authorizeRuntimeHostOperation()` 对每一条 RPC 指令（如更改全局配置、轮换密钥、查看诊断等）逐一鉴权。此外，系统内置了**凭证轮换与原子吊销机制**，可安全吊销某个连接主体而保留其他健康连接。
 
-### 2.2 第 3~4 层：工具执行时的动态门控
-请求进入运行时后，不同性质的工具走各自独立的授权通道：
-- **浏览器等客户端能力**：由 `ToolRuntime` 协同客户端完成 `accepted → admitted` 握手。Host 结合**会话 ID + 能力提供方 + 真实页面 `origin`** 查找已有授权记录；若首次访问该域名，弹窗等待人类批准并可选择记忆本次会话的同源授权。
-- **本地文件与命令操作**：执行器读取会话当前的 `ExecutionBoundary`（如 `ask` 模式下的 `workspace-write` 边界）。若需要写入范围外的路径，必须发起边界扩张审批，批准后生成带有新版本号的 `ExecutionBoundary` 并持久化。
+### 2.2 第 2 层：多人协同与 `session_guest` 准入门控
+当团队成员受邀接入同一个共享会话时，访客被赋予受限的 `SESSION_GUEST_OPERATION_GRANTS` 权限集：
+- 访客虽然能查看会话进度投影，但**无权擅自更改系统模型配置或扩大沙箱边界**；
+- 当访客提交一条运行指令（`CollaborationTurnRequest`）时，Host 核对该会话的 `session_turn_request` 授权，挂起并推送给会话所有者（Owner）决定批准或拒绝；只有 Owner 明确确认后，该指令才被放入会话执行准入队列。
+
+### 2.3 第 3~4 层：客户端能力与文件边界门控
+请求正式进入运行时后，不同性质的副作用分别在各自门控处接受复核：
+- **客户端能力门控**：如读取已登录网页，必须走 `accepted → admitted` 两阶段握手，结合**会话 ID + 能力提供方身份 + 客户端实际观测的页面 Origin** 三元组查表授权，严防模型利用 URL 重定向跨站窃取内网数据。
+- **文件与命令沙箱门控**：`Write / Bash` 严格受限于当前会话版本号的 `ExecutionBoundary`（如 `workspace-write`），任何越界访问均需提交结构化 `SandboxBoundaryExpansion` 经用户审批并生成新版边界才可放行。
 
 ---
 
-## 3. 凭据生命周期：物理隔离与按需注入
+## 3. 凭据物理隔离：四类存储载体与边界划定
 
-**高敏凭据永远不能作为普通文本进入模型上下文，也不应该裸露在常驻环境变量中。** Maka 按凭据的使用场景，将其严密隔离在不同的加密存储介质与注入管道中：
+**Agent 安全的核心铁律：任何敏感凭据绝不写入 `Session` 会话表、绝不进入 `RuntimeEvent` 历史账本，且绝不暴露在 Host 主进程的全局 `process.env` 中。**
 
-| 凭据类型 | 典型用途 | 存储载体 | 注入方式与生命周期 |
+Maka 按凭据属性与消费者类型，将其严密隔离在四个互不连通的存储边界内：
+
+| 存储载体 | 适用范围 | 保存内容与加密形态 | 为什么必须物理隔离？ |
 | :--- | :--- | :--- | :--- |
-| **Host 访问凭据** | 客户端连入 Runtime Host 的身份鉴权 | `runtime-host-access.json` | 仅存储散列值与授权清单，用于连接握手阶段校验，永不进入模型层。 |
-| **模型连接凭据** | 调用 OpenAI / Anthropic 等模型的 API Key 或 OAuth | `credential-vault.json` | 由 Runtime Policy 按 `connectionId` 定位；通过 `modelFactory` 闭包或 OAuth 请求拦截器在发包瞬间注入 HTTP 头。 |
-| **MCP 服务凭据** | 连接外部 MCP 服务的 OAuth Token | `credentials.json` | 按 `mcp:<serverId>` 隔离保存；仅由对应的 MCP 传输连接器按需读取与刷新。 |
-| **托管运行时密钥**<br>(`Managed Secret`) | 自动化脚本或云端激活任务所需的私有密钥 | 加密文件后端 (`AES-256-GCM`) | 仅保存 `secretId` 引用；由注入器在任务激活时临时注入环境，结束时立刻 `release()` 恢复原值。 |
-
-### 关键机制：Managed Secret 的临时注入与清理 (`prepare` & `release`)
-对于必须在命令行或自动化执行器中使用的业务密钥（例如部署脚本需要的第三方 Token），Maka 采用了严谨的**作用域生命周期注入（`ActivationSecretInjector`）**：
-1. **先授权、用引用**：配置中只写明 `secretId`，调用方必须先为指定的执行会话显式授权该密钥。
-2. **使用 AES-256-GCM 加密落盘**：底层文件存储通过独立的 `keyProvider` 进行对称加密保护。
-3. **激活期注入与 `finally` 擦除**：任务启动瞬间，注入器调用 `prepare()` 批量解密并写入本次启动的隔离环境对象中；**无论执行成功、失败还是超时取消，收尾阶段必定调用 `release()` 将环境恢复原值并清理内存引用**，把密钥暴露的时间窗口压缩到极致。
+| **`runtime-host-access.json`** | Host 连接接入鉴权 | 访问凭据散列值、主体身份、操作授予集与待交付凭据状态。 | 仅用于连接边界认证，模型与扩展插件完全不可见。 |
+| **`credential-vault.json`** | 大模型供应商连接 | Runtime Policy 管理的各连接 API Key、OAuth 令牌与自定义请求头。 | 模型切换与凭证轮换由 Policy 层掌控，与会话历史解耦；通过 `modelFactory` 或 OAuth 请求拦截器在发包瞬间按需注入。 |
+| **`credentials.json`** | 外部 MCP 服务连接 | 按 `mcp:<serverId>` 键控隔离的第三方 MCP 服务 OAuth 凭据。 | 防止 A 服务的令牌被 B 服务或内置工具读取。 |
+| **`managed-secrets.json`**<br>(`controlPlaneRoot`) | 沙箱脚本 / 云端任务密钥 | **AES-256-GCM（`A256GCM`）加密信封**（含 `keyId`, `iv`, `ciphertext`, `tag`），主密钥由外部 `keyProvider` 持有。 | 刻意存放在**会话可移植状态之外的控制面根目录**（确保导出 Session Bundle 迁移分享时绝不意外带上密钥！）。 |
 
 ---
 
-## 4. 教学伪代码：分层拦截与密钥作用域注入
+## 4. 关键机制：Managed Secret 的加密信封与作用域叠加注入
 
-以下伪代码展示了在一个完整的托管执行请求中，认证、边界校验与密钥注入是如何严丝合缝地协同的：
+假设用户运行一个自动化部署或测试任务，要求脚本读取一个第三方 API Token，但又不希望这个 Token 常驻在宿主环境里让无关的工具或模型读到。
+
+Maka 的 **`EncryptedFileManagedSecretStore`** 与 **`ActivationSecretInjector`** 构成了一套极具安全深度的生命周期管理闭环：
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Admin as 授权方 (控制面)
+    participant Store as EncryptedFileManagedSecretStore
+    participant KeyProv as KeyProvider (32-byte 主密钥)
+    participant Injector as ActivationSecretInjector
+    participant Env as 隔离环境叠加层 (Overlay Env)
+    participant Sandbox as 单次 Activation 沙箱进程
+
+    Admin->>Store: 1. 预先存入密钥 (仅暴露 opaque secretId 引用) & 授权给特定会话
+    Store->>KeyProv: 请求当前 activeKey()
+    Store->>Store: 生成随机 IV，用 A256GCM 加密落盘 (仅含密文信封)
+
+    Note over Injector,Sandbox: 当该受权 Activation 准备启动时
+    Injector->>Store: 2. 核对会话授权，批量取用 secretIds 解密
+    Store->>KeyProv: keyById(envelope.keyId) 解密明文
+    Injector->>Env: 3. 构造独立新环境叠加对象 (绝不污染全局 process.env)
+    Injector->>Env: 原子写入环境变量 (任一失败立即回滚已写项)
+    Injector-->>Sandbox: 4. 注入隔离环境启动任务并颁发租约 (Lease)
+    
+    Sandbox->>Sandbox: 运行脚本 (脚本可读取 env 中的 Token)
+    Note over Injector,Env: 任务完成 / 失败 / 超时取消
+    Injector->>Env: 5. finally 幂等调用 lease.release() 还原并擦除环境变量
+```
+
+### 4.1 为什么采用“独立环境叠加层 + 原子回滚租约”？
+1. **防范并发 Activation 横向窃听**：如果在 Node.js 进程全局的 `process.env` 上直接设置密钥，同一时间跑在同一个进程下的其他未授权任务或插件就能顺手读取 `process.env` 窃取密钥！因此，`ActivationEnvironmentSecretSink` 强制要求传入为当次激活专门构造的**全新独立环境对象（Overlay）**，确保并发任务之间绝对隔离。
+2. **全批原子性（All-or-Nothing）**：注入多个环境变量时，如果在第 3 个变量格式化失败，注入器立即按照 `previous` 快照逆序还原前 2 个已注入变量，保证不会留下残缺环境。
+3. **可重试的幂等 `release()` 租约**：无论任务正常完成、崩溃抛错还是被强杀，`finally` 块必然执行 `lease.release()` 恢复原环境并擦除内存明文引用；若清理过程中出现异常，保留可重试标记确保不悄悄漏掉清理。
+
+### 4.2 界面展示与日志防泄漏兜底（`display-redaction`）
+即便做到了物理隔离，脚本万一不小心把密钥打印到了 `stdout` 怎么办？Maka 在终端采集器（`PtyScreenCollector`）、日志流以及运行事件投影边界统一挂载了 `redactSecrets()` 脱敏过滤器，一旦匹配到已知凭据模式或敏感字段，立刻将其替换为 `[redacted]`，守住信息不落盘、不入模型上下文的最后一道防线。
+
+---
+
+## 5. 教学伪代码：接入认证、访客准入与安全密钥注入契约
 
 ```text
-// === 1. Host 接入与会话准入防线 ===
-function handleIncomingRpc(request, authToken):
-    principal = accessAuthority.authenticate(authToken)
+// === 1. Host RPC 接入认证与共享会话门控 ===
+async function authorizeHostCommand(rpcRequest, bearerToken):
+    // 使用时间恒定比对校验凭证散列，得出主体与操作授予集合
+    principal = await accessAuthority.authenticate(bearerToken)
     if principal == null:
-        throw new UnauthorizedError("Invalid host token")
+        throw new UnauthorizedError("Invalid or revoked access credential")
 
-    if not accessAuthority.hasOperationGrant(principal, request.operation):
-        throw new ForbiddenError("Operation not permitted for principal")
+    if not principal.operationGrants.has(rpcRequest.operation):
+        throw new ForbiddenError("Principal lacks operation grant: " + rpcRequest.operation)
 
-    if principal.role == "session_guest":
-        if not await ownerApproval.verifyGuestTurnRequest(request.sessionId, principal):
-            throw new ForbiddenError("Session owner declined guest request")
+    // 共享会话 Guest 提交执行请求时，必须单独过 Owner 批准
+    if principal.kind == "session_guest" and rpcRequest.operation == "turn.start":
+        approved = await accessAuthority.verifyOrAwaitGuestTurnApproval(
+            rpcRequest.sessionId,
+            principal.id,
+            rpcRequest.payload
+        )
+        if not approved:
+            throw new ForbiddenError("Session owner declined guest execution request")
 
-    return runtimeKernel.dispatch(request)
+    return principal
 
-// === 2. 激活期托管密钥的安全注入与释放 ===
-function runWithManagedSecrets(activationContext, secretIds, executionFn):
-    // 校验该会话是否已被授权使用这些 secretId
-    assert secretPolicy.isAuthorizedForSession(activationContext.sessionId, secretIds)
+// === 2. Activation 托管密钥的隔离注入与原子清理 ===
+async function runActivationWithManagedSecrets(activationCtx, secretBindings, launchTaskFn):
+    // 1. 控制面校验该激活上下文是否有权使用指定的 secretId 引用
+    secrets = await encryptedSecretStore.resolveForActivation({
+        cloudSessionId: activationCtx.cloudSessionId,
+        ownerPrincipalId: activationCtx.ownerPrincipalId,
+        references: secretBindings.map(b => b.reference)
+    })
 
-    // 批量解密并注入临时环境快照 (底层采用 AES-256-GCM)
-    envGuard = await secretInjector.prepare(activationContext.env, secretIds)
+    // 2. 构建独立隔离的环境变量对象，绝不污染宿主全局 process.env
+    isolatedOverlayEnv = cloneBaseSafeEnv(activationCtx.baseEnv)
+    sink = new ActivationEnvironmentSecretSink(isolatedOverlayEnv)
+
+    // 3. 批量原子注入并取得可幂等释放的租约 (任一步失败自动回滚)
+    lease = await sink.injectEnvironmentVariables({
+        entries: bindSecretsToEnvEntries(secretBindings, secrets)
+    })
+
     try:
-        return await executionFn(envGuard.isolatedEnv)
+        return await launchTaskFn(isolatedOverlayEnv)
     finally:
-        // 铁律：无论成功还是崩溃抛出异常，必须立刻还原环境并抹除临时密钥引用
-        await envGuard.release()
+        // 4. 铁律：无论成功、异常或取消，必须还原并清除内存里的密钥明文
+        await lease.release()
 ```
 
 ---
 
-## 5. 对照 Pi：单机信任模型 vs 多主体分层管控
+## 6. 对照 Pi：单机信任开关 vs 企业级纵深防御
 
-- **Pi 的做法**：作为面向开发者的单机编码工具，Pi 通过 `AuthStorage` 统一管理模型供应商的密钥；在加载项目级配置文件与自定义扩展时，通过 `resolveProjectTrusted()` 核验用户是否信任当前项目目录，防止打开恶意仓库时自动执行隐患代码；具体的工具审批则交给用户自定义的 `tool_call` 拦截扩展（如 `permission-gate` 示例）处理。
-- **Maka 的做法**：由于 Maka 面向多客户端连接、团队协同（Guest 介入）、浏览器控制和后台常驻服务，单靠“项目信任开关”已不足以覆盖风险。因此 Maka 建立了从 Host 接入、Origin 域授权、文件 Worker 边界收窄到 AES 加密托管密钥的完整企业级纵深防线。
+- **Pi 的做法**：定位于本地单开发者使用，通过 `AuthStorage` 统一存储和读取大模型认证凭据；在加载仓库目录配置与自定义插件时，使用 `resolveProjectTrusted()` 提示用户确认当前项目目录是否可信；具体的精细工具阻断交给用户通过 `tool_call` 钩子扩展（例如仓库内置的 `permission-gate.ts` 示例）自行定制。
+- **Maka 的做法**：面向多客户端接入、团队访客共享与高危沙箱/云端运行场景，不仅区分了四类物理隔离的凭据存储载体，还引入了 Host 认证散列吊销、Guest 审批门控、Origin 域三元组授权以及基于 `AES-256-GCM` 与独立环境叠加层的零泄漏托管密钥注入。
 
 ---
 
-## 6. 延伸阅读
+## 7. 延伸阅读
 
-- 了解第 4 层执行边界如何在 Linux / macOS / Windows 操作系统沙箱中物理落地，阅读 [03.3 执行环境与操作系统沙箱](sandbox.md)。
-- 了解第 3 层客户端能力代理（如浏览器操作）是如何通过 `accepted -> admitted` 握手完成审批的，阅读 [03.2 MCP 连接与客户端能力](mcp-and-client-capabilities.md)。
+- 了解第 4 层工作区沙箱如何把权限 Profile 编译为操作系统级约束，阅读 [03.4 操作系统级双路沙箱](sandbox.md)。
+- 了解第 3 层浏览器客户端能力如何通过 `accepted → admitted` 握手协同完成审批，阅读 [03.2 MCP 连接与客户端能力代理](mcp-and-client-capabilities.md)。
+- 了解在配置模型连接时，Host 如何通过 `modelFactory` 与 `OAuthExecutionAuthority` 延迟绑定密钥，阅读 [01.4 模型配置与增量传输](../01-runtime/provider-configuration.md)。
