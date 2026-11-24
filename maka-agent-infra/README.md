@@ -1,5 +1,7 @@
 # Maka Agent 基础设施教程（TypeScript 架构版）
 
+> 🔀 **姊妹篇对照**：如果你希望了解 Maka 团队最新的纯 Rust 微内核重构架构（`Reconciler`、`RootStore`、`CaptureArena`、`Windows MXC`、`Rooms`、时间胶囊兼容性验证等），请前往 **[Maka Agent 基础设施教程（Rust 微内核版）](../maka-rust-agent-infra/README.md)**。
+
 本教程面向设计与实现智能体（Agent）基础设施的开发者与架构师，系统性拆解 **Maka（TypeScript Monorepo + 原生 Rust 加速引擎架构）** 的核心设计与工程实践。
 
 在简单的原型开发中，调用模型只需一行 `streamText()`。但当 Agent 走向真实的工程环境时，开发者必须面对多端并发冲突、进程中断恢复、上下文爆窗、沙箱越权、跨进程同步与防作弊评测等一系列系统级挑战。本手册以“概念先行 + 设计权衡 + 图解与伪代码 + 对照实现”的方式，深入剖析 Maka 如何解决这些核心难题。
