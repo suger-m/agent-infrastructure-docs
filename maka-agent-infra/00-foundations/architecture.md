@@ -54,7 +54,7 @@ flowchart TB
         ProjEng["投影计算引擎 (Projection Engine)"]
     end
 
-    Layer1 -->|提交命令 / 订阅进度| Proto
+    Layer1 -->|"提交命令 / 订阅进度"| Proto
     Proto --> Adm
     Adm --> Lease
     Adm --> SM

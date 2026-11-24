@@ -19,13 +19,13 @@ flowchart TD
     Call["模型返回调用意图<br/>(toolCallId, name, rawArgs)"] --> Snap["1. 构建三重参数快照 & Schema 校验<br/>(executionArgs / permissionArgs / persistedArgs)"]
     Snap --> Auth["2. 步进准入与权限检查<br/>(工具是否已激活? 是否需要人类审批?)"]
     
-    Auth -->|被拒绝 / 校验失败| ErrResult["生成错误结果 (供模型自我修正)"]
+    Auth -->|"被拒绝 / 校验失败"| ErrResult["生成错误结果 (供模型自我修正)"]
     Auth -->|通过| T1["3. 第一阶段提交 (T1): commitToolPrepared()<br/>在执行任何副作用前，向账本写入“即将派发”事实"]
     
     T1 --> Exec["4. 调用物理实现: tool.impl(executionArgs, ctx)<br/>(执行文件读写、进程或查询后台任务)"]
     
     Exec -->|正常返回或抛出明确业务异常| Proj["5. 投影生成双视图结果<br/>原始结构化结果 + toModelOutput() 分页精简版"]
-    Exec -.->|进程在此窗口崩溃/断联| Unknown["恢复判定：Unknown Outcome (结果未知)"]
+    Exec -.->|"进程在此窗口崩溃/断联"| Unknown["恢复判定：Unknown Outcome (结果未知)"]
     
     Proj --> T2["6. 第二阶段提交 (T2): commitToolOutcome()<br/>原子落盘结果与模型视图"]
     T2 --> Pub["7. 推送 tool_result 事件"]

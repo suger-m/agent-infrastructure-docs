@@ -20,11 +20,11 @@ Maka 采用了**“命令沙箱 + 受限文件 Worker 子进程”**的双路隔
 flowchart TD
     Boundary["ExecutionBoundary (会话当前安全边界)<br/>模式: explore / ask / bypass | 版本: revision"]
     
-    Boundary -->|路径 1: 外壳命令| Bash["Bash 工具"]
+    Boundary -->|"路径 1: 外壳命令"| Bash["Bash 工具"]
     Bash --> SandboxMgr["SandboxManager (策略转译)"]
     SandboxMgr --> OS_Cmd["OS 沙箱启动受限 Shell<br/>(Linux bubblewrap / macOS sandbox-exec)"]
     
-    Boundary -->|路径 2: 内置文件工具| FS["Read / Write / Edit / apply_patch"]
+    Boundary -->|"路径 2: 内置文件工具"| FS["Read / Write / Edit / apply_patch"]
     FS --> Derive["deriveWorkerProfile()<br/>将工作区权限收窄至“仅目标文件”"]
     Derive --> Worker["独立文件 Worker 子进程<br/>(通过 stdin/stdout JSON 通信)"]
 ```

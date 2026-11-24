@@ -67,8 +67,8 @@ flowchart TD
     Fact["权威事实层<br/>RuntimeEvent 账本 (不可变, 完整保留)"]
     Ledger["操作计量账本<br/>AgentRunEvent (Token / 延迟 / 错误码)"]
     
-    Fact -->|按需裁剪 / 摘要压缩| ModelView["模型上下文投影<br/>(发往 LLM 的 messages)"]
-    Fact -->|流式拼接 / 状态聚合| UIView["客户端 UI 投影<br/>(界面气泡与进度)"]
+    Fact -->|"按需裁剪 / 摘要压缩"| ModelView["模型上下文投影<br/>(发往 LLM 的 messages)"]
+    Fact -->|"流式拼接 / 状态聚合"| UIView["客户端 UI 投影<br/>(界面气泡与进度)"]
     Fact -->|扫描未闭合边界| RecoveryView["崩溃恢复投影<br/>(决定 Continuation 起点)"]
     Ledger -->|聚合统计| MetricsView["可观测性面板"]
 ```

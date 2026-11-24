@@ -27,25 +27,25 @@ Maka 的模型循环采用**双层循环 + 背压确认队列**的架构：外�
 
 ```mermaid
 flowchart TD
-    Start([进入 AiSdkTurn.run]) --> Prep["1. 准备本步材料<br/>取工具快照、解析系统提示、排空 Steering<br/>从持久账本投影出 messages"]
+    Start(["进入 AiSdkTurn.run"]) --> Prep["1. 准备本步材料<br/>取工具快照、解析系统提示、排空 Steering<br/>从持久账本投影出 messages"]
     Prep --> Attempt["2. 发起物理请求 (Attempt)<br/>启动 StreamWatchdog 看门狗"]
     Attempt --> Stream["3. 消费流式响应 (for await events)<br/>text_delta 推入显示队列<br/>tool_call 暂存待执行列表"]
     
     Stream --> Outcome{"4. 检查请求终态 (Outcome)"}
-    Outcome -->|网络超时 / 可恢复错误| Retry{"是否还有重试额度?"}
-    Retry -->|是| Attempt
-    Retry -->|否| Fail([输出失败终态])
+    Outcome -->|"网络超时 / 可恢复错误"| Retry{"是否还有重试额度?"}
+    Retry -->|"是"| Attempt
+    Retry -->|"否"| Fail(["输出失败终态"])
     
-    Outcome -->|completed| CommitStep["stepCount + 1, 写入用量<br/>flushStep() 发出完整片段"]
+    Outcome -->|"completed"| CommitStep["stepCount + 1, 写入用量<br/>flushStep() 发出完整片段"]
     CommitStep --> HasTool{"5. 本步是否有本地工具调用?"}
     
-    HasTool -->|有 (如 Read)| ExecTool["并发/受控执行 settleToolCall()<br/>等待本批工具全部结算完成"]
+    HasTool -->|"有 (如 Read)"| ExecTool["并发/受控执行 settleToolCall()<br/>等待本批工具全部结算完成"]
     ExecTool --> AckWait["关键：waitUntilConsumed()<br/>死等工具结果彻底落盘入库"]
     AckWait --> Prep
     
-    HasTool -->|无| CheckFinish["6. 检查结束条件<br/>排空中途新 Steering / 调用 beforeTurnFinish"]
-    CheckFinish -->|要求继续| Prep
-    CheckFinish -->|允许结束| Complete([推送 complete 事件并退出])
+    HasTool -->|"无"| CheckFinish["6. 检查结束条件<br/>排空中途新 Steering / 调用 beforeTurnFinish"]
+    CheckFinish -->|"要求继续"| Prep
+    CheckFinish -->|"允许结束"| Complete(["推送 complete 事件并退出"])
 ```
 
 ---

@@ -57,7 +57,7 @@ flowchart TB
         Proj["投影引擎 (Projection Engine)"]
     end
 
-    Clients -->|统一协议 RPC / WebSocket| Auth
+    Clients -->|"统一协议 RPC / WebSocket"| Auth
     Auth --> Adm
     Adm --> SM
     SM --> K

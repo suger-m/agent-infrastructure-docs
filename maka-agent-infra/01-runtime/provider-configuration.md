@@ -27,9 +27,9 @@
 
 ```mermaid
 flowchart LR
-    Config["Session 配置<br/>(connectionId, modelId)"] -->|1. 提交目标| Resolver["resolveExecutionTarget()"]
-    Policy["Runtime Policy 凭据库<br/>(API Key / OAuth / 网络代理)"] -->|2. 提供受控凭据| Resolver
-    Resolver -->|3. 校验权限与白名单| Builder["buildHostAiSdkBackend()"]
+    Config["Session 配置<br/>(connectionId, modelId)"] -->|"1. 提交目标"| Resolver["resolveExecutionTarget()"]
+    Policy["Runtime Policy 凭据库<br/>(API Key / OAuth / 网络代理)"] -->|"2. 提供受控凭据"| Resolver
+    Resolver -->|"3. 校验权限与白名单"| Builder["buildHostAiSdkBackend()"]
     
     Builder -->|注入 modelFactory| Adapter["ModelAdapter<br/>(按需实例化模型连接)"]
     Builder -->|注入解析回调| Callbacks["动态解析器<br/>(System Prompt / Tools / Boundary)"]

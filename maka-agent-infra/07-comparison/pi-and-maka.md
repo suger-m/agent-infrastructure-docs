@@ -13,7 +13,7 @@
 ```mermaid
 flowchart TB
     subgraph MakaArch["范式 A：Maka 托管服务接入 (Client-Server)"]
-        AppM["你的应用 (Desktop / Web / CLI)"] -->|RPC / WebSocket 订阅与指令| Host["Runtime Host 独立进程<br/>(准入、代次、沙箱、SQLite 存储)"]
+        AppM["你的应用 (Desktop / Web / CLI)"] -->|"RPC / WebSocket 订阅与指令"| Host["Runtime Host 独立进程<br/>(准入、代次、沙箱、SQLite 存储)"]
         Host --> KernelM["SessionManager → RuntimeKernel → AiSdkTurn"]
     end
 

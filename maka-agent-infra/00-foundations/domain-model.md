@@ -31,7 +31,7 @@ flowchart TD
     S["Session (会话)<br/>sessionId: sess_01<br/>持续工作范围，跨多次输入与重启"] --> T["Turn (逻辑轮次)<br/>turnId: turn_101<br/>由一次输入开启的逻辑任务"]
     
     T --> I1["Invocation 1 (物理执行实例)<br/>invocationId: inv_a / runId: run_a<br/>第一次执行：读文件后意外崩溃"]
-    T -.->|崩溃恢复 / Handoff 交接| I2["Invocation 2 (后继执行实例)<br/>invocationId: inv_b / runId: run_b<br/>接续完成解释并收尾"]
+    T -.->|"崩溃恢复 / Handoff 交接"| I2["Invocation 2 (后继执行实例)<br/>invocationId: inv_b / runId: run_b<br/>接续完成解释并收尾"]
     
     I1 --> Step1["Model Step 1 (模型步进)<br/>决策：调用 Read('config.json')"]
     Step1 --> Att1["Attempt 1 (网络超时)"]

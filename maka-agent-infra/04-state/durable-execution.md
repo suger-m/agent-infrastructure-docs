@@ -67,9 +67,9 @@ sequenceDiagram
 
 ```mermaid
 flowchart LR
-    Old["Invocation 1 (意外中断)<br/>已提交前缀: 读 config.json 成功"] -->|1. 扫描不可变前缀| Plan["Continuation 规划器<br/>验证源边界与合法重放上下文"]
-    Plan -->|2. 原子认领 claimContinuation()| Claim["写入接续控制表 (防止多恢复者并发启动)"]
-    Claim -->|3. commitContinuationStart()| New["Invocation 2 (全新物理实例)<br/>携带同一 turnId, source=continuation"]
+    Old["Invocation 1 (意外中断)<br/>已提交前缀: 读 config.json 成功"] -->|"1. 扫描不可变前缀"| Plan["Continuation 规划器<br/>验证源边界与合法重放上下文"]
+    Plan -->|"2. 原子认领 claimContinuation()"| Claim["写入接续控制表 (防止多恢复者并发启动)"]
+    Claim -->|"3. commitContinuationStart()"| New["Invocation 2 (全新物理实例)<br/>携带同一 turnId, source=continuation"]
 ```
 
 ### 为什么需要 `claimContinuation()` 原子认领？

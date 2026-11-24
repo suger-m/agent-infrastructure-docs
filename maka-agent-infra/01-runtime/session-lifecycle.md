@@ -23,7 +23,7 @@ flowchart TD
     Gen --> Backend["AiSdkBackend (模型后端)<br/>持有：ModelAdapter、已激活工具清单、Prompt Cache"]
     
     Gen -.->|activeRuns 登记| Run["AgentRun (本次执行记录)<br/>寿命：从准入开始到终态写入与收尾完毕"]
-    Backend -->|每次 send() 新建| Turn["AiSdkTurn (步进作用域)<br/>寿命：仅限本次模型循环，含独立 runId 与 AbortSignal"]
+    Backend -->|"每次 send() 新建"| Turn["AiSdkTurn (步进作用域)<br/>寿命：仅限本次模型循环，含独立 runId 与 AbortSignal"]
     Turn -->|构造时创建| TR["ToolRuntime (工具执行环境)"]
 ```
 

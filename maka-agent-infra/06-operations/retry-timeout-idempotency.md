@@ -36,8 +36,8 @@ Maka 的 `StreamWatchdog` 摒弃了粗暴的“总请求时长一刀切”做法
 ```mermaid
 flowchart TD
     Err["Attempt 失败 / Watchdog 超时"] --> Classify{"1. 错误分类核查"}
-    Classify -->|认证失败 401 / 参数非法 400 / 上下文溢出| Stop(["不可直接重放：上报或转入压缩恢复"])
-    Classify -->|网络超时 / 5xx / 429 限流| Budget{"2. 检查重试预算 & 副作用门控"}
+    Classify -->|"认证失败 401 / 参数非法 400 / 上下文溢出"| Stop(["不可直接重放：上报或转入压缩恢复"])
+    Classify -->|"网络超时 / 5xx / 429 限流"| Budget{"2. 检查重试预算 & 副作用门控"}
     
     Budget -->|Attempt >= 10 或存在不可重放供应商侧工具| Stop
     Budget -->|允许重试| Delay["3. 计算退避等待<br/>优先采信服务端 Retry-After，否则指数退避 + 随机抖动"]
