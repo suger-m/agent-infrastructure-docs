@@ -1,245 +1,132 @@
 # 执行环境与操作系统沙箱
 
-[手册目录](../README.md)
+[返回手册目录](../README.md)
 
-适用范围：Maka 固定提交 `15d0a0dd19d39e2bc09ae35940e432c636982315` 的内置工作区工具、命令执行和文件 worker；外部执行器的隔离能力由其实现负责。
-Pi 对照基于 `482c1381a00d8d00bc81697e4a980c593db6803e`；本章引用的 Pi 源码文件没有工作区差异。默认 `coding-agent/agent/ai`、实验 durable 和可选扩展示例分别讨论。
-以下轨迹来自源码与测试断言的静态核对，本次没有运行平台沙箱、安装依赖或调用模型 API。Windows 结论限定为当前文件 worker 预览能力。
+当用户让 Agent 修改项目里的 `config.json` 时，模型其实有两条路可以达成目的：
+1. 调用 `Bash` 运行一段更新脚本（例如 `node update-config.js`）；
+2. 调用内置的文件工具 `Write` 直接覆写文件。
 
-## 1. 问题：项目内命令对项目外的访问
+很多初学者在设计沙箱时，只给 `Bash` 命令套上了容器或进程隔离，却让 `Write`、`Edit` 直接在 Node.js 主进程里调用操作系统的 `fs.writeFile()`。这会留下一个致命的后门：**模型一旦利用软链接（Symlink）或路径穿越（`../../.ssh/id_rsa`），就能直接借由高权限的 Host 主进程读写宿主机任意敏感文件！**
 
-假设用户要求“修改配置并验证”。模型可以调用 `Write` 保存文件，也可以调用 `Bash` 执行 `node check.js`。
-即使 shell 的工作目录是 `/work/project`，脚本仍能尝试读取 `../private/token.txt`、连接网络、创建子进程。
-当前工作目录 `cwd` 仅是相对路径的起点；访问限制需要在实际读取、写入或启动程序之处生效。
+Maka 采用了**“命令沙箱 + 受限文件 Worker 子进程”**的双路隔离架构，确保两条路径受到同等严格的操作系统级约束。本章解析执行边界（`ExecutionBoundary`）的设计原理、双路沙箱的实现机制以及跨平台隔离的真实边界。
 
-因此需要考察三个问题：工具被交给哪个执行器；本次调用允许触及哪些资源；由谁拦截越界访问。
-Maka 将它们分别交给 `WorkspaceExecutor`、`ExecutionBoundary` 和平台沙箱后端。接口、策略与操作系统执行分属三层不同职责。
-本机执行器明确报告 `isolation: 'none'`、`writesAffectHost: true`、`writeBack: 'direct'`，不能从类名中的 Workspace 推导出已实现隔离。[执行器事实][m-executor]
+---
 
-例如 `Write` 被策略批准后，写入仍会直接修改宿主文件。沙箱限制的是“可写入的范围”，不会在命令失败时撤销已写入的内容；工作副本和事务回滚属于另外的机制。
+## 1. 概念先行：规则（Profile）与执行者（Worker）的分离
 
-## 2. 边界表达意图，后端负责实施
+在 Maka 中，控制“Agent 能碰什么”的逻辑被拆解为两个层次：**规则描述**与**物理隔离**。
 
-`ExecutionBoundary` 有三种分支，每个分支都带 `revision`；`managed` 还携带具体权限 profile。
-profile 描述文件读写范围及网络模式，是否选择 OS 后端由 `SandboxManager` 决定。[边界定义][m-boundary]、[后端选择][m-manager]
-
-| 边界／配置 | 内置文件工具 | 内置 Bash 的命令转换 |
-| --- | --- | --- |
-| `managed` | 交给文件 worker；没有 worker 时返回 `requires_bypass` | 根据 profile 判断是否需要沙箱，所需能力不可用则失败 |
-| `bypass` | 跳过 worker，以 `host` 路径范围调用工作区执行器 | 跳过 Maka 的命令沙箱转换 |
-| `external` | 使用注入的执行器，保持 `workspace` 路径范围 | 跳过本地转换，由外部环境承担限制 |
-| 嵌入调用未提供边界 | 存在 worker 时使用 worker，否则本地执行且将路径限制保留在 cwd | 依调用方注入的 manager、profile 或权限模式决定 |
-
-文件路由由 `createBoundaryFilesystemExecutor()` 集中完成；显式 `managed` 缺少 worker 时不会隐式改走宿主文件操作。[文件路由][m-filesystem]
-表中 `host` 表示允许解析工作区外的宿主路径，不会提升进程的 OS 权限；远端执行器也未必支持此类路径范围。
-
-`createGenesisExecutionBoundary()` 将 `explore` 映射为只读 profile，`ask` 映射为 `workspace-write`，`bypass` 映射为绕过边界。
-当前 `workspace-write` 允许工作区及临时根写入，网络为 `restricted`；它没有默认添加 `.git/.agents/.codex` 写保护。[初始边界][m-genesis]、[默认 profile][m-profile]
-
-`managed` 本身也不等于“必然存在 OS 沙箱”。`danger-full-access` 仍是 managed profile，但文件系统为 `unrestricted`、网络为 `enabled`。
-`profileRequiresSandbox()` 仅在 managed profile 的文件系统或网络仍受限时返回真；默认 `auto` 选择可能因此得到 `sandboxType: 'none'`。[判断函数][m-required]
-
-## 3. Bash 调用进入 Linux 沙箱的路径
-
-Linux smoke 测试创建一个位于非标准 PATH 目录的 `maka-path-probe`，脚本内容为 `printf custom-tool-ok`。
-测试向 `buildBuiltinTools()` 注入 `workspace-write` profile 和 Linux manager，未注入 `shellRuns`，因而进入普通 executor 分支。[测试入口][m-linux-test]
-
-```text
-bash.impl({ command: 'maka-path-probe' }, ctx)
-  → buildExecutorBashTool().impl
-  → preflightDeclaredSandboxBoundary(...)  // 此测试没有申请扩张
-  → sandboxCommand(manager, profile, 'linux', command, false, ctx)
-      → 规范化 cwd，准备 profile 路径
-      → SandboxManager.transform(...)
-      → LinuxBubblewrapBackend.transform(...)
-          argv = [bwrap, ..., '--chdir', cwd, '--', '/bin/sh', '-c', command]
-          fdInputs 包含受限网络的 seccomp 过滤器
-  → LocalWorkspaceExecutor.exec({ argv, cwd, env, fdInputs, timeoutMs, ... })
-  → runProcessWithBoundedTail(argv[0], argv.slice(1), ...)
-  → shapeTerminalResult(...)
-  → 测试断言 output.mode === 'pipes'
-             output.stdout === 'custom-tool-ok'，output.stderr === ''
+```mermaid
+flowchart TD
+    Boundary["ExecutionBoundary (会话当前安全边界)<br/>模式: explore / ask / bypass | 版本: revision"]
+    
+    Boundary -->|路径 1: 外壳命令| Bash["Bash 工具"]
+    Bash --> SandboxMgr["SandboxManager (策略转译)"]
+    SandboxMgr --> OS_Cmd["OS 沙箱启动受限 Shell<br/>(Linux bubblewrap / macOS sandbox-exec)"]
+    
+    Boundary -->|路径 2: 内置文件工具| FS["Read / Write / Edit / apply_patch"]
+    FS --> Derive["deriveWorkerProfile()<br/>将工作区权限收窄至“仅目标文件”"]
+    Derive --> Worker["独立文件 Worker 子进程<br/>(通过 stdin/stdout JSON 通信)"]
 ```
 
-此处 `argv` 是已转换完成的可执行程序与参数；本机执行器直接启动该程序，不再经由宿主 shell 重新解析整个包装命令。
-工具层将非零退出、超时、取消转换为对应的失败；执行器本身返回输出、退出码和状态事实。[Bash 实现][m-bash]、[本机 exec][m-local-exec]、[进程入口][m-run-process]
+### 三种初始权限模式（`ExecutionBoundary`）
+会话创建时，Host 会依据请求或默认策略生成创世边界：
 
-这条测试证明的行为包含“命令可从非标准 PATH 找到”。该测试不证明任意主机都具备 bubblewrap，也不证明环境变量中的秘密已被移除。
-`sandboxCommand()` 拷贝 `process.env`；OS 文件限制不会自动清除已经传入子进程内存的凭据。文件 worker 的环境构造则更窄，见下文“文件工具为什么另起 worker”一节。
+| 权限模式 | 核心能力与限制 | 典型适用场景 |
+| :--- | :--- | :--- |
+| **`explore`（只读探索）** | 仅允许读取工作区文件，禁止写入，网络受限。 | 代码审查、架构分析、只读排错提问。 |
+| **`ask`（工作区可写）** | 使用 `workspace-write` Profile，允许写工作区与临时目录，网络受限。 | 日常编码修改、本地配置调整；越界操作触发审批弹窗。 |
+| **`bypass`（直通宿主）** | 跳过沙箱转换，受操作系统当前启动用户的原生权限约束。 | 受控的自动化 CI 容器内运行（环境外层已有硬隔离）。 |
 
-## 4. 前台、后台与 PTY：生命周期与隔离
+### 动态边界扩张（Boundary Expansion）
+假设在 `ask` 模式下，模型试图修改工作区之外的 `/etc/hosts` 或用户全局配置 `~/.npmrc`。文件执行器检测到目标超出当前 Profile，不会直接崩溃，而是允许工具发起一次**边界扩张申请**（附带目标路径、访问类型与申请理由）。一旦人类用户批准，Maka 会生成一个递增版本号的全新 `ExecutionBoundary`，后续步骤即可合法放行该路径。
 
-注入 `shellRuns` 后，`buildBuiltinTools()` 改用 `buildManagedBashTool()`。
-该工具先调用同一个 `transformCommand`／`sandboxCommand`，再按 `run_in_background` 选择 `runForegroundBash()` 或 `runBackgroundBash()`；后台执行并未跳过转换。[工具装配][m-tools]、[后台工具入口][m-shell-tools]
+---
 
-| 调用形式 | 运行约定 | 对边界的影响 |
-| --- | --- | --- |
-| 前台 pipes | 默认等待结果；默认 120 秒，最大 10 分钟 | 需要沙箱时先转换命令 |
-| 后台 pipes | 返回可追踪的运行资源；无默认超时，显式超时最大 24 小时 | 同样先转换命令 |
-| 后台 PTY | 必须同时设置 `pty: true` 和 `run_in_background: true` | profile 要求命令沙箱时，启动前拒绝 |
+## 2. 第一条路：`Bash` 命令的沙箱转换与网络隔离
 
-PTY 是伪终端，为程序提供终端输入、屏幕尺寸等语义，本身不提供权限隔离。`PtyProcessDriver` 封装 `node-pty` 的启动、输入、调整尺寸和终止；沙箱能力检查发生在调用该驱动之前。
-因此“支持 PTY”与“支持受限 PTY”不能互换；当前受限 profile 下将返回 `requires_bypass`，没有边界对象的对应分支使用 `pty_sandbox_unavailable`。[PTY 检查][m-command]、[驱动][m-pty]
+以在 Linux 上执行 `Bash("node update-config.js")` 为例：
 
-后台结果给出的 `maka://runtime/background-tasks/<id>` 是运行资源地址：`Read` 观察结果，`WriteStdin` 向 PTY 输入，`StopBackgroundTask` 请求停止。
-这些接口向管理器传入 `sessionId` 与资源引用；`WriteStdin` 描述还明确说明输入是普通工具调用数据，并非秘密输入通道。[后台工具入口][m-shell-tools]
+1. **策略转译**：`sandboxCommand()` 读取会话当前的 Profile，交由 `SandboxManager` 匹配当前操作系统的后端。
+2. **参数生成**：Linux 后端（`LinuxBubblewrapBackend`）将允许读写的路径清单映射为 `bubblewrap`（`bwrap`）的只读/读写挂载参数；如果 Profile 要求禁用网络，则挂载独立的网络命名空间（`--unshare-net`）并配置 `seccomp` socket 过滤器。
+3. **绝对隔离效果**：在独立网络命名空间下，即使脚本试图连接本机的 `127.0.0.1` 探测 Host 内部端口，操作系统内核也会直接返回 `EPERM` 拒绝连接。
+4. **前台、后台与 PTY 约束**：无论命令是前台阻塞运行（默认 120 秒超时）还是后台挂起（`run_in_background: true`），都会先经过完全相同的沙箱转换。需要注意的是，若程序申请交互式伪终端（`pty: true`）且 Profile 强制要求沙箱隔离，系统会在启动前直接拒绝不安全的受限 PTY。
 
-执行时限与资源额度仍需区分。上述沙箱后端没有设置通用 CPU／内存预算；Linux 的 `--unshare-cgroup` 也不等于配置了资源配额。
-命令输出超过保留上限时，`shell-exec` 保留尾部并抑制实时输出，命令继续运行。输出截断不能替代超时或进程资源限制。[进程入口][m-run-process]
+---
 
-## 5. 文件工具的独立 worker 设计
+## 3. 第二条路：内置文件工具的 Worker 隔离与双层防御
 
-只包装 Bash 会留下另一条执行入口：`Write` 仍可能在宿主直接执行文件 API。
-Maka 将 `Read/Write/Edit/FormatJson/Glob/Grep/apply_patch` 的本地文件操作交给同一个边界执行器；managed 分支进入 `FilesystemWorkerClient.execute()`。[工具装配][m-tools]、[文件路由][m-filesystem]
+内置文件工具（`Read`、`Write`、`Edit`、`Glob`、`Grep`、`apply_patch`）全部经由 `createBoundaryFilesystemExecutor()` 路由。在 `managed` 模式下，主进程绝不亲自碰文件，而是启动专门的**受限文件 Worker 子进程**。
 
-以读取工作区中的 `note.txt` 为例，实际函数关系如下；这是源码路径，不是另行构造的消息协议：
+### 3.1 为什么还需要 `deriveWorkerProfile()` 二次收窄？
+设想当前会话处于 `workspace-write` 模式，理论上整个项目目录都允许写入。但此时模型调用的仅仅是 `Write("config.json", ...)`。
+如果直接把“整个项目可写”的大权限交给子进程，万一路径解析或符号链接出了偏差，可能会波及其他文件。因此，Maka 会执行一次**单次操作权限收窄（`deriveWorkerProfile`）**：
+- **先核验**：用会话 Profile 检查 `canWritePath("config.json")` 是否合规。
+- **再收窄**：专门为本次启动的 Worker 子进程生成一个**极小化 Profile**——仅赋予 `config.json`（及新建时所需的父目录）的写权限，其余文件一律只读或不可见，并关闭网络。
+
+### 3.2 写入前的 TOCTOU 防护（防文件身份置换）
+在并发场景下，可能出现经典的时间差攻击（TOCTOU, Time-of-Check to Time-of-Use）：执行器检查完 `config.json` 的权限后正在排队等锁，此时另一个进程偷偷把 `config.json` 删掉并换成了一个指向 `/etc/passwd` 的软链接！
+
+为了堵住这一漏洞，Maka 在等锁前会先记录目标路径的**底层文件身份（如 inode / 设备号）**；Worker 子进程在沙箱内真正打开文件准备写入之前，必须再次核对文件身份是否一致，并通过**已打开的固定文件描述符句柄**写入内容，彻底消除路径替换导致的误写风险。
+
+---
+
+## 4. 跨平台沙箱实现与客观边界
+
+不同的操作系统内核提供了截然不同的安全原语，Maka 的沙箱能力受限于宿主机平台能表达的底层机制：
+
+| 操作系统 | 底层沙箱机制 | 隔离特性与已知工程边界 |
+| :--- | :--- | :--- |
+| **macOS** | `sandbox-exec` (Seatbelt) | 通过 `.sb` 规则描述文件与网络访问边界；需保留系统运行库与动态链接器所需的只读例外路径。 |
+| **Linux** | `bubblewrap` (`bwrap`) + `seccomp` | 完善的挂载命名空间与网络命名空间隔离；要求宿主机已安装可用 `bwrap`，且当前后端不支持显式 `deny` 规则覆盖。 |
+| **Windows** | 专用 Launcher (`AppContainer` + ACL + Job) | **受限文件 Worker 为预览实现**；由于 AppContainer 权限模型与目录继承机制的差异，会出现“能编辑已有的 `config.json`，但新建文件（需要修改父目录条目）被拒绝”的情况；受限 Bash 与 worker 内 `Grep` 暂不可用（可降级使用 `Glob` + `Read`）。 |
+
+### 环境变量与超时边界
+- **环境变量隔离**：`Bash` 会复制宿主所需的环境变量以保证编译工具链（如 `PATH`、`NODE_ENV`）正常运作；而**文件 Worker 仅保留临时目录与语言环境等最小启动变量**，严防业务密钥通过环境变量意外泄漏给文件读写子进程。
+- **物理超时与副作用留存**：前台 `Bash` 与文件 Worker 默认均设有 **120 秒执行时限**。需要牢记的是：**沙箱限制的是“能碰哪里”，而不是“事务回滚”**。如果脚本改完 `config.json` 后在验证阶段超时被杀，磁盘上已经发生的修改依然保留；如果 Worker 进程处理完请求但在回传 JSON 前崩溃，系统会抛出 `ToolOutcomeUnknownError` 交由恢复机制处理。
+
+---
+
+## 5. 教学伪代码：文件 Worker 权限收窄与身份防置换
 
 ```text
-Read.impl({ path: 'note.txt' }, ctx)
-  → filesystem.execute({ operation: { kind: 'read', path }, ...filesystemCall(ctx) })
-  → createBoundaryFilesystemExecutor 内部 run()
-  → FilesystemWorkerClient.execute()
-      规范化目标 → canReadPath() 检查会话 profile
-      deriveWorkerProfile() 收窄到本次操作 → SandboxManager.transform()
-  → runFilesystemWorkerProcess()：JSON 请求写入 stdin
-  → worker-entry.main() 校验请求
-  → executeFilesystemWorkerRequest() → executeFilesystemOperation()
-  → stdout 返回 JSON；客户端校验 requestId、结果类型后交回 Read
+function executeWriteViaWorker(targetPath, newContent, sessionBoundary):
+    // 1. 路径规范化与会话级大边界核验
+    absPath = resolveAndNormalize(targetPath, sessionBoundary.cwd)
+    if not sessionBoundary.profile.canWritePath(absPath):
+        throw new BoundaryExpansionRequiredError(absPath, "write")
+
+    // 2. 权限二次收窄：为本次 Worker 派生仅限单文件的最小权限配置
+    narrowProfile = deriveWorkerProfile(sessionBoundary.profile, {
+        operation: "write",
+        targetPath: absPath
+    })
+
+    // 3. 记录操作前的文件物理身份 (防止等锁期间路径被偷换为软链接)
+    expectedIdentity = captureFileIdentityIfExists(absPath)
+
+    // 4. 通过平台沙箱 (bwrap / sandbox-exec / AppContainer) 启动受限 Worker
+    workerArgs = sandboxManager.transformWorkerLaunch(narrowProfile)
+    requestPayload = {
+        op: "write",
+        path: absPath,
+        content: newContent,
+        expectedIdentity: expectedIdentity
+    }
+
+    // 5. 通过 stdin 发送指令，严格限定 120s 超时
+    response = await spawnRestrictedWorker(workerArgs, stdin: requestPayload, timeoutMs: 120_000)
+    
+    if response.timedOut or response.crashedBeforeAck:
+        // Worker 极可能已经写入磁盘，必须标为结果未知，绝不可静默假装失败
+        throw new ToolOutcomeUnknownError("File worker terminated without ack")
+        
+    return response.result
 ```
 
-会话权限是可使用资源的上限；`deriveWorkerProfile()` 再将受限 profile 收窄至本次文件或目录，并将网络设为 `restricted`。
-Grep 还可获得已授权的祖先 ignore 文件读取权限，但不能据此读取这些文件所在的整个目录。[worker 客户端][m-worker]
+---
 
-写操作在等待文件锁之前捕获目标身份，worker 再核对路径、类型及身份；内容改写通过固定文件句柄进行，减少检查后路径被替换造成的误写。
-这仍不等于每种操作都有同样窄的内核授权：Linux 新建文件需要可写父目录，受信任的单次 worker 承担进一步约束；Windows 当前拒绝此类授权形状。[worker 客户端][m-worker]、[worker 操作][m-operations]
+## 6. 延伸阅读
 
-`buildFilesystemWorkerEnv()` 只保留受控临时路径、locale 等必要变量；Windows 补充 `SystemRoot/SystemDrive/LOCALAPPDATA`，Electron 增加启动标志。
-该函数未像 Bash 那样复制整个宿主环境。[worker 环境][m-worker-env]
-worker 默认时限 120 秒，请求上限 16 MiB、响应上限 8 MiB；这些是协议及等待限制，不是整个 Agent 的内存上限。
-请求发出后若丢失响应，写入可能已经发生，文件执行器可报告 `ToolOutcomeUnknownError`，不应将 worker 退出解释为自动回滚。[worker 进程][m-worker-process]、[文件路由][m-filesystem]
-
-## 6. 三个平台的实际支持范围
-
-| 平台 | 已接入的 OS 机制 | 当前需要保留的限制 |
-| --- | --- | --- |
-| macOS | `/usr/bin/sandbox-exec` 加 Seatbelt policy；从 `deny default` 开始生成文件及网络规则 | 包含系统工具、运行库和元数据读取例外；并非只看得见工作区；受限 PTY 不支持 |
-| Linux | bubblewrap 挂载及 namespace；受限网络另加 seccomp socket 过滤器 | 要通过 bwrap 可执行性／能力探测；过滤器支持 x64、arm64；显式 `deny` 条目不支持，会失败 |
-| Windows | broker 启动专用文件 worker，使用 AppContainer、文件 ACL 授权和 Job | 文件 worker 预览；受限 Bash、受限 PTY、worker 内 Grep 不可用 |
-
-macOS 将 profile 转换为规则文本；Linux 将系统路径只读挂载，工作区按 profile 绑定，临时根使用 tmpfs。
-Linux 的网络限制同时使用独立网络 namespace 和拒绝创建 socket 的过滤器，不能假定本地 HTTP 测试仍可联网。
-相关 smoke 测试断言 Node 连接 `127.0.0.1` 得到 `EPERM`。[Seatbelt][m-macos]、[Linux 后端][m-linux]、[网络测试][m-linux-network-test]
-
-Windows 需从四个层面考察：
-
-1. `createDefaultSandboxManager()` 只注册 macOS/Linux；`createBuiltinSandboxManager()` 找到打包的 `windows-sandbox/maka-windows-sandbox.exe` 才增加 Windows 后端。
-2. 文件存在尚不充分。`isBuiltinFilesystemWorkerSandboxAvailable()` 调用 readiness probe；探测成功才发布 worker，热路径只读缓存。负结果过期后需新的 composition 构建或 Host 重启重新探测。[可用性检查][m-default]
-3. `compileWindowsSandboxPolicy()` 仅接受 managed、受限文件系统及受限网络；显式 `deny`、卷根和需要父目录项写权限的操作会被拒绝。已有文件内容写入与“创建新文件”不能视为同一种支持能力。[Windows 策略][m-windows-profile]
-4. `sandboxCommand()` 对 Windows 直接认定命令沙箱不可用：受限 profile 失败；不要求沙箱或明确 bypass 时才使用未包装的宿主 shell。worker 的 Grep 则返回 `grep_unavailable`，可用 Glob 和 Read 继续读取。[命令边界][m-command]、[worker 操作][m-operations]
-
-Windows 原生 launcher 已实现 AppContainer 启动、仅继承三条标准流、原子 Job 关联和结束时清理 Job；这不是仅停留在 RFC 层面的计划。
-但私有桌面实现明确仅保证初始放置及桌面对象访问控制：仍共享 window station，不承诺剪贴板隔离；防止重新附着交互桌面的机制仍属后续工作。[原生启动][m-windows-launch]、[桌面限制说明][m-windows-desktop]
-
-## 7. 与 Pi 对照：环境选择与强制边界
-
-Pi 默认 CLI 的 `createBashTool()` 最终使用 `BashOperations`；默认实现直接启动本机 shell，扩展可以替换这些操作。
-实验 durable 使用独立的 `ExecutionEnv extends FileSystem, Shell`。两条路径表达相似需求，但不能组合成一条默认调用链。[Pi Bash][p-bash]、[Pi 环境接口][p-env]
-
-| 比较点 | Maka 本章路径 | Pi 已核对的路径 |
-| --- | --- | --- |
-| 执行接口 | `WorkspaceExecutor` 提供命令、文件操作及执行事实 | 默认 CLI 用 `BashOperations`；durable 用 `ExecutionEnv` |
-| 边界不可用 | managed 文件缺 worker 时失败；受限命令后端不可用时失败 | 可选 sandbox 示例未启用或初始化失败时保留本机 bash |
-| 工具覆盖 | managed 本地文件工具另走 worker；Bash 先转换命令 | sandbox 示例替换 bash 和用户 `!`，没有替换 read/write/edit |
-| 网络配置 | profile 为 `restricted/enabled`，由平台后端落实 | sandbox 示例向外部 runtime 传入 allowedDomains 等配置 |
-| SSH | `external` 把执行责任交给注入后端，标签本身不证明隔离 | `ssh.ts` 示例转交 read/write/edit/bash 与 `!`；远端账号仍需自己的权限限制 |
-| 可复用远端环境 | 本章讨论的是本地工具边界 | `packages/env` 的 `RemoteExecutionEnv.exec()` 经连接发给 daemon；`connectSsh()` 负责建立 SSH 连接 |
-| 每会话环境 | 边界选择与实际文件授权分开 | durable 示例按会话文档分配不同目录，返回 `NodeExecutionEnv`；真实容器后端留给应用 |
-
-Pi 的 SSH 示例与 `packages/env` 是两个不同入口；前者直接启动 ssh 命令，后者提供环境协议与 daemon 集成。[SSH 示例][p-ssh-example]、[远端环境][p-remote]、[SSH 连接][p-ssh]
-Pi sandbox 示例支持 macOS/Linux，当前代码在 Windows 上禁用该示例；该示例并非默认 CLI 的强制沙箱，也不能为其他文件工具证明隔离。[sandbox 示例][p-sandbox]
-durable 示例确实实现了会话到执行环境的选择，并用 faux provider 演示；其 Sandbox 文档保存目录路径，不建立 OS 隔离。[每会话环境示例][p-durable-example]
-
-## 8. 源码定位
-
-| 入口 | 应重点追踪的标识符与问题 |
-| --- | --- |
-| [workspace-executor.ts][m-local-exec] | `LocalWorkspaceExecutor.exec()`：有 argv 时怎样启动程序 |
-| [sandbox-boundary.ts][m-genesis] | `createGenesisExecutionBoundary()`：权限模式如何产生边界 |
-| [sandbox-manager.ts][m-manager] | `SandboxManager.selectInitial()/canEnforce()/transform()`：选择、能力与转换分别发生在哪里 |
-| [builtin-tools.ts][m-bash] | `buildExecutorBashTool()/sandboxCommand()`：普通 Bash、PTY 和 Windows 分支 |
-| [shell-tools.ts][m-shell-tools] | `buildManagedBashTool()`：前后台分流前执行哪次转换 |
-| [filesystem-executor.ts][m-filesystem] | `createBoundaryFilesystemExecutor()`：worker、本地与 external 的路由 |
-| [filesystem-worker/client.ts][m-worker] | `FilesystemWorkerClient.execute()/deriveWorkerProfile()`：批准范围如何收窄为单次操作 |
-| [filesystem-worker/operations.ts][m-operations] | `executeFilesystemWorkerRequest()/executeFilesystemOperation()`：目标复核、实际读写与 Grep 拒绝 |
-| [macos-seatbelt.ts][m-macos] | `buildSeatbeltPolicy()`：允许规则与平台例外 |
-| [linux-sandbox.ts][m-linux] | `LinuxBubblewrapBackend.transform()/buildBubblewrapArgv()`：挂载、描述符及网络过滤 |
-| [windows-profile.ts][m-windows-profile] | `compileWindowsSandboxPolicy()`：精确写入与父目录项授权的差别 |
-| [default-sandbox-manager.ts][m-default] | `createBuiltinSandboxManager()/isBuiltinFilesystemWorkerSandboxAvailable()`：注册不等于可运行 |
-| [windows_launcher.rs][m-windows-launch] | `create_appcontainer_child()`：安全属性、标准流和 Job 随启动建立 |
-| [Pi bash.ts][p-bash] | `createLocalShellOperations()`：默认本地操作与超时取消 |
-
-Windows smoke 用例分别断言已有文件可更新、缺失目标写入在 transform 阶段失败，以及 Glob 成功而 Grep 失败；测试需要 Windows 和已有 broker 二进制，否则跳过。[Windows 用例][m-windows-test]
-Linux smoke 同样按平台及 bwrap 能力跳过。本章引用的是用例与实现，不宣称这些测试已在本次环境中通过。
-
-## 9. 本章术语
-
-| 术语 | 本章含义 |
-| --- | --- |
-| managed boundary | Maka 管理的 profile 与版本；仍需检查 profile 是否要求 OS 沙箱 |
-| OS enforced sandbox | 操作系统对实际进程实施的访问限制；不依赖模型遵守提示词 |
-| fail closed | 无法建立所需限制时拒绝执行，不静默扩大权限 |
-| PTY / pipes | 伪终端语义／标准流管道；是输入输出方式，不是安全等级 |
-| operation boundary | 文件 worker 本次操作所获的路径范围，通常比会话权限窄 |
-| Job | Windows 用于关联和清理进程组的内核对象；本实现未据此设置通用 CPU／内存配额 |
-| bypass | 显式跳过 Maka 的本地限制；进程仍受宿主操作系统权限约束 |
-
-## 10. 源码练习
-
-1. 静态追踪四个请求：Linux managed 后台 pipes、Linux managed PTY、Windows managed Bash、Windows bypass Bash。
-   在 `buildManagedBashTool()` 与 `sandboxCommand()` 标出分支，说明哪些会调用 launcher、哪些先失败，以及失败是否会自动改为 bypass。
-   判断依据必须包括 profile 是否受限，不能仅依据 `managed` 字样。
-2. 阅读 Windows smoke 测试，将 `inside.txt` 已存在与 `not-created-yet.txt` 不存在的执行轨迹追踪至 policy 编译处。
-   解释为何两者同在允许目录内却结果不同；再说明“Grep 不可用”为何不能视为“没有匹配”。无需运行 broker。
-3. 阅读 Pi 的 sandbox、SSH 和 durable 每会话环境示例，列出各自替换的操作与未建立的限制。
-   再分别为 Maka 的文件 worker 和 Bash 整理环境变量来源，说明禁止读取凭据文件是否足以阻止环境变量继承。全部内容可仅通过只读源码完成，无需付费 API。
-
-## 相关专题
-
-- [权限与秘密](permissions-and-secrets.md)：区分获准执行、实际资源限制和凭据注入。
-- [工具运行时](tool-runtime.md)：定位文件或命令执行前后的事实提交。
-- [外部工具接入](mcp-and-client-capabilities.md)：理解哪些效果发生在本机沙箱之外。
-
-[m-executor]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/workspace-executor.ts#L56
-[m-local-exec]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/workspace-executor.ts#L315
-[m-boundary]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/core/src/sandbox-boundary.ts#L162
-[m-genesis]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/core/src/sandbox-boundary.ts#L229
-[m-profile]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/core/src/permission-profile.ts#L176
-[m-manager]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/sandbox/sandbox-manager.ts#L35
-[m-required]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/sandbox/sandbox-manager.ts#L204
-[m-filesystem]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/filesystem-executor.ts#L190
-[m-tools]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/builtin-tools.ts#L210
-[m-bash]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/builtin-tools.ts#L631
-[m-command]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/builtin-tools.ts#L737
-[m-run-process]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/shell-exec.ts#L136
-[m-shell-tools]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/shell-tools.ts#L175
-[m-pty]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/pty-process-driver.ts#L42
-[m-worker]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/filesystem-worker/client.ts#L190
-[m-operations]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/filesystem-worker/operations.ts#L78
-[m-worker-env]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/filesystem-worker/launch-spec.ts#L93
-[m-worker-process]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/filesystem-worker/process-runner.ts#L77
-[m-macos]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/sandbox/macos-seatbelt.ts#L239
-[m-linux]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/sandbox/linux-sandbox.ts#L84
-[m-default]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/sandbox/default-sandbox-manager.ts#L178
-[m-windows-profile]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/sandbox/windows-profile.ts#L36
-[m-windows-launch]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/experiments/windows-sandbox/launcher/src/windows_launcher.rs#L1120
-[m-windows-desktop]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/experiments/windows-sandbox/launcher/src/windows_launcher.rs#L752
-[m-linux-test]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/__tests__/linux-sandbox-smoke.test.ts#L205
-[m-linux-network-test]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/__tests__/linux-sandbox-smoke.test.ts#L160
-[m-windows-test]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/__tests__/filesystem-worker-windows-smoke.test.ts#L103
-[p-bash]: https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/coding-agent/src/core/tools/bash.ts#L97
-[p-env]: https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/src/env/index.ts#L374
-[p-sandbox]: https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/coding-agent/examples/extensions/sandbox/index.ts#L132
-[p-ssh-example]: https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/coding-agent/examples/extensions/ssh.ts#L81
-[p-remote]: https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/env/src/remote-env.ts#L852
-[p-ssh]: https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/env/src/ssh.ts#L532
-[p-durable-example]: https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/durable/test/examples/29-sandbox-per-conversation.ts#L48
+- 了解当需要连接外部服务或要求用户临时扩大权限时，系统是如何认证和管控凭据的，阅读 [03.4 分层授权与凭据生命周期](permissions-and-secrets.md)。
+- 了解沙箱执行器抛出 `ToolOutcomeUnknownError` 后，持久化系统如何接管恢复，阅读 [04.1 持久化执行与崩溃恢复](../04-state/durable-execution.md)。

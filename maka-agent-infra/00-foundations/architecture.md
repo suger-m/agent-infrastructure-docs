@@ -1,250 +1,223 @@
 # 整体架构：Maka 执行系统的组成与分层
 
-[手册目录](../README.md)
+[返回手册目录](../README.md)
 
-本文不要求读者预先认识全部类名。首先将“读取配置并修复错误”拆解为需要有人负责的事项，随后考察 Maka 将它们划分到不同层的原因。
-源码基线为 `15d0a0d`；架构事实以实际契约与组装代码为依据，关于成本和替代方案的判断会明确标为分析。
+在生产环境中构建 Agent 系统，最棘手的问题往往不在于如何调用大模型，而在于如何协调**并发交互、状态一致性与执行安全性**。当用户在桌面端（Desktop）发起了“重构代码”任务，同时在终端（TUI）打开同一工作区，后台还有持续集成的自动化机器人（Bot）在运行评测时，系统必须保证多个接入端看到的是同一份真实进展，且不会发生并发写入冲突。
 
-## 1. 起点：模型 SDK 与编码助手的差距
+Maka 的整体架构正是为了解决这一核心矛盾而设计。本章先介绍系统的四层职责模型与三股核心数据流，再以“读取 `config.json` 并修复错误”为例剖析各组件的协同过程，最后给出 Host 准入与执行的教学伪代码及架构对比。
 
-用户说：“读 config.json，找出配置错误，修好后验证。”
-模型服务可以返回文字和工具调用意图，但以下事情仍需要宿主程序完成：
+---
 
-1. 确定这个请求属于哪个会话，是否允许开始新的工作。
-2. 选择模型、连接、提示词、工具声明以及可见历史。
-3. 接收流式响应，把完整工具参数交给本地实现。
-4. 检查访问边界，执行读写，把结果交回模型。
-5. 保存足够事实，使另一个界面或重启后的进程能解释这次工作。
-6. 把进度显示出来，并区分“模型停止输出”和“任务已可靠收尾”。
+## 1. 概念先行：为什么必须分层？
 
-`streamText()` 只覆盖其中的模型调用部分。
-如果把所有逻辑放进某个 UI 按钮回调，打开第二个窗口时很容易再次创建一份运行与写入者。
-Maka 的整体设计首先要解决的是：**多个产品入口如何使用同一套执行、状态和安全边界。**
+直接基于大模型 SDK（如 `streamText()`）编写 Agent 时，开发者很容易将网络请求、工具执行、界面渲染和数据存储耦合在同一个 UI 事件回调中。这种“单体脚本思维”在单机单任务时尚可运转，但一旦面临多端协同，便会暴露出三大硬伤：
 
-这也是上游架构文档把 Runtime Host 放在所有产品入口之后的原因。[总体契约][architecture]
+1. **状态脑裂（Split-Brain）**：如果每个客户端都自己实例化一个 Agent 并直接读写底层数据库，两端同时发指令就会产生并发事务竞争、文件写覆盖以及死锁。
+2. **易失性与恢复黑洞**：如果执行状态仅保存在客户端内存中，一旦界面卡顿被强关，正在后台运行的外部命令（如长达 10 分钟的编译测试）就会彻底失联，重启后无法判定该操作究竟是成功还是失败。
+3. **上下文与审计日志混杂**：模型为了节省 Token 需要做历史压缩，但工程审计与故障复盘必须保留每一次工具调用的真实原始输出。如果两者不分，压缩就会破坏系统的持久化真实性。
 
-## 2. 职责视图：客户端、Host、runtime 与 storage
+为了化解这些冲突，Maka 确立了系统分层的核心原则：**客户端只表达意图与展示视图，由唯一的 Runtime Host 承担法定写入权威，Runtime Core 负责纯粹的执行推进，而 Storage 则提供只追加的不可变事实保障。**
+
+---
+
+## 2. 职责视图：四层核心模型
+
+Maka 将整个系统划分为四个清晰的职责层级：
 
 ```mermaid
 flowchart TB
-    C["客户端：Desktop / CLI / TUI / Bot / Eval"] --> H["Runtime Host：协议、授权、准入、观察"]
-    H --> M["SessionManager / RuntimeKernel：会话与执行生命周期"]
-    M --> B["AgentBackend：可替换执行端口"]
-    B --> A["AiSdkBackend / AiSdkTurn：模型与工具步骤"]
-    B --> E["插件 executor：另一种执行实现"]
-    A --> P["ModelAdapter / AI SDK / Provider"]
-    A --> T["ToolRuntime / WorkspaceExecutor / 外部能力"]
-    H --> S["注入的存储实现"]
-    M --> S
-    A --> S
-    S --> V["模型历史 / 转录 / UI / 恢复 / 计量视图"]
-    V --> H
-    H --> C
+    subgraph Layer1["1. 客户端接入层 (Clients)"]
+        Desk["Desktop App (Electron)"]
+        TUI["Terminal TUI / CLI"]
+        Bot["Automation Bot"]
+        Eval["@maka/eval 评测引擎"]
+    end
+
+    subgraph Layer2["2. 托管权威层 (Runtime Host)"]
+        Proto["统一协议解析 (RPC / WebSocket)"]
+        Adm["根执行准入 (Root Admission)"]
+        SubMgr["订阅与广播管理器 (Subscription)"]
+        Lease["State Root 租约锁 (Lease Authority)"]
+    end
+
+    subgraph Layer3["3. 核心执行层 (Runtime Core)"]
+        SM["SessionManager (会话生命周期)"]
+        K["RuntimeKernel (代次调度 / 资源绑定)"]
+        Run["AgentRun (执行事实与终态收集)"]
+        Turn["AiSdkTurn (模型步进 / 循环控制)"]
+        TR["ToolRuntime (参数校验 / 权限分发)"]
+    end
+
+    subgraph Layer4["4. 存储与状态根 (Storage & State Root)"]
+        EventLog["RuntimeEvent 权威账本 (Append-Only)"]
+        ControlDB["SQLite 状态控制表 (Sessions / Claims)"]
+        ProjEng["投影计算引擎 (Projection Engine)"]
+    end
+
+    Layer1 -->|提交命令 / 订阅进度| Proto
+    Proto --> Adm
+    Adm --> Lease
+    Adm --> SM
+    SM --> K
+    K --> Run
+    Run --> Turn
+    Turn --> TR
+    
+    Turn -->|输出实时执行事件| Run
+    Run -->|原子事务写入| EventLog
+    K -->|更新执行代次状态| ControlDB
+    
+    EventLog --> ProjEng
+    ProjEng -->|生成模型上下文| Turn
+    ProjEng -->|生成界面展示帧| SubMgr
+    SubMgr -->|推流广播| Layer1
 ```
 
-箭头表示职责间的数据或控制交接，不代表每一条都是 `package.json` 的直接依赖。
-存储虽然被执行层使用，具体实现可以由 Host 作为接口注入；包依赖的准确方向见[目录与依赖地图](repository-map.md)。
+### 各层职责与边界约束
 
-### 2.1 客户端：表达意图与呈现状态
+| 层级 | 核心组件 | 主要职责 | 边界红线（绝对不能做的事） |
+| :--- | :--- | :--- | :--- |
+| **1. 客户端接入层** | Desktop, TUI, CLI, Bot, Eval | 采集用户输入、展示界面组件、代理前端特有能力（如前端浏览器、系统原生对话框）。 | **严禁直接连接底层 SQLite**，严禁自行实例化独立的模型运行时。 |
+| **2. 托管权威层** | Runtime Host, Admission, Lease | 占有 State Root 的独占写入租约；负责请求去重、并发准入、客户端连接鉴权与多端事件广播。 | **不介入具体提示词构造**与模型单步算法，纯粹作为执行权威守护者。 |
+| **3. 核心执行层** | SessionManager, RuntimeKernel, AgentRun, AiSdkTurn | 维护会话与后端资源代次；驱动 Agent 循环、处理流式片段、看门狗监控与工具安全结算。 | **不直接假定 UI 展现形式**，所有输出统一抽象为标准 `SessionEvent`。 |
+| **4. 存储层** | SQLite, RuntimeEvent Log, Projection | 提供 ACID 事务保证，按只追加方式持久化不可变运行事实，计算模型历史投影与恢复快照。 | **不包含业务执行逻辑**，不持有易失性内存连接或定时器。 |
 
-客户端将“用户想做什么”传递给 Host，并呈现 Host 返回的观察结果。
-客户端可以持有输入框、流式文本缓冲和当前选择的会话，但这些显示状态不能决定工具是否已经提交或工作能否恢复。
-
-这并不意味着客户端没有任何逻辑。
-客户端可能负责浏览器、桌面等能力的实际执行；此时需要另一套能力发布、接受和准入协议。
-“执行发生在客户端”与“客户端有权绕过 Host 启动根工作”是两个不同的概念。
-相关实现在[客户端能力与 MCP](../03-tools/mcp-and-client-capabilities.md)。
-
-### 2.2 Host：请求接入与执行授权
-
-Host 验证调用者、operation、Session 和执行身份，管理根执行准入、交互等待、订阅以及服务生命周期。
-例如同一 turnId 再次到达时，不能未经核对就再次调用模型；新输入到达一个忙碌的 Session 时，也不能直接创建第二个根循环。
-
-Host 是服务边界，不应将其理解为某个固定的远端 HTTP 服务。
-本地产品与远端连接可以有不同的进程和传输部署，执行权威的职责仍要保持一致。
-协议与传输不能替代其后的运行事实。
-
-### 2.3 runtime：执行推进
-
-SessionManager 是会话执行服务；RuntimeKernel 协调活动 backend、Run 和事件消费。
-AgentRun 建立本次执行身份并接收需要记录的运行事实。
-AiSdkTurn 则负责一项逻辑工作中的模型 step、工具结算、重试和结束判断。
-
-将它们全部统称为“Agent loop”虽然方便，但会掩盖生命周期与模型步骤的不同责任。
-一个组件可以负责驱动 `backend.send()`，但不直接决定下一次模型提示词；另一个组件可以驱动模型步骤，但不拥有整个 State Root。
-详细对象图见[会话与对象生命周期](../01-runtime/session-lifecycle.md)。
-
-### 2.4 storage：事实持久化
-
-存储层提供运行事件、操作账本、Session 及业务控制状态的持久实现。
-它不是 Eval 实验成绩的所有者，也不是将屏幕上显示的文字随意落成日志文件的机制。
-
-工具准备派发与工具结果提交有专门的原子接口。
-SQLite 可以保证本地事务中的多条记录同时生效，但不能将远程工单系统、文件写入和本地数据库自动纳入同一个分布式事务。
-因此存储解决“本地知道什么”，无法消除“外部可能发生了什么”的全部不确定性。
+---
 
 ## 3. 数据流视图：命令、事实与投影
 
-阅读源码时，常会同时遇到 Input、SessionEvent、RuntimeEvent、StoredMessage 和 subscription frame。
-它们不能因为都携带文本而互相替换。
+在 Maka 架构中，系统内流动的数据被严密隔离为三种性质截然不同的流：
 
 ```mermaid
 flowchart LR
-    I["命令：请求执行一项工作"] --> G["准入与执行"]
-    G --> F["已发生事实：RuntimeEvent / 控制记录"]
-    G --> LIVE["执行中的流式事件"]
-    F --> PM["模型历史投影"]
-    F --> PT["人类可读转录"]
-    F --> PR["恢复判定"]
-    F --> PO["观察与计量视图"]
-    PM --> NEXT["下一次模型请求"]
-    PT --> UI["客户端显示"]
-    LIVE --> UI
-    PO --> UI
+    Cmd["命令流 (Commands)<br/>• 用户输入<br/>• 终止信号<br/>• 权限确认"] -->|Host 鉴权与准入| Exec["执行内核 (Runtime)<br/>• 模型调用<br/>• 工具执行"]
+    Exec -->|只追加写入| Facts["事实流 (Facts / Events)<br/>• RuntimeEvent 账本<br/>• 真实 stdout/stderr<br/>• 不可篡改时间戳"]
+    Exec -.->|实时旁路流| Delta["临时流式增量<br/>• text_delta<br/>• 思考中片段"]
+    
+    Facts --> ProjM["模型历史投影<br/>(过滤敏感词、历史压缩)"]
+    Facts --> ProjUI["UI 界面投影<br/>(聚合聊天卡片、进度条)"]
+    Facts --> ProjRec["恢复检查投影<br/>(崩溃时接续点识别)"]
+    
+    ProjM --> Exec
+    ProjUI --> Client["客户端展示"]
+    Delta --> Client
 ```
 
-一个 Read 例子即可说明命令、事实与投影的差别：
+1. **命令流（Commands）**：具有**易失性与意图性**。例如用户点击“取消”或发送新指令。命令可能被拒绝（如会话繁忙且不允许插队），也可能被排队，不能直接等同于系统事实。
+2. **事实流（Facts / Events）**：具有**不可变性与客观性**。一旦模型返回了调用、工具产生了输出，这些事实被封装为 `RuntimeEvent` 写入数据库。它们是系统复盘和恢复的绝对基石。
+3. **投影流（Projections）**：具有**按需计算与视图性**。
+   - 大模型不需要知道所有的底层 UI 状态，因此**模型投影**只提取与任务相关的上下文；
+   - 客户端界面需要流畅打字机效果，因此**UI 投影**关注字符增量；
+   - 进程重启时，**恢复投影**扫描未完成的事件以重建内存上下文。
 
-| 数据 | 示例含义 | 何时能出现 |
-| --- | --- | --- |
-| 命令 | “请读取 config.json” | 动作发生之前 |
-| 工具调用事实 | 模型提出了具体参数 | 不一定已经派发 |
-| dispatch 事实 | 已跨过允许派发的持久边界 | 实现可能开始产生效果 |
-| 工具结果事实 | 已保存读取结果及稳定的模型投影 | 不能只靠 UI 图标替代 |
-| UI 事件 | 工具开始、完成或失败的显示信息 | 内容可能是裁剪后的协议视图 |
-| 模型历史 | 下个请求可以消费的工具调用/结果对 | 还要经过投影与协议约束 |
+---
 
-RuntimeEvent 契约明确指出它不是 UI 事件或 trace 行；BackendSendInput 则明确禁止将旧 `context: StoredMessage[]` 视为 provider history 权威。[事件契约][runtime-event]、[后端输入][backend-input]
+## 4. 贯穿任务：修改 `config.json` 的端到端时序
 
-这种层次划分并不是为了增加数据格式数量。
-模型历史受窗口和调用配对约束，UI 需要展示中断片段，恢复需要读取被模型隐藏的控制事实。
-三类读者所需的信息不同，一份“当前消息数组”无法同时准确服务它们。
+为了看清各层如何协同工作，追踪以下具体任务：**“用户要求读取 `config.json`，将超时时间修改为 60 并运行测试验证”**。
 
-## 4. State Root 单一写入权威及其并发边界
+### 阶段一：客户端接入与 Host 准入
+1. 用户在桌面端输入命令，桌面端将其包装为标准 RPC 请求发往本地常驻的 Runtime Host。
+2. Host 检查当前会话（Session）的状态：确认当前无活动运行（或将新输入置于等待队列），生成全局唯一的 `turnId` 与 `runId`。
+3. Host 向底层存储登记 `invocation_opened` 事实，确立本次执行的法律地位。
 
-State Root 是持久状态的边界，不是 `cwd`。
-Host 对它持有写入权威；在该边界内，再按 Session、运行、工具操作处理不同粒度的竞争。
+### 阶段二：Runtime 初始化与代次分配
+1. Host 将执行控制权交给 `SessionManager`，调用 `RuntimeKernel.startTurn()`。
+2. Kernel 检查当前配置代次（`BackendGeneration`）：如果当前已有空闲且配置匹配的模型后端（`AiSdkBackend`），则直接复用；若用户刚刚切换了模型配置，则平滑销毁旧后端并构建新代次。
+3. 创建本次执行专享的 `AgentRun`（负责审计记录）与 `AiSdkTurn`（负责循环控制）。
+
+### 阶段三：驱动第一步（Step 1：读配置）
+1. `AiSdkTurn` 从存储层拉取该会话的已确认事件，投影成大模型所需的 `messages` 数组，并附带 `Read` 工具声明。
+2. 适配器通过流式接口调用模型。看门狗（Watchdog）启动计时，防止网络无响应挂起。
+3. 模型输出 `tool-call: Read("config.json")`。Turn 拦截到该调用，暂停文本生成，将其提交给 `ToolRuntime`。
+4. `ToolRuntime` 验证文件路径在工作区白名单内，调用沙箱读取本地文件，返回 `timeout = 30`。
+5. 结果作为 `tool_result` 事件原子写入 `RuntimeEvent` 账本。Host 广播更新，桌面端弹出“已读取 config.json”卡片。
+
+### 阶段四：驱动第二步（Step 2：写文件与验证）
+1. `AiSdkTurn` 自动将第一步的调用与结果纳入上下文，发起第二次模型请求。
+2. 模型输出两组工具调用：`Write("config.json", ...)` 和 `Bash("npm test")`。
+3. 写入成功，跑测退出码为 0。所有 stdout/stderr 均以不可变事实入库。
+
+### 阶段五：收尾与结清（Finalization）
+1. 模型最终输出一段解释文本：“已将超时时间修复为 60s，单元测试已全部通过”，并返回 `finishReason = 'stop'`。
+2. `AiSdkTurn` 检测到无后续工具调用，判定回合正常结束，发出 `complete` 事件。
+3. `AgentRun.finalize()` 结清用量与终态，Kernel 释放 Turn 作用域，Host 将会话重置为就绪状态。
+
+---
+
+## 5. 教学伪代码：Host 准入与执行协调契约
+
+以下伪代码抽象了 Runtime Host 与 Kernel 在协调多端请求时的核心控制逻辑，展示了互斥准入、代次复用与异常清理的关键契约：
 
 ```text
-State Root 唯一 owner
-  ├─ Session A：当前根 Turn 与待处理输入
-  ├─ Session B：另一项工作，可以并发推进
-  └─ 业务协调器：按自己的持久身份接纳后续工作
+class RuntimeHostCoordinator:
+    function handleClientCommand(sessionId, userInput, clientConnection):
+        // 1. 独占锁检查：确保当前 Host 仍持有 State Root 租约
+        assert this.lease.isValid(), "Lost lease authority over State Root"
+
+        // 2. 根准入检查 (Admission Control)
+        session = this.store.loadSession(sessionId)
+        if session.isBusy():
+            if userInput.isSteering():
+                // 运行中引导：直接注入当前活动的 Turn 队列
+                return session.activeTurn.injectSteering(userInput)
+            else:
+                // 排队后继：压入等待队列
+                return session.queueFollowUp(userInput)
+
+        // 3. 确立执行身份
+        runId = generateUUID()
+        turnId = generateUUID()
+        this.store.recordEvent(invocation_opened(runId, turnId, session.config))
+
+        // 4. 派发执行
+        try:
+            kernel = this.sessionManager.getKernel()
+            eventStream = kernel.startTurn(sessionId, runId, turnId, userInput)
+
+            // 5. 边消费边向客户端广播
+            for await event in eventStream:
+                // 持久化权威事件
+                if event.isDurable():
+                    this.store.commitRuntimeEvent(event)
+                
+                // 广播给所有已连接的订阅端 (Desktop, CLI, etc.)
+                this.subscriptionHub.broadcast(sessionId, projectUI(event))
+        catch Exception as err:
+            this.handleExecutionFailure(runId, turnId, err)
+        finally:
+            this.store.commitTerminalStatus(runId, "completed")
+            this.subscriptionHub.notifyIdle(sessionId)
 ```
 
-应避免据此得出两个错误结论：
+---
 
-- “只有一个 Host，所以所有 Session 串行执行。”根所有权与执行并发并非同一把锁。
-- “SQLite 支持事务，所以两个 Host 可以各自启动模型循环。”事务不能自动识别谁拥有这项业务执行权。
+## 6. 核心权衡：单一 Host 权威的代价与收益
 
-State Root 的具体实现涉及真实目录身份、持久锁位置、操作系统锁和受限 lease。
-Peer Mesh 负责不同 Host 的发现和连接，但并未因此合并它们的写入权威，也没有产生全局工作调度器。[Host 所有权与状态同步](../04-state/host-ownership-and-sync.md)
-
-## 5. 启动流程与就绪条件
-
-考虑应用刚启动、磁盘上仍留有一项未结束工具调用和一个计划继续运行的任务的情形。
-如果调度器在创建后立即启动工作，而执行恢复尚未完成，就可能重做未知效果或与旧准入记录冲突。
-
-`host-composition.ts` 给出了固定的恢复阶段：
+在架构设计中，没有任何方案是没有代价的。Maka 坚持“单一 Host 写入权威”带来了巨大的收益，但也引入了特定的工程挑战：
 
 ```mermaid
-flowchart LR
-    A["state：状态"] --> B["resources：资源"]
-    B --> C["executions：执行"]
-    C --> D["domains：业务状态"]
-    D --> E["schedulers：调度器"]
+flowchart TD
+    Choice["架构决策：单一 Runtime Host 独占写入权威"]
+    
+    Choice --> Benefit1["收益 1：杜绝并发脑裂与脏写<br/>多端界面看到的数据天然一致"]
+    Choice --> Benefit2["收益 2：确定性故障接管<br/>进程崩溃后单一实体负责扫描恢复"]
+    Choice --> Benefit3["收益 3：连接与凭据集中管控<br/>敏感 Key 和沙箱生命周期收拢到 Host"]
+    
+    Choice --> Cost1["代价 1：通信开销<br/>CLI/UI 必须通过进程间 RPC/Socket 与 Host 通信"]
+    Cost2["代价 2：Host 存活监控与孤儿进程治理<br/>UI 异常退出时需安全回收 Host"] --> Choice
 ```
 
-`recoverRuntimeHostDomainModules()` 的循环顺序是“阶段在外、模块在内”：
+- **为什么不采用 Pi 的纯嵌入式设计？**
+  Pi 作为一个优秀的单体编码代理，设计上偏向将 Agent 直接嵌入主 CLI 进程中。这使得 Pi 启动极快、毫无 IPC 开销。但在多端场景下（如既要桌面 App 又要终端 TUI），嵌入式设计会导致两个进程争夺同一个工作区，或者必须自己实现外部网络锁。Maka 明确选择了托管架构，用少量的本地 IPC 开销，换取了跨客户端协同的高可靠性。
 
-```ts
-// 真实函数中的核心循环。
-for (const phase of HOST_RECOVERY_PHASES) {
-  for (const module of modules) await module.recover(phase);
-}
-```
+---
 
-假设有 A、B 两个模块，实际顺序是 A.state、B.state、A.resources、B.resources……
-并非 A 先从 state 一路执行到 schedulers，B 才开始。
-这样后续阶段的模块可以建立在前面阶段整体完成的基础上。
-这是可以从循环结构直接核对的保证，不是“所有启动操作天然可以并行”。[恢复代码][module-recovery]
+## 7. 思考题与延伸阅读
 
-模块定义（`RuntimeHostDomainModuleDefinition` 描述 handlers、各阶段 recovery、drain 与 close）、handler 装配时对重复与未知 operation 的拒绝、按模块逆序关闭并以 AggregateError 汇总、closeTask 缓存等细节，在[仓库地图](repository-map.md)的 Domain Module 小节展开。
-本篇仅保留结论：两个模块争夺同一个协议入口会在组装时失败；关闭按模块逆序执行，单个 close 失败不会跳过后续模块。
-
-## 6. Composition 与磁盘的绑定
-
-Composition 在这里指“这套 Host 安装了哪些服务与执行实现”的程序组合，不是聊天摘要。
-如果两种语义不同的程序组合先后使用同一个 State Root，后一种程序未必能正确解释前一种留下的工作。
-
-`bindStateRootComposition()` 将 compositionId 绑定到该状态根：
-
-1. 验证 compositionId 形状。
-2. 在有效 write lease 下读取已有标记。
-3. 已有标记时要求它与本次组合相同。
-4. 没有标记时发布新标记；发布竞争失败则读取获胜记录并再次比较。
-
-它不会在发现不一致时直接覆盖旧 ID；错误为 `composition_mismatch`。
-这体现了一个实用原则：在无法确认自己能解释现有状态时，应先拒绝以另一套语义接管它。[组合绑定][root-composition]
-
-## 7. backend 接口而非统一基类
-
-`AgentBackend` 在 core 中定义 send、stop、dispose 和相应可选能力。
-类型模块的说明明确指出：实现者与消费者依赖一个小的纯类型模块，而不是具体 backend 文件。[后端端口][backend-port]
-
-这带来一个实际的接入方式：
-
-```text
-Host 选择并准备实现
-  → 交给 Kernel 一个满足 AgentBackend 契约的对象
-  → Kernel 消费 send(input) 产生的事件
-  → 实现内部可以是 AiSdkTurn，也可以是插件 executor
-```
-
-它不保证两个 backend 的所有能力完全等价。
-例如压缩和 composition preparation 在契约中是可选能力，依赖这些能力的上层流程必须判断是否提供。
-统一接口隐藏的是调用边界，而不是消除实现差异。
-
-从设计分析看，这减少了产品入口直接耦合某家模型 SDK 的程度；代价是事件协议、可选能力和生命周期契约都需要额外测试。
-这项代价并不是“接口越多越好”，而是当前需要多个产品入口和后端时必须支付的协调成本。
-
-## 8. 故障场景下的分层验证
-
-将进程中断置于“文件已写，工具结果尚未可靠提交”的时刻：
-
-| 层 | 此时应回答什么 | 不该代替谁作决定 |
-| --- | --- | --- |
-| 客户端 | 显示连接或运行状态不确定，重新查询 | 不能为了补齐 UI 而自动重写文件 |
-| Host | 恢复执行身份与准入状态 | 不能仅凭客户端超时生成新的同义工作 |
-| Runtime 恢复 | 区分已提交结果与未知效果 | 不能将缺少 T2 当作工具一定未执行 |
-| 存储 | 提供可信事务边界内的记录 | 不能替外部文件系统证明回滚 |
-| 工具或业务协议 | 提供结果查询、幂等或明确的人工处置 | 不能靠提示词声称实现 exactly-once |
-
-此表可用于检验后续扩展：新增客户端、工具或 executor 时，需要明确其接入的层次与承担的保证类型。
-仅调通 API 不足以证明崩溃、取消和重复请求场景下行为的正确性。
-
-## 9. 与 Pi 的关系：可编程系统与默认组装边界
-
-Pi 的 coding-agent 也可以被开发者嵌入；Maka 也不只是一个不可编程的桌面程序。
-因此“一个是给用户用、一个是给开发者用”不是可靠的区分。
-
-Pi 默认入口通常由 `createAgentSession()` 组装 Agent 与 AgentSession，再把模型通信交给 pi-ai。
-Maka 产品入口通过 Host，Host 组装会话、执行、持久状态与观察协议。
-Pi 的 durable 是另一条实验性任务执行路径，不能因默认 AgentSession 并非它，就推断 Pi 没有持久任务能力。
-
-这只是架构组织方式的比较，不依据类和文件数量判断哪一个更可靠、更快或模型效果更好。
-选型需要从具体的嵌入方式、共享状态、恢复边界和工具副作用出发，[Pi 与 Maka 对照](../07-comparison/pi-and-maka.md)将用具体场景展开。
-
-## 相关专题
-
-- [目录与依赖地图](repository-map.md)：将本篇职责图对应到包、导出子路径、源文件和测试目录。
-- [领域模型](domain-model.md)：解释会话、逻辑轮次、物理执行与持久事实之间的精确关系。
-- [完整请求与事件回程](../01-runtime/request-to-response.md)：沿一条请求定位具体方法与调用顺序。
-- [设计模式与权衡](design-tradeoffs.md)：讨论为何使用接口注入、联合类型和可重建投影，以及它们的成本。
-
-[architecture]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/ARCHITECTURE.md#L23
-[runtime-event]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/core/src/runtime-event.ts#L20
-[backend-input]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/core/src/backend-types.ts#L60
-[backend-port]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/core/src/backend-types.ts#L20
-[module-recovery]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime-host/src/server/host-composition.ts#L122
-[root-composition]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/storage/src/state-root-composition.ts#L54
+1. **思考题**：如果在工具执行过程中（例如正在写文件），客户端与 Host 之间的 WebSocket 连接断开，正在运行的工具会被中断吗？为什么？（提示：回顾 Host 与 Client 的生命周期解耦）
+2. **思考题**：为什么“模型历史投影”不能直接由客户端来做，而必须由存储层或核心执行层来计算？
+3. **延伸阅读**：
+   - 了解身份体系在代码中的具体结构，阅读 [00.3 领域模型](domain-model.md)。
+   - 深入理解各层在代码目录中的分布，阅读 [00.2 仓库与依赖地图](repository-map.md)。
+   - 探索一条输入在代码中的逐行流动，阅读 [01.1 从请求到响应](../01-runtime/request-to-response.md)。

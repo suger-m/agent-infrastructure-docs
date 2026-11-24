@@ -1,136 +1,143 @@
 # 模型、连接与配置的注入
 
-[手册目录](../README.md)
+[返回手册目录](../README.md)
 
-一次模型调用所需的信息不止 model 字符串。Session 保存目标配置，Host 解析连接与秘密材料，backend generation 持有相应执行资源，Turn 再按步骤准备请求。改变其中一项时，需要明确哪些资源仍可复用。
+在实际应用中，用户经常需要在同一个会话中切换不同的大模型（例如先用高性价比模型阅读代码，再用旗舰推理模型设计架构），或者使用受企业管控的 OAuth 网关与私有网络代理。
 
-适用范围：Maka 提交 `15d0a0dd19d39e2bc09ae35940e432c636982315`，Pi 对照提交 `482c1381a00d8d00bc81697e4a980c593db6803e`；本文依据源码静态核对，未调用模型服务。
+如果把 API Key 和模型实例直接写死在环境变量或全局变量中，就会面临三大难题：**切换模型时在途请求崩溃、OAuth 令牌过期无法动态刷新、以及多客户端同时修改配置导致互相覆盖。** 本章解析 Maka 是如何安全解析连接材料、按不同寿命注入配置，并在会话空闲时安全切换模型的。
 
-## 1. 配置来源
+---
+
+## 1. 概念先行：连接、模型与凭据的解耦
+
+在简单的 SDK 调用中，开发者往往直接把 `{ apiKey: "sk-...", model: "gpt-4o" }` 传给请求函数。Maka 将其拆分为三个独立概念：
+
+1. **连接（Connection）**：代表“怎么连到某个模型供应商”，包含服务地址（Base URL）、代理设置、鉴权方式（API Key 或 OAuth）以及可用模型白名单。
+2. **执行目标（Execution Target）**：会话配置中指定的逻辑标识（连接 ID 或 Slug + 目标模型名）。
+3. **凭据材料（Credential Material）**：真正发起 HTTP 请求所需的密钥或动态 Token，受 **Runtime Policy（运行时策略库）** 统一管控。
+
+**为什么要把凭据和模型实例分开装配？**
+一方面，凭据属于高敏资产，不应散落在业务层的 `Session` 记录中（`Session` 只存连接 ID，不存明文 Key）；另一方面，企业环境广泛使用 OAuth 鉴权，Token 只有几十分钟有效期，必须在每次发起网络请求时动态获取或刷新，而不能在会话初始化时一次性写死。
+
+---
+
+## 2. 装配链路：Host 如何将配置注入到 Turn？
+
+当一个冷会话准备激活后端时，Host 会通过**依赖注入（Dependency Injection）**将模型能力、工具、系统提示词和存储边界组装进 `AiSdkBackend`。
 
 ```mermaid
-flowchart TB
-    C[客户端配置更新] -->|expectedRevision| S[Session 配置转换]
-    S --> H[Host backend preparation]
-    P[Runtime Policy 与凭据材料] --> H
-    H --> B[backend generation]
-    B --> T[AiSdkTurn]
-    T --> M[ModelAdapter / modelFactory]
-    M --> A[AI SDK provider]
+flowchart LR
+    Config["Session 配置<br/>(connectionId, modelId)"] -->|1. 提交目标| Resolver["resolveExecutionTarget()"]
+    Policy["Runtime Policy 凭据库<br/>(API Key / OAuth / 网络代理)"] -->|2. 提供受控凭据| Resolver
+    Resolver -->|3. 校验权限与白名单| Builder["buildHostAiSdkBackend()"]
+    
+    Builder -->|注入 modelFactory| Adapter["ModelAdapter<br/>(按需实例化模型连接)"]
+    Builder -->|注入解析回调| Callbacks["动态解析器<br/>(System Prompt / Tools / Boundary)"]
+    
+    Adapter --> Backend["AiSdkBackend (BackendGeneration)"]
+    Callbacks --> Backend
 ```
 
-该图表示配置与执行资源的传递。凭据解析见下节；秘密存储的版本控制见[权限与凭据](../03-tools/permissions-and-secrets.md)。
+### 凭据的延迟绑定机制
+- **API Key 模式**：密钥通过受保护的 `modelFactory` 闭包进入底层适配器，不直接暴露给上层客户端或事件日志。
+- **OAuth 模式**：在装配阶段只绑定凭据身份，真正的 `access_token` 是在 `AiSdkTurn` 发出实际 HTTP 请求的瞬间，由请求拦截包装器实时向 `OAuthExecutionAuthority` 申请并注入请求头的。若遇到令牌即将过期，权威层自动完成无感续期。
 
-## 2. 连接与凭据的解析路径
+---
 
-从 Session 配置到一次可用连接，入口在 `createHostAiSdkBackend()` 与 `prepareHostAiSdkBackend()`：两者都先调用 `resolveExecutionTarget()`，再用解析结果构建 backend。[解析入口][resolve-target]、[backend 构建][backend-build]
+## 3. 寿命分级：什么随代次固定，什么按步动态读取？
 
-`resolveExecutionTarget()` 依次完成四项工作：
+在 `AiSdkBackend` 的一次生命周期内，并非所有配置项都以相同的频率更新。Maka 根据**缓存友好性**与**实时一致性**的权衡，对注入的材料做了精细的刷新粒度划分：
 
-1. 把 header 中的连接引用（llmConnectionId 或 Slug）转为 bound 或 catalog_slug 引用。
-2. 经 runtime policy 的 `resolveExecutionConnection()` 读取连接目录，返回 ready（附 secretMaterial 与 networkProxy），或 not_found / identity_mismatch / disabled / provider_retired / credential_not_configured。[连接解析][connection-resolve]
-3. 查询 `PROVIDER_REGISTRY` 定位 provider，`authorizeConnectionModel()` 校验该 model 可用，组装 `RuntimeExecutionConnection`，并生成 sha256 的 provider 状态身份。
-4. 凭据入形：OAuth 连接经 `oauthCredentials.bind()` 得到 oauthBinding；否则从 secretMaterial 取 apiKey；`parseRequestHeaders()` 将 request_headers 型秘密解析为请求头。
+| 注入项 | 更新频率 / 作用域 | 为什么这样设计？ |
+| :--- | :--- | :--- |
+| **模型连接与适配器 (`ModelAdapter`)** | **随 `BackendGeneration` 固定** | 维持底层连接池与配置一致性；更换模型必须触发代次轮换，防止同一步骤中模型突然改变。 |
+| **工具声明清单 (`Tool Declarations`)** | **每次 `Model Step` 开始时取快照** | 允许运行中通过 `tool_search` 激活新工具，但在同一轮次内保持工具声明稳定，最大化命中厂商的 Prompt Cache。 |
+| **系统提示词 (`System Prompt`)** | **每次 `Model Step` 准备时动态解析** | 允许动态注入最新的工作区状态、日期或环境提示，同时兼顾缓存前缀稳定。 |
+| **会话安全边界 (`ExecutionBoundary`)** | **每次工具执行时实时读取** | 若用户在运行途中收紧了目录访问权限，工具执行层能立刻生效拦截，无需重启整个模型后端。 |
 
-模型连接凭据存放在 credential vault（`credential-vault.json`）。Locator 区分五类材料：connection 的 api_key / oauth_token / request_headers，web_search 的 api_key，network_proxy 的 password；装配入口是 `prepareConnectionMaterial()`。[vault 文档][vault-document]、[vault 编码][vault-codec]、[材料装配][material-assembly]
+---
 
-注入方式按材料类型区分：
+## 4. 模型切换：乐观锁与平滑代次交接
 
-- api_key 与 request_headers 在 `modelFactory` 包装 `getAIModel()` 时注入 fetch 与请求头，随 backend generation 存续。
-- OAuth 在 backend 构建时经 `binding.resolve()` 取初始 token；此后每次 fetch 前重新 resolve 获取新 token，由 `authenticatedOAuthFetch()` 写入 `Authorization: Bearer`，刷新经 CAS 写回 vault。[OAuth 执行绑定][oauth-authority]
+设想用户正在使用模型 X 讨论架构，接着决定在同一个会话里切换到模型 Y 继续提问。如果此时另一个桌面端窗口也同时在修改配置，或者后台还有未完成的任务，直接覆盖配置就会引发灾难。
 
-解析粒度：主执行 backend 在创建时解析一次；标题、recap、记忆抽取等辅助调用每次重新 `resolveExecutionTarget()`。
-
-失败分支：连接不 ready 抛 `AuxiliaryModelCallConfigurationError`；vault 无条目且要求秘密时返回 credential_not_configured；OAuth 刷新失败为 refresh_failed，CAS 失败为 credential_superseded；vault 文档损坏按 invalid_document 拒绝，不会静默重建。
-
-## 3. 模型、压缩、工具与权限的注入位置
-
-配置的来源在 Host，使用的时点在 runtime。二者之间通常传递接口或回调，而非在调用后立即获得最终答案。
-
-| 注入内容 | Host 组装位置 | 逐次使用位置或边界 |
-| --- | --- | --- |
-| model、connection、凭据、providerOptions | `prepareHostAiSdkBackend()` / `buildHostAiSdkBackend()` | 当前 backend generation 的 ModelAdapter 解析模型与请求 |
-| `modelFactory` | 包装 `getAIModel`，注入 fetch、headers，必要时绑定 OAuth | ModelAdapter 请求模型实例，Turn 发起单步流 |
-| 历史压缩函数与预算 | Host 构造 summarizer、contextBudget，选择压缩路线 | backend 压缩服务与 Turn 请求准备；不是 UI 删除几条消息 |
-| checkpoint / 当前 Turn reader | backend preparation context 的 load/record 回调 | 读取已提交上下文，工具后续 step 也使用 reader |
-| `tools` / `resolveTools` | run composer 汇聚内置与插件贡献 | backend 提供快照，Turn 每 step 固定本次集合 |
-| `systemPrompt` | Host 的异步 prompt resolver，追加运行环境 context | Turn 每 step 解析；可记录 source revisions 与组成哈希 |
-| `readExecutionBoundary` / `readPermissionMode` | 读取 store 的函数，不只是旧 header 值 | ToolRuntime 在相关执行边界读取，具体工具再应用限制 |
-| `beforeTurnFinish` | Host 业务约束与插件贡献 | Turn 候选结束时检查，可返回反馈促使继续 |
-| `runtimeCommitSink` | 同一个 `stores.runtimeEventStore` | ToolRuntime 的 T1/T2；非 UI 回调代写 |
-| 模型计量及组成记录 | recorder hooks 与 Host accounting 回调 | 请求/attempt 边界记录；不能从屏幕 token 数反推唯一事实 |
-
-主要证据集中在 [buildHostAiSdkBackend][backend-build] 与 [Host backend 注册与注入][host-backend]。
-动态回调并不表示所有配置都能在运行中的 step 任意改变：工具集合按 step 快照化，模型连接则与 backend generation 绑定。
-插件扩展通过 Host 的工具、prompt、结束 hook 等入口进入组合，无需将插件实现纳入 `ModelAdapter`。
-本文仅证明这些扩展入口已接线，不声称任意插件源文件修改都会自动热重载。
-
-模型切换也应从配置路径理解：
-
-1. CLI `setModel()` 调用配置更新，发送 `session.configuration.update`，携带 `expectedRevision`，并非直接修改客户端持有的模型对象。
-2. Runtime 的 `transitionSessionConfiguration()` 验证配置版本并选择转换路径；模型等执行配置变化进入 execution-resource transition。
-3. 该路径要求相关 Session 静止，检查活动 runs，先处置旧 backend，再提交配置；忙碌或版本冲突可能导致更新被拒绝。
-4. 后续执行通过 Kernel 的 backend 激活路径使用新配置。仅 permission 的边界转换、Host 的 idle-backend invalidation 各有相应分支。
-
-定位：[CLI.setModel][driver-model]、[配置转换][manager-config]、[执行资源转换][manager-transition]。
-这与“工具在执行边界读取最新权限”并不矛盾：读取一个允许变化的边界状态，与在进行中的模型请求内替换整套 provider 配置，是不同的动作。
-
-## 4. 一次模型更换的完整含义
-
-设 Session 当前使用配置 revision 8，客户端读取该值后希望切换模型。
-
-1. 客户端提交目标模型与 expectedRevision 8。
-2. Host 检查这是否仍是当前配置；其他客户端已经更新时，旧版本不能覆盖新版本。
-3. 执行资源转换检查活动执行。进行中的请求不能通过替换配置对象变为另一个 provider 的请求。
-4. 允许转换后，旧 backend 被处置，配置提交。后续输入在激活路径中取得新一代 backend。
+Maka 采用 **空闲检查 + 版本乐观锁（`expectedRevision`） + 先放后建** 的标准流程：
 
 ```mermaid
 sequenceDiagram
-    participant C as 客户端
-    participant S as SessionManager
-    participant K as Kernel / backend
-    C->>S: configuration.update，expectedRevision
-    S->>S: 检查版本与转换类别
-    S->>K: 检查活动 runs 与旧资源
-    alt Session 可转换
-        K-->>S: 旧资源处置完成
-        S->>S: 提交新配置
-        S-->>C: 新 revision
-    else 忙碌或版本不符
-        S-->>C: 拒绝本次转换
+    autonumber
+    participant CLI as 客户端 (CLI/UI)
+    participant SM as SessionManager
+    participant Kernel as RuntimeKernel
+    participant Store as Storage (配置存储)
+
+    CLI->>SM: setModel(modelY, expectedRevision: 5)
+    SM->>SM: 1. 检查会话是否空闲 (非空闲直接拒绝切换)
+    SM->>Store: 2. 校验当前配置版本号 == 5 (乐观锁防并发覆盖)
+    SM->>Kernel: 3. 释放模型 X 所在的旧代次 (Generation #1)
+    Kernel->>Kernel: 调用旧后端 dispose()
+    
+    alt 旧后端释放失败
+        Kernel-->>SM: 报错中止，保留旧配置
+        SM-->>CLI: 返回切换失败，确保状态不撕裂
+    else 旧后端安全释放
+        SM->>Store: 4. 原子提交新配置 (modelY, revision = 6)
+        SM-->>CLI: 切换成功 (注意：此时暂不创建新后端)
     end
+    
+    Note over CLI,Kernel: 直到下一次用户发送消息时，Kernel 才按 revision 6 懒加载构建 Generation #2
 ```
 
-此处展示模型等执行资源变化的路径。权限边界变化另有分支，不应将所有配置更新概括为完全相同的销毁重建流程。对象所有权与失效条件详见[生命周期](session-lifecycle.md)。
+### 为什么不在切换配置时立刻构建模型 Y 的后端？
+因为用户可能在菜单里连续点选切换三次模型，最后才发一条消息。采用**懒加载（Lazy Initialization）**策略：切换配置时只负责“清理旧代次”和“持久化新配置”；只有当下一条用户消息真正到达时，`RuntimeKernel.ensureActiveBackend()` 才会依据最新配置构建新的后端实例，避免无谓的初始化开销。
 
-## 5. 配置值的读取时机
+---
 
-模型连接与 backend generation 绑定；工具列表按 step 快照化；system prompt 可由异步 resolver 在 step 准备时产生；工具执行读取可信的当前边界。它们的读取时机由各自契约规定，不能将“使用了回调”理解为所有字段随时热更新。
+## 5. 教学伪代码：配置解析与版本乐观锁切换
 
-例如工具获得新的执行边界，不代表已发出的模型 HTTP 请求更换了 API key。一个字段的更新粒度不能推导另一字段的生命周期。
+```text
+// === 配置装配与延迟凭据注入 ===
+function buildBackendForGeneration(sessionConfig):
+    // 1. 解析连接与目标校验
+    target = runtimePolicy.resolveExecutionTarget(sessionConfig.connectionId, sessionConfig.modelId)
+    if not target.isAllowedModel(sessionConfig.modelId):
+        throw new PolicyViolationError("Model not permitted on this connection")
 
-## 6. 与 Pi 对照
+    // 2. 构建延迟凭据获取工厂 (支持 OAuth 自动刷新)
+    modelFactory = () => {
+        credentials = runtimePolicy.acquireLiveCredentials(target.connectionId)
+        return createProviderClient(target.providerType, credentials, target.proxySettings)
+    }
 
-Pi 的 createAgentSession 同样组装模型运行时、Agent 与会话策略，开发者无需手写整个循环。Maka 的标准路径进一步将配置转换置于 Host 服务边界，通过版本与运行资源状态协调多个客户端。比较应落实到具体入口，而非以 SDK 是否可调用作为区别。
+    // 3. 注入动态解析器，返回标准化的 Backend 实例
+    return new AiSdkBackend({
+        modelFactory,
+        resolveSystemPrompt: () => promptBuilder.build(sessionConfig.workspace),
+        resolveTools: () => toolRegistry.getActiveSnapshot(sessionConfig.sessionId),
+        readBoundary: () => boundaryStore.getCurrent(sessionConfig.sessionId)
+    })
 
-- [Pi SDK](https://github.com/earendil-works/pi/blob/482c1381a00d8d00bc81697e4a980c593db6803e/packages/coding-agent/src/core/sdk.ts#L411)：考察模型运行时与 streamFn 的注入方式。
-- [模型循环](model-step.md)：考察配置就绪后一次真实请求如何推进。
-- [请求计量](../06-operations/observability.md)：考察实际 provider 尝试如何留下用量证据。
+// === 安全切换模型配置 (乐观锁 + 资源释放) ===
+function transitionModelConfiguration(sessionId, newConfig, expectedRevision):
+    // 1. 确保当前没有正在运行的 Turn
+    if runtimeKernel.hasActiveRuns(sessionId):
+        throw new SessionBusyError("Cannot switch model while a turn is running")
 
-## 相关专题
+    // 2. 乐观锁比对，防止多端同时修改导致配置丢失
+    currentRecord = sessionStore.load(sessionId)
+    if currentRecord.revision != expectedRevision:
+        throw new ConflictError("Session config was modified by another client")
 
-- [会话与执行对象的生命周期](session-lifecycle.md)：backend generation 的所有权与失效条件。
-- [分层授权与凭据生命周期](../03-tools/permissions-and-secrets.md)：凭据库、访问凭据与 Managed Secret 的边界。
-- [完整调用链](request-to-response.md)：注入完成的配置在一次真实请求中何时被消费。
+    // 3. 必须先彻底释放旧代次资源，才能更新数据库配置
+    await runtimeKernel.disposeGeneration(sessionId)
 
-[resolve-target]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime-host/src/server/execution-model-authority.ts#L1089
-[connection-resolve]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/storage/src/runtime-policy/coordinator.ts#L826
-[vault-document]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/storage/src/runtime-policy/credential-vault-document.ts#L49
-[vault-codec]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/core/src/runtime-policy/credential-vault-codec.ts#L42
-[material-assembly]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/storage/src/runtime-policy/coordinator.ts#L1698
-[oauth-authority]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime-host/src/server/oauth-execution-authority.ts#L347
-[backend-build]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime-host/src/server/execution-model-composition.ts#L140
-[host-backend]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime-host/src/server/execution-composition.ts#L1356
-[driver-model]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/cli/src/runtime-host-session-driver.ts#L777
-[manager-config]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/session-manager.ts#L1205
-[manager-transition]: https://github.com/apache/maka/blob/15d0a0dd19d39e2bc09ae35940e432c636982315/packages/runtime/src/session-manager.ts#L1888
+    // 4. 提交新配置并递增版本号
+    sessionStore.updateConfig(sessionId, newConfig, nextRevision: expectedRevision + 1)
+```
+
+---
+
+## 6. 延伸阅读
+
+- 了解模型切换时 `RuntimeKernel` 如何隔离老旧代次下的残留请求，阅读 [01.2 会话与执行对象的生命周期](session-lifecycle.md)。
+- 了解凭据材料在工具执行层是如何受控注入（如注入给 CLI 执行脚本而防止泄漏到日志），阅读 [03.4 分层授权与凭据生命周期](../03-tools/permissions-and-secrets.md)。
