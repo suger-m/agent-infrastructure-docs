@@ -1,148 +1,76 @@
-# 应用集成与执行场景对比
+# 从桌面应用嵌入边界拆解产品化代价：全双工投影、UI 订阅与进程集成范式
 
-[返回手册目录](../README.md)
+## 1. 为什么在讨论 Agent 运行时优劣前，必须先问“这个架构最终套在什么产品外壳上”？
 
-假设你的工程团队正在开发一款开发工具产品（可能是桌面 IDE、命令行工具或团队协作 Web 工作台），现在需要在界面上添加一个智能动作按钮：**“读取 `config.json` 并解释超时设置”**。
+许多技术博客喜欢脱离最终运行形态空谈“A 框架比 B 框架架构更高级”。但在真实基础设施工程里，决定系统究竟长成什么模样的最大推手，往往不是底层大模型的调用算法，而是**产品的集成拓扑模型**：
+- 如果产品的 UI 仅仅是一个用户自己站在本地终端前敲入指令的独立进程窗口（甚至是一个直接由后端脚本拉起的内部流水线），强行塞进一整套含 OS 写锁、跨端协议帧封装和 `HostEpoch` 追帧机的分布式宿主架构，纯属灾难性的过度设计；
+- 反过来，如果产品要做成常驻系统后台运行、允许 Electron 桌面窗口与终端 CLI **同时连接并实时盯着同一个忙碌工作区直播画面的协同工具箱**，单进程的直接内存回调模式哪怕写得再漂亮，多窗口接入那一秒就会因为锁冲突和事件丢失原形毕露。
 
-虽然 Maka 和 Pi 都能完美完成模型请求、工具调用与历史流式输出，但它们面向宿主应用暴露了**三种截然不同的集成界面（Integration Surface）**与进程部署拓扑：
-1. **Maka 托管协议接入（Runtime Host Client-Server + Plugin Composition）**
-2. **Pi 进程内 SDK 嵌入（`createAgentSession()` In-Process Library）**
-3. **Pi Durable 任务调度接入（`Harness.open()` Persistent Scheduler）**
-
-本章对比这三种真实接入范式在初始化装配、事件消费、热更新扩展以及崩溃生命周期上的本质差异，帮助架构师做出精准的技术选型。
+本章用最具体的一个前端动作——**“用户在桌面界面里点击修改某条设置，或点击发送启动一次复杂工具推理”**——横切解剖 Maka（独立受管 Host CS 范式）与 Pi（进程内嵌 SDK 范式）在应用集成边界上的全貌代价。
 
 ---
 
-## 1. 概念先行：三种应用集成拓扑全景
+## 2. 三种真实应用集成拓扑全景
 
 ```mermaid
 flowchart TB
-    subgraph MakaArch["范式 A：Maka 托管服务与组合架构 (Client-Server + Plugins)"]
-        AppM["产品外壳 (Desktop / TUI / CLI / Bot / Eval)"] -->|"RPC 指令 + open→ready 游标订阅"| HostM["Runtime Host 独立进程<br/>(RootOwner 独占锁 / Admission / PluginKernel)"]
-        HostM --> KernelM["SessionManager → RuntimeKernel → AiSdkTurn / PluginExecutorBackend"]
+    subgraph Topology1["范式 A: 纯内嵌单进程直连 (典型嵌入式 Agent CLI / 定制后端脚本)"]
+        UI1["本地 TUI / 单体业务进程"] -->|"直接创建实例并内存直调"| RT1["Pi AgentSessionRuntime<br/>(同一事件循环共享内存状态与 AbortSignal)"]
     end
 
-    subgraph PiSdkArch["范式 B：Pi 进程内 SDK 嵌入 (In-Process Library)"]
-        AppP["应用主进程 (Node.js / CLI)"] -->|"createAgentSession() 直接装配"| SessionP["AgentSession (管理会话树与压缩)"]
-        SessionP --> AgentP["Agent (内存 runLoop + streamFn + 内存监听器)"]
+    subgraph Topology2["范式 B: 受控本地守护 Host CS 范式 (Maka TypeScript 架构版)"]
+        UI2a["Electron 桌面端 (apps/desktop)"] -->|"open -> ready 增量推流 + RPC"| Host2["单一 Runtime Host 守护进程<br/>(OS 排他锁 + RootTurnCoordinator)"]
+        UI2b["本地 Terminal CLI / 容器 Eval"] -->|"相同认证协议多端同接"| Host2
+        Host2 -->|"托管进程树与插件 Fiber"| Core2["RuntimeKernel & Native Tools"]
     end
 
-    subgraph PiDurArch["范式 C：Pi Durable 持久任务接入 (Task Scheduler)"]
-        AppD["宿主服务进程"] -->|"Harness.open(storage, options)"| HarnessD["Durable Harness<br/>(TaskScheduler + Submissions + Checkpoint)"]
-        HarnessD -->|"调度 ToolTask / Chord 同步"| StorageD["SQLite / MemoryStorage"]
+    subgraph Topology3["范式 C: 跨主机直连混合网关 (Maka Peer Mesh 演进态)"]
+        Mobile["移动端 / 异地遥控端"] -->|"native/runtime-host-peer 可恢复字节流"| Host2
     end
 ```
 
 ---
 
-## 2. 范式对比：从按钮点击到界面渲染
+## 3. 从前端按钮到后台响应：代码集成边界直面对比
 
-### 2.1 接入 Maka：面向多端协作的 Host 客户端模式
-在 Maka 中，产品界面（如 Electron 渲染层、CLI 驱动或外部 `@maka/eval` 测试器）并不在自己进程内直接跑模型循环，而是作为受认证的客户端连接 Runtime Host：
-1. **装配在 Host 侧集中完成**：Host 启动时调用 `createExecutionRuntimeHostComposition()` 打开会话存储、操作账本和事件库，绑定 `BackendRegistry`（包括内置的 `AiSdkBackend` 以及通过 `PluginExecutorBackend` 挂载的第三方 ACP 插件）并恢复历史模块，客户端完全无需操心底层数据库连接与凭据读取。
-2. **先开订阅、再发指令**：客户端（如 CLI 的 `preparePrompt()`）先针对目标会话开启连续性订阅（`open → ready`），获取当前快照与 `(hostEpoch, seq)` 位点，然后再发送 `turn.start`。
-3. **跨端天然同屏**：Host 随后在后台异步抽水推动 `SessionManager → RuntimeKernel → AiSdkTurn` 完成模型两步读取和解释。在此期间，哪怕用户在旁边同时打开桌面端和终端，两者都会通过各自独立的订阅游标实时收到一致的 `session_delta` 与 `session_event`。
-4. **插件组合扩展**：第三方团队可以通过 `MakaCompositionLoader` 向全局 `profile`、界面 `desktopUi` 或单会话 `session:<id>` 注入隔离在 Fiber 生命周期内的插件包，并支持带原子回滚的热更新。
+把下面这段极具代表性的“启动按钮并发起实时增量上屏”的伪代码并排对比，两代设计的心智与接口分工立刻纤毫毕现：
 
-### 2.2 接入 Pi `coding-agent`：极简进程内 SDK 嵌入
-Pi 默认的 `coding-agent` 遵循了经典库（Library）嵌入哲学，把一切核心抽象收拢在同一个 JS/TS 进程内：
-1. **一步装配会话**：应用调用 `createAgentSession()`，在进程内直接读取 `SessionManager` 历史与资源（`AGENTS.md` / 扩展），构造出单一 `Agent` 实例并注入模型传输函数 `streamFn` 与工具集。
-2. **内存事件订阅与触发**：应用调用 `session.subscribe()` 注册内存回调监听低层事件（如 `text_delta`、`tool_execution_start`、`turn_end` 等），随后直接 `await session.prompt("读取 config.json 并解释")` 驱动 `Agent.runLoop()`。
-3. **自由且透明**：一次工具读取批次与最终生成回答分别对应低层连续的 `turn_end` 事件。没有任何跨进程 RPC 序列化与文件锁开销，启动速度达到毫秒级，扩展（Extension）也能直接在内存里以钩子方式干预每一步。
-
-### 2.3 接入 Pi `durable`：面向强恢复与远端观察的 Harness 模式
-当开发者既喜欢 Pi 的简洁抽象，又需要“进程重启后未竟工具任务不丢失”的持久化保障时，可以切换到 Pi 的实验性 `durable` 模块：
-1. **打开调度内核**：应用构造存储（如 SQLite）与注册表后，调用 `Harness.open(storage, options, context)` 启动 `HarnessImpl`，内部在构造期即挂载 `TaskScheduler`、`Submissions` 与 `TaskGraphView`，并在打开时通过 `openTasks()` 将上次意外中断时处于 `running` 状态的任务统一收拢重整为 `pending`，等待 `resume()` 恢复推进。
-2. **显式任务策略（`ToolTask`）**：工具不再只是裸函数，而是结合了持久化参数和重放策略（如 `replay: "safe"` 或多阶段 checkpoint）的 `ToolTask`；如果需要跨进程/远端界面观察进度，Pi 生态配套的 `Chord` 组件提供快照与增量状态同步。
+| 集成生命周期阶段 | Pi 式嵌入式集成边界（`AgentSession` / SDK 调用方视角） | Maka 式 Host 协议边界（`Desktop / CLI Client` 视角） |
+| :--- | :--- | :--- |
+| **1. 启动与装配入口** | 业务脚本在当前进程通过 `CreateAgentSessionRuntimeFactory` 针对 `cwd` 直接建造服务对象并加载 `ResourceLoader` | 宿主机独立完成六阶段有序激活；Electron 渲染进程严格遭 `check:renderer-architecture` 禁止引入任何后端存储逻辑，只向 Host 建链 |
+| **2. 订阅建立与历史水合** | 直接同步读取 `SessionManager` 构建树状历史渲染 UI，监听本地 `EventStream` 事件发射回调 | 先发起 `subscription.open` 取回受字节限制的 `CanonicalSessionProjection` 与高水位游标，合入状态后再发 `subscription.ready` 开闸接增量帧 |
+| **3. 发信执行与并发保障** | 直接调用 `session.prompt(text)` 或注入内部消息队列，依靠本地调用栈返回控制权 | 预生成幂等 `turnId` 并挂接局部消息队列 -> 调用 `turn.start` 立刻拿回确认快照 -> 由后台 `drainTurn` 按 `(hostEpoch, sequence)` 异步喂流 |
+| **4. 断连重启与页面刷新** | 页面崩溃或本地进程重启等同于当前进行中的轮次随风消散；新进程读取硬盘既有完整闭合 JSONL 节点接着聊天 | **桌面 UI 窗口哪怕彻底关掉重启或者刷新页面**：后端 Run 纹丝不动继续执行；新版窗口重连后通过游标对比与 `assistantBacklog` 无缝追平正在吐字的流！ |
+| **5. 第三方能力安全边界** | 基于明确的 `projectTrustContext` 信任检查放行，内部扩展示例和 Hook 拥有对 `AgentSession` 的直观编排访问权 | 插件纳入带副作用树回收的 `Fiber` 组合平台；而浏览器/前端如需代宿主干活必须跨过受限反向经纪人 `accepted → admitted` 授权门禁 |
 
 ---
 
-## 3. 教学伪代码：同一个按钮的三种集成代码形态
+## 4. 架构选型决策清单：什么样的团队该站在哪一边？
 
-以下代码直观对比了在宿主应用代码中集成“点击按钮，读 `config.json` 并解释”时的开发心智与控制流差异：
+读完跨越两套系统 30 多个章节的源码级剖析后，当你需要为自己所在的研发团队拍板下一代 AI 平台底座时，这份冷静的工程检查单比任何口号都管用：
 
-```text
-// === 形态 A：接入 Maka Runtime Host (托管协议 + 断线无损追帧) ===
-async function handleButtonClick_Maka(hostClient, sessionId):
-    // 1. 先打开带 epoch/seq 校验的订阅流，拿到基准快照
-    sub = await hostClient.openContinuitySubscription(sessionId)
-    ui.hydrateFromSnapshot(sub.snapshot)
+### 什么时候应当坚决选择 **Pi 式嵌入式单进程微循环**？
+- 你的核心交互场景是**单人单窗口的交互式 CLI 终端、无状态的单次自动化 CI 脚本工作流、或者高度垂直封闭的内部后端微服务 Worker**；
+- 团队人数精悍，不想维护独立的 `Runtime Host` 生命周期、OS 排他文件锁、复杂的跨进程序列化验证（`isDeepStrictEqual`）与多层异步队列租赁机；
+- 你最看重的是**极致的上下文扩展定制敏捷度**（直接写几个 Hook、切一条分支摘要、配一个轻量子进程工具半天上线跑通），而完全可以通过外围容器生命周期或者简单整轮重放来处理极低频的机器崩盘。
 
-    // 2. 提交执行命令，Host 准入落盘后立即返回 runId；此时哪怕关闭 UI 后台依然会跑完
-    ack = await hostClient.dispatch("turn.start", {
-        sessionId,
-        turnId: generateUUID(),
-        input: "读取 config.json 并解释超时设置"
-    })
+### 什么时候必须毫不犹豫采用 **Maka 式 Event-Sourced Host 架构**？
+- 你的目标产品是**Electron 桌面生产力客户端与 CLI 终端共存、或者带有常驻后台自动化巡检 / 多端协同 / 移动端遥控（Peer Mesh）的多入口系统**；
+- 你的助手拥有**直接大刀阔斧修改本地工作区仓库代码、操作浏览器桌面乃至调用外部计费系统的强破坏性工具权限**，哪怕千分之一的概率断电重跑都不允许出现“在黑暗中盲目执行两次写操作”或“损坏用户工程 Git 现场”；
+- 你必须交付**企业级安全可审计防线与不可注水的评测基准体系**：要做到 API Key 从不入环境变量、MCP 工具绝不暗渡陈仓改参数、而且有本事防住容器内被测 AI 试图伪造计数检查点。
 
-    // 3. 持续渲染跨进程推来的流式增量，发现断帧自动通过快照自愈
-    for await frame in sub.frames():
-        if frame.type == "session_delta":
-            ui.appendStreamText(frame.delta)
-        else if frame.type == "session_event" and frame.event.type == "complete":
-            ui.markIdle()
-            break
-
-// === 形态 B：接入 Pi coding-agent SDK (进程内直接调用) ===
-async function handleButtonClick_PiSdk(workspaceDir, modelConfig):
-    // 1. 直接在应用内存里组装 AgentSession、历史与流式函数
-    session = await createAgentSession({
-        cwd: workspaceDir,
-        model: modelConfig,
-        tools: builtinTools
-    })
-
-    // 2. 注册内存监听器渲染实时流
-    unsubscribe = session.subscribe((event) => {
-        if event.type == "message_update":
-            ui.renderDelta(event.delta)
-        else if event.type == "agent_end":
-            ui.markIdle()
-    })
-
-    // 3. 启动内存循环 (进程若在此时退出，内存中未落盘的循环即刻终止)
-    try:
-        await session.prompt("读取 config.json 并解释超时设置")
-    finally:
-        unsubscribe()
-
-// === 形态 C：接入 Pi Durable Harness (持久化任务调度) ===
-async function handleButtonClick_PiDurable(sqliteStorage, models, registry, ctx):
-    // 1. 打开 Harness 并把遗留运行任务重整为可调度态，随后唤醒调度器
-    harness = await Harness.open(sqliteStorage, { models, registry }, ctx)
-    await harness.openTasks(ctx)
-    harness.resume()
-
-    // 2. 获取或创建持久会话句柄，提交带幂等 requestId 的输入
-    conv = await harness.root(ctx, { agent: { model: modelConfig } })
-    submission = await conv.submit({
-        type: "input",
-        content: "读取 config.json 并解释超时设置",
-        requestId: "btn_explain_config_01"
-    }, ctx)
-
-    // 3. 通过 watchEvents 订阅并等待该提交的持久结果结算
-    settled = await submission.wait(ctx)
-    ui.renderFinalAnswer(settled)
-```
+### 以及，什么时候该直接对标最新的 **Maka Rust 微内核架构**？
+- 如果上述 Host 高可靠性诉求完全成立，但你同时希望彻底卸载掉常驻高内存 Node/V8 宿主包袱、要在 Windows 主力工作站实现零 UAC 弹窗的原生沙箱隔离（**Windows MXC**）、追求用纯函数 `Reconciler + Obligation Frontier` 把跨重启状态竞态在编译期彻底关死，并且希望桌面端与终端共用一套 **NSH UI**——请移步参考配套出版的姐妹手册 **[Maka Agent 基础设施教程（Rust 微内核版）](../../maka-rust-agent-infra/README.md)** 与两代系统演进全景对照 **[从 TypeScript 混合体到 Rust 微内核](../../maka-rust-agent-infra/06-operations/rust-vs-ts-evolution.md)**。
 
 ---
 
-## 4. 产品选型决策矩阵
+## 5. 全书结语
 
-| 架构决策维度 | 选择 Maka 托管架构 | 选择 Pi `coding-agent` SDK | 选择 Pi `durable` Harness |
-| :--- | :--- | :--- | :--- |
-| **产品核心定位** | 多端协同工作台（Desktop + TUI + Bot + Web 共享同一 State Root）、企业级沙箱与严格审计平台 | 本地单机开发者 CLI、编辑器嵌入式助手、轻量脚本与快速原型实验 | 需要将任务级检查点恢复能力嵌入自定义服务端或长周期调度引擎 |
-| **进程与部署复杂度** | 较高（需管理 Runtime Host 生命周期、OS 文件锁、Socket/IPC 通道与独立 Worker 子进程） | **极低**（单一进程零 IPC 依赖，随主程序开箱即用） | 中等（无独立 Host 进程守护协议，但需注入 SQLite 存储与调度器生命周期管理） |
-| **多客户端与断连韧性** | **原生支持**（客户端闪退或换设备连接不影响后台任务，凭 `(hostEpoch, seq)` 无损追帧） | 不原生支持（循环强绑定于当前运行进程生命周期） | 结合 `Chord` 远程同步后支持断线观察与重连恢复 |
-| **安全与隔离深度** | **工业级纵深防御**（独立 File Worker + T0/T1 CAS + AES 临时注入密钥 + Origin 三元组审批） | 轻量级（项目信任开关 + `AuthStorage` + 扩展钩子拦截） | 由上层宿主通过 `HarnessOptions.env` 按需构建自定义隔离边界 |
-| **扩展热更新** | 支持 Fiber 级隔离组合树与事务回滚热重载 | 启动时静态加载扩展模块，重启生效 | 通过 `createRegistry()` 注册可序列化与可重放的 `Extension` / `ToolTask` |
+设计 Agent 基础设施的过程，本质上是在大模型充满随机创造力的非确定性输出外围，一点一滴筑起确定性的工程护栏：
+- 让**身份与事件不可逆**，从而把脆弱的易逝进程内存转化为可重放历史账本；
+- 让**工具切点与权限收窄清晰显形**，从而把“可能出事”的灰色地带压缩到最少且诚实可判的 `outcome_unknown`；
+- 让**宿主所有权与客户端界面边界干净切割**，使高并发协同、安全沙箱与端侧交互各司其职而不互噬稳定性。
 
----
+无论你最终采用哪一门语言、哪一种封装体，真正支撑起下一代智能应用稳健长跑的，永远是这些藏在表层 Prompt 与花哨界面背后的静默金属结构。
 
-## 5. 延伸阅读
-
-- 回顾 Maka 的四层系统全貌与 Host Composition 启动机制，阅读 [00.1 整体架构](../00-foundations/architecture.md)。
-- 深入对比 Maka 与 Pi 在四大核心机制上的宏观设计取舍，阅读 [07.1 Agent 内核架构对比](overview.md)。
-- 深入对比两套系统在长期记忆防幻觉与文件约定上的差异，阅读 [07.2 记忆存储与提取对比](memory-design.md)。
-- 深入对比两套系统在子智能体并发隔离与调度上的演进，阅读 [07.3 子智能体与隔离对比](subagent-design.md)。
+*全书完。返回 [TypeScript 架构版总目录与学习路线](../README.md)。*

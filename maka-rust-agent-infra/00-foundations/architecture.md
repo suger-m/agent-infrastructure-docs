@@ -1,14 +1,12 @@
 # 三层微内核架构与插件组合引擎
 
-[返回手册目录](../README.md)
-
 当一个 Agent 基础设施需要同时作为纯终端 CLI、原生图形桌面应用（macOS AppKit / Windows Direct2D / Linux GTK）、编辑器 ACP 服务端以及多插件可扩展平台交付时，旧有的“Electron + Node.js 单体进程”会暴露出三重硬伤：**界面代码被迫写两套、插件与核心运行时相互紧耦合、以及跨进程启动慢且内存占用高**。
 
 Maka Rust 版通过彻底的微内核重构给出了全新的答案：**`Platform`（微内核底座）+ `Plugins`（业务插件域）+ `Products`（产品组装与一码双端工作台）**。本章解析这三层体系如何通过内容寻址插件包、声明式组合规划器、State Root 单写者队列以及 NSH 一码双端渲染引擎协同工作。
 
 ---
 
-## 1. 概念先行：为什么划分 Platform、Plugins 与 Products？
+## 1. 为什么必须物理划分 `Platform`、`Plugins` 与 `Products`？
 
 在传统应用中，开发者往往把“数据库读写”“模型请求循环”“沙箱逻辑”和“桌面界面控制”放在同一个庞大的运行时工程里。一旦想要新增一个沙箱驱动，或者让用户在不重新编译主程序的前提下安装一个新工具插件，整个架构就会牵一发而动全身。
 
@@ -86,7 +84,9 @@ Maka Rust 版引入了统一渲染内核 **NSH（`third-party/nsh`）**，彻底
 
 ---
 
-## 4. 教学伪代码：不可变包校验与部署调谐状态机
+## 4. 不可变包校验与优雅热重载调谐状态机
+
+下面的伪代码收拢了 `maka-packages` 在安装期的零信任归档校验，以及 `maka-host-runtime` 在运行时变更组合图时的零停机平滑排空协议：
 
 ```text
 // === 1. 不可变插件包校验与摘要固定 (maka-packages) ===
@@ -129,8 +129,8 @@ async function reconcileDeployment(liveInstances, targetDeployment):
 
 ---
 
-## 5. 延伸阅读
+## 5. 总结
 
-- 深入理解 60+ Rust Crate 在 `Cargo.toml` 中的依赖边界及 `maka-schema` 如何零 V8 编译生成 TS SDK，阅读 [00.2 Cargo Workspace 与单向依赖](repository-map.md)。
-- 深入理解 Agent 领域内部的四层单向 Crate 设计及稳定 `RunId` 不变量，阅读 [00.3 领域事实与状态折叠](domain-model.md)。
-- 了解 `maka-event-log` 如何用一把排他锁和单写者 FIFO 支撑整个组合与持久化系统，阅读 [04.1 `maka-event-log` 与两阶段账本](../04-state/event-log-and-two-phase-ops.md)。
+Maka Rust 版的三层微内核架构确立了清晰的物理与组合边界：**`Platform`** 做极简零 V8 微内核支持、`Plugins` 做严格内容寻址的可热插拔领域包、`Products` 用一套 NSH TSX 源码同时驱动桌面原生窗口与高性能终端。
+
+接下来我们将进一步下钻进仓库的编译期物理边界：60 多个 Cargo Crate 如何在保证底层零循环、零 V8 污染的同时，还能凭借 `maka-schema` 实现向 TypeScript 工作台及第三方插件 SDK 的单一真相契约导出？请看下一篇：[Cargo Workspace 依赖拓扑与 Schema 代码生成](repository-map.md)。

@@ -1,243 +1,77 @@
-# 设计模式与架构权衡：工业级 Agent 内核的十大工程取舍
+# 架构取舍与演进边界：混合 TypeScript Runtime 的代价平衡清单
 
-[返回手册目录](../README.md)
+## 1. 为什么任何严肃的 Agent 基础设施本质上都是一张代价交换表？
 
-软件架构的本质是在相互冲突的工程约束之间做清醒的取舍。对于单人、单进程、纯内存运行的脚本型 Agent，开发速度与极简依赖是第一优先级；而对于需要支撑多客户端实时协同、工具沙箱隔离、热切换模型配置、崩溃后不重复外部副作用以及平滑升级的工业级基础设施，每一行看起来“克制甚至严苛”的接口契约背后，都在精准拦截一类真实的生产故障。
+搭建原型级的智能体工具往往只问“能跑起来就行”，而生产级的混合 TypeScript 运行时却时刻在互相打架的目标之间做取舍：
+- 想让多客户端随时断开重连还能共享进展，就必须在宿主机上维持强硬的写排他控制权，而不能随处实例化轻便的进程内 Loop；
+- 想在 `AiSdkTurn` 运行中途响应随时插入的用户纠偏（Steering），又不敢在长达数分钟的推理期间长期死锁整个会话对象，锁粒度应该切多碎才不会破坏队列序与消息交付原子性？
+- 想保证本地工具与端侧代理跨重启不重跑高危写入，却又深知外部网络世界根本做不到端到端分布式事务（Exactly-Once），该如何设置退化防线？
 
-本章系统总结支撑 Maka 稳定运行的**十大核心架构权衡**。对每一项决策，我们都将直白地回答三个问题：**不这样做会出什么并发或一致性故障？Maka 选择了什么机制？我们为此付出了怎样的工程代价？**
-
----
-
-## 1. 单一 State Root 写入权威 vs 多端直连数据库
-
-- **痛点与故障推演**：当 Desktop、TUI、Bot 和评测脚本同时操作同一个工作区时，即便 SQLite 开启 WAL 模式，多进程直连依然会导致内存态 `SessionHeader` 缓存互相覆盖、流式中间片段无处广播以及后台子进程脱离单一生命周期管辖。
-- **Maka 的选择**：以随机 `rootId` 与文件系统 `(dev, ino)` 绑定定义 **State Root**，通过账号本地命名空间上的排他 OS 文件锁确立唯一的 **`InteractiveRootOwner`**；所有接入端全部退化为客户端，通过统一协议访问唯一的 `RuntimeHostKernel`，并用 `HostResidencyRegistry` 精确拆分 `idle`（阻止空闲退出）与 `drain`（阻止排空与升级）两类驻留。
-- **收益与代价**：彻底根除了跨客户端写脑裂，统一了凭据与子进程回收边界；代价是引入了本地 IPC/WebSocket 传输开销，必须额外治理按需启动（Ephemeral）宿主的握手竞争与退出排空死线。
+本章把隐藏在 Maka TypeScript 版核心层背后的底层权衡收拢为六大核心决策维度，讲透它在每一道分叉口到底“换取了什么收益”又“甘愿承担什么工程成本”。
 
 ---
 
-## 2. 短时准入闸门 + 长执行句柄 + `SteeringLease` vs 贯穿全轮的互斥大锁
+## 2. 六大核心架构取舍矩阵
 
-- **痛点与故障推演**：如果从收到消息到模型流彻底结束始终占有一把排他锁，用户在几十秒的等待期间将无法点击“停止”、无法发起运行中插话引导（Steering），甚至无法同时读取另一会话。反之，如果完全无锁，并发请求就会同时开启两个主回合。
-- **Maka 的选择**：将互斥区间压缩到毫秒级的 **`SessionAdmissionGate`** 与 **`RootAdmissionOwner`** 持久链校验中；一旦进入模型流便立即释放准入短锁，转为由 `RootTurnCoordinator` 持有长执行的 `{ snapshot, completion, settled }` 句柄与 `drain` residency。对于运行中插话，不在锁外乱改内存数组，而是在每个模型步进边界通过 **`SteeringLease`**（`pullSteering` → `ackSteering` / `nackSteering`）完成原子交割——只有确认 `steering_message` 事实已落盘并进入注射集才算 `ack`，否则 `nack` 退回队列。
-- **收益与代价**：兼具高并发响应性与严格的顶层单执行保证；代价是每个业务入口必须一丝不苟地衔接“预留槽位 → 持久化意图 → 驻留句柄”，不能把游离的异步 Promise 漏在生命周期外。
-
----
-
-## 3. 可插拔 `AgentBackend` 端口 vs 硬编码内嵌模型循环
-
-- **痛点与故障推演**：Maka 既需要内置支持 Anthropic/OpenAI/Google/Codex 的 AI SDK 多步循环，也需要挂载遵循 ACP（Agent Client Protocol）的外部代理插件（如 `@maka/antigravity-acp-plugin`），还要在测试中注入确定性的 `FakeBackend`。若 `RuntimeKernel` 直接耦合具体模型 SDK，每新增一种执行后端都要重写一遍 Run 账本、终态密封与取消路由。
-- **Maka 的选择**：在 `@maka/core` 中定义极窄的 `AgentBackend` 端口（核心方法为 `prepareRunComposition?`、`send`、`compactHistory?`、`stop(reason, mode?)`、`respondToSandboxBoundary`、`respondToUserQuestion?`、`dispose`）。并在入站边界使用 `BackendSessionEvent` 显式剔除归属内核或 Host 专享的事件（如 `queue_update`、`message_admission`、`client_capability_request` 以及已退役的 `permission_*` 旧词汇）。
-- **收益与代价**：`SessionManager`、`RuntimeKernel` 与 `AgentRun` 的终态裁决、权限交互路由与账本逻辑 100% 跨后端复用；代价是 `AiSdkBackend` 与插件之间仍需经过 `SessionEvent → RuntimeEvent` 确定性映射器，增加了新事件类型的双端对齐维护成本。
-
----
-
-## 4. `BackendGeneration` 并发代次隔离 + `AiSdkTurn` 短命闭包 vs 单例可变 Backend
-
-- **痛点与故障推演**：长寿命 `AiSdkBackend` 承载了模型路由、工具目录与连接状态（维持供应商 Prompt Cache 命中率）；但当用户在会话进行到一半时切换了模型配置（触发 `invalidateBackend`），或在点击停止后毫秒级发起新一轮提问时，旧后端的 `dispose()` 与新请求的 `send()`、甚至先后重叠的两次 `runId` 如果共享可变字段，先退出的任务会误删后继任务的 `currentRunId` 或把请求发到已被销毁的后端。
-- **Maka 的选择**：Maka 在 `RuntimeKernel` 实施了极其严密的**双层时空隔离**：
-  1. **纵向代次状态机（`BackendGeneration`）**：每次构造后端都分配单调递增的 `generation` 号，严格处于五种阶段之一：`'active' | 'stopping' | 'disposing' | 'failed' | 'terminated'`。通过 `shareBackendActivation` 合并并发冷启动；当代次进入 `stopping` 或 `disposing` 隔离区（Quarantine），或仍被 `activeRuns` / `stopOperations` 引用时，新激活必须等待其彻底安全落幕才能推进；所有派发（`assertRunCanDispatch`）在进入后端前再次校验当前 `generation` 仍是唯一活跃代次且未停止。
-  2. **横向单轮闭包（`AiSdkTurn`）**：每次 `send()` 都独立构造全新的 `AiSdkTurn` 实例，将 `runId`、`AbortSignal`、`ToolRuntime` 与看门狗完全锁死在单轮闭包内，长寿命 `AiSdkBackend` 不持有任何 `currentRunId`。
-
-```mermaid
-stateDiagram-v2
-    [*] --> active : "shareBackendActivation() 构造并注册代次"
-    active --> stopping : "触发停止 (stopState = pending)"
-    stopping --> active : "activeRuns 与 stopOperations 全部归零且未作废"
-    active --> disposing : "invalidateBackend() 且无活跃 Run"
-    stopping --> disposing : "在途 Run 退出后触发等待中的作废清理"
-    disposing --> terminated : "backend.dispose() 成功且引用归零"
-    disposing --> failed : "dispose() 抛出异常 (进入隔离阻断后续激活)"
-    terminated --> [*]
-```
-
-- **收益与代价**：既保住了跨轮次的 Prompt Cache 连续性，又彻底根除了热切模型与快速重入时的并发竞态；代价是 `RuntimeKernel` 内部需要维护复杂的代次引用计数、隔离区等待及停止操作重试链路。
-
----
-
-## 5. `ModelCallCommit` 单值原子打包提交 + `supersedesLatestContext` 确定性决胜
-
-- **痛点与故障推演**：每次物理模型调用结算时，系统既要记录本次 `ModelCallAttempt`（Token 用量与费用归属），又要更新面板展示用的 `latest_context` 上下文诊断快照。如果分两次独立写库，中间进程崩溃或参数传递遗漏会造成**“费用账本记了第 2 次请求，诊断视图却停在第 1 次请求”**的数据撕裂；更隐蔽的是，JavaScript 函数若用多个位置参数传递，中间层少转发一个参数不会报类型错，只会悄悄在生产环境丢失快照！此外，重叠轮次在不同队列上并发完成时，“后到达写库”不等于“后完成请求”。
-- **Maka 的选择**：
-  1. **单值强类型对象打包（`ModelCallCommit<TAttempt>`）**：强制将 `{ attempt, latestContext }` 封装成单一不可分割对象参数，并在 `AgentRunStore.appendEvent(..., { durable: true, latestContext })` 的同一个底层数据库事务中原子落盘。只要中间转发层漏掉属性就会触发编译期报错。
-  2. **确定性决胜算子（`supersedesLatestContext`）**：永远以 `completedAt`（完成时间）而非到达时间排序；当两个调用完成毫秒数完全一致时，引入 **`attemptId` 字典序作为无歧义决胜位（Tie-breaker）**。在线实时提交与离线冷重建（及受 `ifLedgerRevision` CAS 保护的修复路径）严格调用同一份纯函数，确保暖读与重建永远得出完全一致的“最新视图”。
-
-- **收益与代价**：彻底消灭费用计量与诊断快照的不一致及并发乱序覆盖；代价是存储契约必须围绕领域原子事务设计，不能退化为简单的单表 CRUD 接口。
-
----
-
-## 6. T1/T2 工具两段提交与显式 `Unknown Outcome` vs 盲目自动重试
-
-- **痛点与故障推演**：执行本地文件修改、外部 API 调用或经客户端反向代理（Client Capability）触发本地工具时，存在最危险的崩溃窗口（对应恢复目录中的 `P2–P4` 故障点）：工具刚刚向外部世界发出了修改请求（或客户端刚跨越宿主下发的 `admitted` 授权切点），还未来得及向账本提交结果，宿主进程就崩溃或连接突然断开。如果恢复引擎在不知道副作用是否已经发生的情况下自动重试，就会导致重复扣款、重复提交 PR 或破坏工作区文件。
-- **Maka 的选择**：拒绝制造“任意外部副作用都能自动 Exactly-Once”的幻觉，建立**边界密封 + 显式未知结果（Explicit Unknown Outcome）**机制：
-  1. **先提交 T1 再执行副作用**：`ToolRuntime` 在通过前置检查后、真正执行高风险实现前，先提交非模型可见的 `toolDispatch` 事实（协议 `t1_after_preflight_v1`），绑定基于 `(invocationId, providerToolCallId)` 计算的确定性 `operationId`、规范参数哈希 `canonicalArgsHash` 与恢复策略（`ToolOutcomeRecoveryMode: 'never_auto_retry' | 'outcome_unknown'`）。执行完成后在 `T2` 事务原子提交 `function_response` 与结果期刊。
-  2. **越过切点即锁死重试**：对于 Client Capability 反向调用，Broker 严格区分 `accepted`（仅收到接收回执）与 **`admitted`**（Host 批准执行外部副作用）。`admitted` 之前断线报告 `capability_lost`；一旦越过 `admitted` 或重启扫描发现已过 `T1` 但无 `T2` 的 `outcome_unknown` 记录，系统抛出 `ToolOutcomeUnknownError` 或由 `recoverClientCapabilityOutcomes()` 写入标记 `uncertainOutcome: { code: 'outcome_unknown', retrySafe: false }` 的错误响应，**坚决禁止自动化任务或无监督续跑（`allowPriorUnknownToolOutcomes` 为 false）假装其结果已知并自动重跑**。
-
-```mermaid
-sequenceDiagram
-    participant Turn as "AiSdkTurn / ToolRuntime"
-    participant Store as "RuntimeEventStore (SQLite)"
-    participant Broker as "ClientCapabilityBroker / ToolImpl"
-
-    Turn->>Store: 1. T1 事务: 提交 toolDispatch (operationId + argsHash)
-    Note over Turn,Broker: 危险崩溃窗口 P2-P4 开始 (副作用可能正在外部生效)
-    Turn->>Broker: 2. 发起执行 -> 等待 accepted -> Host 校验并下发 admitted
-    alt 正常结算路径
-        Broker-->>Turn: 返回执行结果
-        Turn->>Store: 3a. T2 事务: 原子提交 function_response + journal
-    else 进程崩溃重启 或 admitted 后断线超时
-        Note over Store,Broker: 无法确认外部副作用是否已完成!
-        Store-->>Turn: 3b. 抛出/收敛为 outcome_unknown (retrySafe: false)
-        Note over Turn: 严禁自动重试; 仅人类显式发起新轮次时可见该不确定事实
-    end
-```
-
-- **收益与代价**：彻底杜绝了崩溃恢复时的重复破坏性副作用；代价是必须引入严格的 `ToolLedgerScanner` 依赖闭包扫描与上层人工确认/对账流程。
-
----
-
-## 7. 协作边界热交接（Handoff）+ 安全边界续跑 vs 任意点快照强切
-
-- **痛点与故障推演**：版本升级或重启替换 Host 时，如果强行把正在进行中的 LLM SSE 网络流、嵌套异步回调函数或运行中的 PTY 进程序列化“热迁移”到新进程，任何底层 Socket 状态丢失都会导致无解的半残状态。
-- **Maka 的选择**：放弃任意指令行热迁移，采用**可持久化的步进边界交接（Cooperative Handoff）+ 安全边界续跑（Safe Boundary Continuation）**：
-  1. 旧 Host 收到升级准备指令后，冻结新准入与定时/Goal 调度器；正在运行中的 `AiSdkTurn` 推进到下一个安全步进点（所有前序模型与工具事件均已落盘）时，调用 `handoffBoundary()` 收到 `'pause'` 信号，写入不代表 Turn 完结的 `runtime_handoff_pause_v1` 封印与 `continuation_start_v2` 预申领。
-  2. 旧 Host 必须向 `RuntimeHostKernel` 证明交接句柄完整覆盖了当前所有活跃的 **`drain` residencies**（验证句柄集合相等，绝不凭计数相等蒙混过关），再原子提交不可逆切点并释放写租约。
-  3. 新 Host 接管租约后，重新校验 `claimId`、`boundaryDigest` 以及模型输入/Prompt/工具集兼容性（`prepareRunComposition`），以同一 `turnId` 开启全新的 `invocationId` 与 `runId` 继续推进。
-- **收益与代价**：在不牺牲状态可验证性的前提下实现了长任务零感升级续跑；代价是当存在不可协同暂停的插件或长耗时本地工具时，Handoff 可能超时退回等待而无法保证 100% 瞬间切换。
-
----
-
-## 8. 事件溯源双账本 + 有界 `partial` 快照 vs 原地更新或无界流日志
-
-- **痛点与故障推演**：如果直接原地 `UPDATE messages` 表，上下文裁剪或压缩一旦触发就会永久销毁原始审计证据；但如果把流式输出中每秒几十次的 `text_delta` 全部作为永久行插入账本，一次长对话就会制造数万条碎片垃圾，拖垮恢复扫描和投影计算。
-- **Maka 的选择**：以 `RuntimeEvent` 只追加不可变脊柱记录语义真源，以 `AgentRunEvent` 记录伴生计量与诊断；流式期间的 `partial: true` 片段不无限追加，而是由 `RuntimeEventStore` 合并维护有界可变呈现快照（mutable presentation snapshot），待最终 `non-partial` 事件落盘时一次性覆盖其语义位置。消费侧按需通过 `RuntimeReadModel` 与带 watermark 校验的有界分页器（`session-transcript-pager`）按需物化视图，任何缓存损坏均可 Fail-Closed 并在修复后从不可变账本无损重算。
-- **收益与代价**：兼顾了无损历史审计、低存储膨胀与秒级断线重连对齐；代价是在演进期需要同时维护兼容性 `SessionStore` 投影与双账本之间的读取优先级协调。
-
----
-
-## 9. 闭合判别联合 + Fail-Closed Schema vs 宽松可选字段结构体
-
-- **痛点与故障推演**：在持久日志与跨语言（如 `@maka/eval` 的 Python 导出器）对接中，宽松的可选字段结构体极易产生“半残缺状态”或“静态字段漂移”——某个导出器漏掉了新加的 `origin` 或 `modelVisibility` 字段却毫无报错，直到生产线上所有事件校验批量失败。
-- **Maka 的选择**：在核心语义域全面采用闭合判别联合（如 `RuntimeInvocationRootAuthority`、`RuntimeInvocationOpenSource`、`RuntimeInvocationRoute`、`HostHandshakeResult`），并用 `defineObjectShape` + `hasExactShape` 对反序列化执行严格键集核对；导出 `runtimeEventEnvelopeKeys()` 与 `runtimeEventEnvelopeValueDomains()` 作为跨语言测试锚点。而在确实需要跨版本兼容的伴生运维账本 `AgentRunEvent` 上，则巧妙实施**“写严格（`EmittedAgentRunEvent` 闭合目录）、读开放（`type: string` 容忍未知或退役事件）”**的双向分离契约。
-- **收益与代价**：在编译期和解码边界提前拦截 99% 的状态漂移；代价是每当结构需要调整时，必须显式升级协议常量与兼容解码分支。
-
----
-
-## 10. TS 控制面 + 原生 Rust 加速与安全围栏（Hybrid TS/Rust Boundary）
-
-- **痛点与故障推演**：如果全盘使用 Node.js/TypeScript，面对大型 Git 工作区遍历与大小写折叠检查（`MANAGED_TREE_POLICY_V3`）、QUIC/WebRTC Direct P2P 穿透打洞以及 Windows 无窗服务与 Job Object 内核级进程树清理时，不仅性能捉襟见肘，还受限于系统工具链差异与安全边界漏洞；但若把快速迭代的模型适配、AI SDK 生态、MCP 协议与 Electron 业务全量重写为 Rust，研发敏捷度将大幅下降。
-- **Maka 的选择**：只将三类高密度/系统级边界下沉至 `native/` Rust Crate，并用极窄的边界将其与 TS 主体隔开：
-  - `maka-gitoxide-helper`：通过零 `argv`、清空 `PATH`、固定内存与树深上限的短生命期子进程隔离不可信仓库读取；
-  - `maka-runtime-host-peer`：通过 N-API 动态库封装 `libp2p` / `webrtc-rs` 及跨平台进程启动身份核验；
-  - `maka-runtime-host-windows-task-launcher`：用极简无窗原生 `.exe` 加上 `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` 守护 Windows 托管服务进程树。
-- **收益与代价**：在保留 TypeScript 高速迭代优势的同时，精准获得了系统级安全性与原生性能；代价是引入了三平台 Rust 工具链编译、N-API ABI 打包及跨进程边界的严格校验成本。
-
----
-
-## 教学伪代码：核心并发与原子提交模式集成
-
-以下伪代码浓缩展示了 `ModelCallCommit` 单值原子提交、`supersedesLatestContext` 确定性决胜以及 `T1/T2` 边界保护在实际内核中的配合方式：
-
-```text
-// 1. ModelCallCommit 单对象原子提交与确定性时序比较
-function commitModelCallAttempt(agentRunStore, sessionId, runId, attempt, snapshot):
-    // 打包为一个不可分割值对象，防止调用链静默丢弃快照
-    commit = {
-        attempt: attempt,
-        latestContext: {
-            attemptId: attempt.attemptId,
-            orderedAt: attempt.completedAt,
-            snapshot: snapshot
-        }
-    }
-
-    // 同一 SQLite 事务内原子写入计量事件与派生最新上下文
-    await agentRunStore.appendEvent(sessionId, runId, {
-        type: "model_call_attempt_recorded",
-        id: attempt.attemptId,
-        data: attempt
-    }, { durable: true, latestContext: commit.latestContext })
-
-function supersedesLatestContext(candidate, incumbent):
-    if incumbent == null:
-        return true
-    // 永远按请求真实完成时间裁决，忽略异步队列的到达先后
-    if candidate.completedAt != incumbent.completedAt:
-        return candidate.completedAt > incumbent.completedAt
-    // 完成时间戳完全相同时，用不可变的 attemptId 字典序做确定性决胜
-    return candidate.attemptId > incumbent.attemptId
-
-// 2. T1/T2 工具执行边界与显式 outcome_unknown 收敛
-function executeToolWithBoundary(toolRuntime, toolCall, commitSink, impl):
-    operationId = buildToolOperationId(toolCall.invocationId, toolCall.providerToolCallId)
-    argsHash = canonicalToolArgsHash(toolCall.name, toolCall.args)
-
-    // 跨越副作用前的不可逆 T1 事务提交
-    await commitSink.commitToolPrepared({
-        operationId,
-        toolName: toolCall.name,
-        canonicalArgsHash: argsHash,
-        recoveryMode: toolRuntime.recoveryModeFor(toolCall.name) // "never_auto_retry" | "outcome_unknown"
-    })
-
-    try:
-        output = await impl.execute(toolCall.args)
-        await commitSink.commitToolOutcome({
-            operationId,
-            outcome: "success",
-            result: output
-        })
-        return output
-    catch err:
-        if err instanceof ToolOutcomeUnknownError:
-            // 例如 Client Capability 在收到 admitted 后断线: 绝不重试，直接封存不确定事实
-            await commitSink.commitToolOutcome({
-                operationId,
-                outcome: "error",
-                isError: true,
-                uncertainOutcome: { code: "outcome_unknown", retrySafe: false }
-            })
-        throw err
-```
-
----
-
-## 十大核心架构权衡全景对照表
-
-| # | 架构决策 | 防范的核心故障 | 付出的工程代价 | 适用场景边界 |
+| 取舍维度 | 常规简化实现 | Maka TS 版的架构选型 | 换取的核心工程收益 | 承担的复杂度与边界代价 |
 | :--- | :--- | :--- | :--- | :--- |
-| **1** | **Single Host Authority**<br/>(单根 OS 锁 + 唯一宿主) | 多端并发写导致状态脑裂与文件锁死 | 本地 IPC 开销、宿主启停与 `idle`/`drain` 驻留治理 | 多入口本地工作区平台；单次纯内存 CLI 无需此重量。 |
-| **2** | **短准入闸门 + `SteeringLease`** | 长锁阻塞取消操作、插话消息丢失或重复注入 | 入口需严格追踪 `reservation` 与租约 ACK 闭环 | 支持中断、运行时插话与多路排队的交互式 Agent。 |
-| **3** | **窄 `AgentBackend` 端口** | 运行内核深度绑定特定厂商 SDK 或插件 | 需维护 `SessionEvent → RuntimeEvent` 确定性映射层 | 需同时容纳内置模型、外部 ACP 插件与测试替身。 |
-| **4** | **`BackendGeneration` + `AiSdkTurn` 隔离** | 热切模型配置或重叠轮次引发状态踩踏 | Kernel 需维护 5 态代次机、并发合并与隔离区 | 支持长连接 Prompt Cache 复用与运行中配置热切换。 |
-| **5** | **`ModelCallCommit` + 确定性决胜** | 费用账本与上下文快照撕裂、并发乱序覆盖 | 存储层需暴露领域级原子事务而非裸 CRUD | 需要精确成本核算与高频上下文窗口诊断的系统。 |
-| **6** | **T1/T2 两段边界 + `outcome_unknown`** | 崩溃窗口与断线后盲目重试引发重复外部副作用 | 不能承诺任意外部副作用 Exactly-Once，需显式对账 | 涉及写文件、Shell 执行或端侧代理的高风险操作。 |
-| **7** | **协作边界 Handoff + 安全边界续跑** | 强行热迁移活跃网络流或子进程导致状态残缺 | 依赖可验证输入基线、精确驻留证明，且存在超时退避 | 需要版本升级不中断长推理任务、崩溃后可靠续跑。 |
-| **8** | **事件溯源双账本 + 有界 `partial`** | 上下文裁剪销毁审计、流式碎片撑爆日志表 | 需协调派生快照、游标分页与旧表兼容优先级 | 长寿命可追溯会话与多端断线精确补帧。 |
-| **9** | **闭合判别联合 + 读写非对称兼容** | 可选字段猜错分支、跨语言导出字段静默漂移 | Schema 变更必须显式版本化与维护迁移解码 | 多组件协同、离线评估对接与长期存储格式演进。 |
-| **10** | **TS 控制面 + 原生 Rust 安全围栏** | JS 路径折叠绕过、OOM、缺乏成熟 P2P/Win32 原语 | 跨平台 Cargo 构建链、N-API 打包与进程边界核验 | 需同时兼具 AI 生态敏捷性与操作系统底层安全隔离。 |
+| **宿主控制模型** | 每个客户端窗口各自启动独立 Agent 循环直接读写 DB | **单 State Root 唯一 Host 权威 + `HostedExecutionAuthority` 统一收敛** | 彻底根绝桌面/CLI/Bot/Eval 并发修改覆盖与“恢复未完先接单”竞态 | 必须维护 OS 文件锁租约、`HostEpoch` 与复杂的 IPC/WS 状态广播同步机 |
+| **并发锁与执行生命周期** | 用单把互斥大锁包住整轮模型+工具耗时执行 | **极短 `SessionAdmissionGate` + `BackendGeneration` 代次锁 + 二元 `SteeringLease`** | 推理期间客户端依然能无阻塞排队写 Steering 与安全读历史，热切换零污染 | 调度链路引入代次淘汰检测与 `leaseId` 显式回执，无法写简单的直通同步逻辑 |
+| **持久化账本与建模哲学** | 直接原地更新单张可变 `runs`/`messages` 状态表 | **`RuntimeEvent` 无损规范脊柱 + `AgentRunStore` 操作账本 + `canonical` 往返校验** | 崩溃后状态能从纯事件流 100% 重构；计量/审计细颗粒扩展不污损模型输入上下文 | 任何看似简单的状态读取本质都是投影归约，新增字段必须同步扩展严苛 Schema |
+| **工具两段提交与不确定结局** | 超时后假定失败直接重跑，或盲目封装无限重试框架 | **Pre-T1 隔离 -> `t1_after_preflight_v1` -> 越界崩溃一律封存 `outcome_unknown`** | 宁可显式向模型宣告“副作用结局不明”，也绝对禁止自动重跑写文件/转账等风险调用 | 压缩边界（`#6254`）与续跑（Continuation）必须专门设计面向 `outcome_unknown` 的安全越过语义 |
+| **混合 JS/Rust 物理边界** | 全量依赖 Node `child_process("git")` 与纯 JS 网络层 | **TS 编排控制面 + 原生 Rust 数据面 (`gitoxide-helper` / Peer Mesh / Win Launcher)** | 高频 Git 检查点树 CAS 提速一个数量级，移动切网不断流，Windows 拥有可靠作业屏障 | 构建工具链必须同时协调 TypeScript Workspaces 与多平台 Cargo 原生二进制编译分发 |
+| **协议递增与多模态保守策略** | 无脑复用全连接、报错就丢掉 PDF/图片默默重试 | **OpenAI Responses WS 窄门增量复用 + 结构化 PDF 拒绝准入门槛** | 长工具链 TTFT 与重传流量大幅缩减，且彻底拒绝无结构化拒绝诊断时的盲目退避 | 需要维护前缀绝对校验、5 分钟降级冷却态以及按提供商区分的文档失败处理逻辑 |
 
 ---
 
-## 工程判断与架构选型指南
+## 3. 四组深层系统抉择剖析
 
-阅读完上述十大权衡后，最关键的架构师判断不是“全部照抄”，而是**按系统演化阶段识别边界**：
+### 3.1 锁粒度劈分：为什么坚决拒绝“包住整轮推理的会话大锁”？
 
-1. **什么时候必须引入 Maka 式的重型不变量？**
-   当你的 Agent 跨越以下三条临界线之一时，上述机制不再是“过度设计”，而是维持系统不崩盘的底线：
-   - **多宿主/多界面并发**：同时存在桌面端、CLI、定时任务或自动化 Bot 访问同一批本地会话；
-   - **有副作用的外部工具**：工具不再只是查天气或读网页，而是会修改本地代码仓库、操作真实桌面 GUI 或经由客户端发起外部系统变更；
-   - **跨重启与长周期**：单次任务动辄数十分钟，用户绝不接受“关掉窗口或升级客户端后进度归零或账本损坏”。
-2. **什么时候应当刻意保持克制（参考 Pi 模式）？**
-   如果你只需要一个单进程、人类眼盯屏幕交互、每次执行生命周期等同于当前终端生命周期的轻量编码助手，那么嵌入当前进程的串行状态机（无常驻 Host IPC、无代次状态机、直接本地消息持久化）反而拥有更低的启动延迟、更简单的心智模型与更高的调试效率。
+许多同步编程背景的开发者，最初防止并发抢跑的直觉就是在进入 Turn 时一把 `mutex.lock()` 锁死该 Session，直到模型和所有工具全部跑完再解锁。这在需要支持人机高频协同的实时桌面端里是致命的——用户想在工具跑了一半时发一条纠正指令、或者旁边视图想读取实时状态，都会因为拿不到锁而直接卡死！
+
+Maka 在这里做出了极其精妙的时空切分（详细机制见 [01.2](../01-runtime/session-lifecycle.md) 与 [05.1](../05-coordination/queues-and-admission.md)）：
+1. **`SessionAdmissionGate` 只保护几毫秒临界区**：所有客户端命令进入准入闸门后，只需完成轻量校验和持久意图写入（`RootTurnAdmission`）并登记好后台异步协程，立刻退出闸门放锁；
+2. **`BackendGeneration` 用单调代次阻止僵尸写入**：如果用户在切换模型配置时引发 `RuntimeKernel` 热切重载，新旧代次实例可以安全并存至旧流物理排空，但老代次任何在 `await` 苏醒后试图反写的动作只要被检出代数落后，会被门控直接静音驳回；
+3. **`SteeringLease` 管死跨内存队列的交付生死**：不再靠粗暴“拿了队列然后先从数组 `shift()` 删掉”的丢失风险写法，而是先签发临时租约 `leaseId` 喂给本步循环，只有拿到物理步骤已真正纳入提示词并开启的确认（Ack）后才核销租约——哪怕这中间突发取消或异常断连，未确认投递的纠正指令也会自动退回（Nack）留在原地一字不丢！
+
+### 3.2 拒绝分布式事务幻觉：Pre-T1、T1/T2 与 `outcome_unknown` 边界哲学
+
+对于跨越多重异步调用的本地或端侧工具，最危险的故障窗口发生在 **“外部命令已经下发执行，但结果回执还来不及被写回账本”** 那几百毫秒的断电里。
+
+```mermaid
+flowchart LR
+    Pre["参数三重快照 & 规则审批<br/>(Pre-T1 阶段，安全可重放)"] -->|"写入不可逆边际界标"| T1["原子落盘 T1<br/>t1_after_preflight_v1<br/>绑定确定性 operationId + 参数哈希"]
+    T1 -->|"正式触达外部副作用<br/>或端侧跨过 admitted 门禁"| SideEffect["真实环境变更 (不可自动逆转)"]
+    SideEffect -->|"正常完成结算"| T2["原子落盘 T2<br/>function_response 永久入账"]
+    T1 -.->|"进程崩溃重启 (见 T1 不见 T2)"| Recovery["resolveRuntimeRecovery 裁决:<br/>打标 outcome_unknown (retrySafe=false)<br/>绝不自动重跑并阻止无监督自动续跑"]
+```
+
+这套模型的架构清醒度在于：**承认“非幂等外部世界无法由客户端单独保证 Exactly-Once”**。对于发生在 `T1` 提交之前的任何中断，引擎大可以放心地清掉重试；而只要跨过了 `T1` 门限（或者端侧能力代理跨越了宿主核发的 `admitted` 准入信标）才断联，系统绝不制造虚假的乐观假象，而是强制落印不可逆的 `outcome_unknown` 标识——宁愿要求高阶推理主动去读取校验现状，也绝不悄悄替用户在黑暗中双击第二次下单！
+
+### 3.3 混合架构边界：为什么宁愿忍受双构建链路也要拆出 Rust `native/`？
+
+在 Pure Node.js/TypeScript 项目里维护 Rust crate 无疑提高了新贡献者的本地环境配置成本和跨平台 CI 复杂度。但 Maka 团队经过实测将三个不可让步的热点物理沉降到了 `native/` 边界中：
+- 在高频工作区检查点场景里，`gitoxide-helper` 只充当零会话记忆的数据平面搬运工，依托 Rust 原生内存安全与 `gix` 无进程池冷启损耗，将成千上万文件的快照发布稳定锁定在确定性预算线之内；
+- 在实时桌面网络边界，`runtime-host-peer` 扛起了 `libp2p` 与 `WebRTC Direct` 底层重连接字节流帧组装；
+- 在 Windows 任务宿主端，`runtime-host-windows-task-launcher` 直接以 Win32 原语卡死受控进程树，把难以通过 Node 层包装稳固的句柄泄漏与逃逸门道统统截断在底层。
+
+这种“**上层策略控制用 TS 敏捷演化，底层重资产数据通路与系统壁垒用独立小巧 Rust 进程/组件封装**”的策略，既保住了快速试错能力，又拿到了接近系统级语言的稳定护栏（也是后来整个团队能够顺势彻底重构出纯 Rust 微内核版前传的直接催化剂）。
+
+### 3.4 可观测与投影同源铁律：`ModelCallCommit` 单值包装与确定性决胜算子
+
+在传统 TS 代码里，顺手给一个更新函数加第六个可选参数 `{ usageSnapshot }` 是常事——然后半年后某位工程师多包了一层适配器函数时顺手漏传了这第 6 个参数，类型检查却因为它是可选或顺序混用没报错，线上统计面板就此莫名奇妙失明！
+
+Maka 在核心层用了一条极聪明的手法堵死了这类低级错：**单值强类型载荷打包（`ModelCallCommit<TAttempt>`）+ 确定性比较算子（`supersedesLatestContext`）**。
+- 它将调用尝试结果 `attempt` 与当时对应的上下文体积诊断快照 `latestContext` 硬绑为一个统一对象的不可分割必填成员，且只在 `AgentRunStore` 单次原子写入内一并落盘；
+- 同时面对多线程队列并发到达可能出现“先完成却后落盘”的倒挂现象，状态汇总永远不信先来后到顺序，而是以 `completedAt` 加上 `attemptId` 字典序作为铁定的唯一决胜锚点——**在线热运行投影与离线冷读重启重建共跑完全同一段比较代码**，天然达成统计口径严丝合缝。
 
 ---
 
-## 延伸阅读
+## 4. 总结与演进定位
 
-- 深入理解 `BackendGeneration` 与 `AiSdkTurn` 在销毁时的并发清理与隔离细节，阅读 [01.2 会话与执行对象的生命周期](../01-runtime/session-lifecycle.md)。
-- 详细剖析崩溃窗口 `P0-P11`、工具 `T1/T2` 事务与安全边界续跑算法，阅读 [04.1 持久化执行与崩溃恢复](../04-state/durable-execution.md)。
-- 探索协作式热交接（Handoff）的不可逆切点与跨端订阅补帧协议，阅读 [04.2 Host 所有权与多端同步](../04-state/host-ownership-and-sync.md)。
-- 了解 `AgentBackend` 如何支持外部 ACP 插件动态装载与生命周期治理，参阅 [01.5 插件平台与 ACP 运行时](../01-runtime/plugin-and-acp-runtime.md)。
-- 深入对比 Maka（托管服务微内核）与 Pi（嵌入式轻量循环）的架构路线差异，阅读 [07.1 Agent 内核架构宏观对比](../07-comparison/overview.md)。
-- 探索记忆提取、跨平台导入导出以及 Goal/Plan/EventWait 等高阶调度编排，参阅 [02.3 长期记忆与会话可移植性](../02-context/memory-and-session-portability.md) 与 [05.3 目标、计划与事件等待](../05-coordination/goals-plans-and-event-waits.md)。
+回顾这套 TypeScript 架构版的全貌工程取舍，我们能看到一个清晰成熟的系统演进轨迹：
+- 它证明了即使构建在 TypeScript + Node.js 的异步动态生态里，只要死守 **单 Root 写锁、无损不可变双账本、`Pre-T1 / T1 / T2` 边界密封** 与 **Rust 原生热区卸载**，依然能打磨出经得起严苛断电重启与容器级基准测试考验的高可用 Agent 平台；
+- 与此同时，当你读到它的短板与负担——例如多端跨进程依赖常驻 V8 堆内存底噪、复杂状态流必须靠外挂多个独立 Rust 原生 CLI 桥接补强时，也就能彻底理解团队为何最终会走向在 [Rust 微内核演进全解](../../maka-rust-agent-infra/06-operations/rust-vs-ts-evolution.md) 中展现的纯 Rust 终极重铸路线。
+
+至此，**00 架构基石篇** 的全景地基已全部铺平。下一章起我们将直接钻入运行时的实时血管——看看当用户在客户端敲下第一条消息发给这套系统时，`subscribe → ready`、异步 `drainTurn` 以及 `open/sequence` 游标是如何保证零掉帧接力的：请看 [订阅优先与控制解耦：断连不丢帧的端到端信令流水线](../01-runtime/request-to-response.md)。

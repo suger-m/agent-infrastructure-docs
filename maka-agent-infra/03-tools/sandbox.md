@@ -1,154 +1,103 @@
-# 操作系统级双路沙箱与文件边界隔离
+# 操作系统双路沙箱与 Worker 隔离：Bash 受限出网、文件二次收窄与 TOCTOU 防护
 
-[返回手册目录](../README.md)
+## 1. 为什么只给 `Bash` 上锁而让内置文件工具在主进程直接跑 `fs` 会导致系统性破防？
 
-设想用户向 Agent 下达指令：“修复项目里的 `config.json` 并跑测验证。”模型有两条完全不同的路径来修改这个文件：
-1. 调用 `Bash("node update-config.js")`，派生操作系统命令进程；
-2. 调用内置文件工具 `Write("config.json", ...)` 或 `apply_patch`。
+市面上大多数宣称“支持沙箱”的编码 Agent 往往只盯住一个目标：`Bash` / Terminal 执行工具。只要把 Shell 命令扔进容器或者 `sandbox-exec` 里执行，开发者就长舒一口气；而内置的 `Read`、`Write`、`Edit`、`ApplyPatch`、`Grep` 等文件工具却直接跑在拥有全套系统权限的主 Host Node.js 进程里，顶多用几行 `path.resolve(cwd, input)` 做个看起来很美的字符串检查。
 
-只给 `Bash` 套上操作系统沙箱，却放任内置文件工具在 Node.js 主进程里直接调用 `fs.writeFile()`，是 Agent 安全工程中最常见的致命漏洞——模型一旦利用软链接（Symlink）、路径穿越或并发竞态，就能直接借用高权限的 Host 主进程读写宿主机任意文件（甚至反手修改 `runtime-host-access.json` 夺取管理员权限）。
+这套“单腿沙箱”架构在稍微复杂的安全边界测试面前会瞬间在四处穿孔：
+1. **符号链接与路径穿越绕过**：攻击者或误导提示词在项目里埋一个指向 `/etc/passwd` 或 `~/.ssh/id_rsa` 的软链接，`path.resolve` 看起来规规矩矩落在项目目录内，主进程一脚 `fs.readFile` 就把宿主机私钥念了出来！
+2. **TOCTOU（检查时间窗置换攻击）**：哪怕你在调用 `writeFile` 前一微秒刚用 `realpath()` 检查过目标是项目里的普通文件；就在你刚通过校验、还没来得及再次 `open(path)` 覆写的那零点几毫秒空隙里，后台一个并发恶意进程瞬间把该路径置换成指向系统关键文件的软链接——传统路径式覆写 `fs.writeFile` 重新按名字打开路径，正好中计一刀覆写进敏感文件！
+3. **环境变量与子进程树泄露**：在普通 Node `child_process` 下启动脚本，如果没有强约束出网路径与子进程派生回收，一个后台偷偷 fork 出来的长驻网络爬虫即使主命令被超时杀掉也依然活在系统里持续向外倒卖数据。
+4. **“整座工作区宽松权限”与“局部只读飞地”矛盾**：即使只给局部工具开了单次扩权申请，如何确保不会越权顺带拉高同一会话里其它默认工具的能力上限？
 
-Maka 采用了**“命令沙箱 + 受限文件 Worker 子进程 + T0/T1 文件身份 CAS 锁”**的统一双路隔离架构。本章深度剖析 `ExecutionBoundary` 边界模型、单次权限二次收窄、`FilesystemWorker` 防置换锁，以及 macOS、Linux、Windows 三大平台的底层隔离机制与真实边界。
+Maka TypeScript 版在 `packages/runtime/src/sandbox/`、`filesystem-worker/` 与 `file-stable-write.ts` 中竖起了一套绝不妥协的**单一策略决策源 + 操作系统级双路物理隔离架构**。
 
 ---
 
-## 1. 概念先行：单一决策权与双路架构
+## 2. 单一策略中心与物理双路合围
 
-在早期实现中，每个文件工具各自重复判断“该走 Worker 还是该走本地执行器”，很容易出现逻辑不一致（例如某个回退路径硬编码了 `cwd` 限制，反而比 `ask` 模式开放的临时目录还窄）。为此，Maka 将文件与命令路由收敛为单一权威规则：**当前激活的 `ExecutionBoundary`（执行边界）决定唯一后端与路径范围，工具自身不携带任何私有策略分支。**
+在架构顶层，不管前端配置怎么变更、插件提出了什么局部豁免（`SandboxBoundaryExpansion`），**唯有运行在主机侧的策略协调模块拥有解释沙箱规则的唯一决策权**；而具体落到执行载体时，所有改变工作区或执行指令的操作兵分两路，全数逐出主调度进程之外：
 
 ```mermaid
-flowchart TD
-    Boundary["会话当前 ExecutionBoundary<br/>模式: explore / ask / bypass / external | 版本: revision"]
-    
-    Boundary -->|"路径 1: 外壳命令 (Bash / ShellRuns)"| CmdTransform["SandboxManager.transform()<br/>复制精简环境 + 编译 OS 沙箱指令"]
-    CmdTransform --> OS_Cmd["macOS Seatbelt / Linux bwrap + seccomp<br/>(统一 120s 时限 + 网络代理/禁网)"]
-    
-    Boundary -->|"路径 2: 内置文件工具 (Read / Write / Edit / apply_patch)"| WriteLock["1. withFileWriteLock() 获取写锁<br/>捕获 T0 目标物理身份 (dev, ino | missing)"]
-    WriteLock --> Derive["2. deriveWorkerProfile()<br/>从会话边界二次收窄至单文件最小权限"]
-    Derive --> WorkerProc["3. 启动受限 FilesystemWorker 子进程<br/>(仅含临时目录与 locale 变量，16MB 帧限制)"]
-    WorkerProc --> CAS["4. 沙箱内 T1 二次核验 (dev, ino)<br/>通过已打开文件描述符写入"]
+flowchart TB
+    Policy["宿主唯一策略决策中心<br/>SandboxBoundary / Session Permissions / 单次操作权限"] -->|"路径 A: 任意命令行与脚本"| BashLane["路线 A：受限 Bash 执行沙箱<br/>macOS Seatbelt / Linux bwrap + netns / Windows Task Launcher"]
+    Policy -->|"路径 B: 内置文件工具 (Read / Write / ApplyPatch / Grep)"| FileLane["路线 B：独立隔离 Filesystem Worker 子进程<br/>(filesystem-worker/worker-entry.ts)"]
+
+    BashLane -->|"完全剥夺直连公网通道"| NetGate["受管出网代理网关<br/>(host, port) 白名单检验"]
+    FileLane -->|"1. deriveWorkerProfile()<br/>继承并二次收窄权限轮廓"| InnerPolicy["单次操作最小子集境界"]
+    InnerPolicy -->|"2. openStableTarget() 锁定唯一句柄"| StableFd["file-stable-write.ts<br/>基于 fd 自身 fstat (dev, ino) 与 O_EXCL('wx')<br/>物理消灭 TOCTOU 路径置换攻击"]
 ```
 
-### 1.1 会话初始边界模式（`PermissionMode`）
-
-| 模式 | 编译的初始边界 | 核心读写与网络策略 | 典型应用场景 |
-| :--- | :--- | :--- | :--- |
-| **`explore`** | 只读探索边界 | 仅允许读取工作区目录，禁止任何写入操作，禁用网络。 | 代码架构研读、安全审计、纯问答排查。 |
-| **`ask`** | `workspace-write` Profile | 允许写入工作区与系统临时目录，禁用网络；越界操作触发审批弹窗。 | 日常开发改代码、跑局部单测。 |
-| **`bypass`** | 直通宿主边界 | 跳过沙箱转换，直接交由配置的执行器按实际启动用户权限运行。 | 已运行在外部强隔离容器（如 Docker/Harbor）内的 CI 环境。 |
-| **`external`** | 外部注入边界 | 跳过本地沙箱转换，交由上层应用注入的自定义执行器托管。 | 远程云端沙箱或企业定制执行代理。 |
-
-### 1.2 动态边界扩张（Boundary Expansion）
-在 `ask` 模式下，如果模型需要修改工作区之外的 `~/.npmrc` 或读取特定外部配置目录，文件执行器识别越界后会返回受控的边界异常，允许工具提交一份结构化的 `SandboxBoundaryExpansion` 申请（写明目标路径、访问类型 `read/write` 与申请理由）。人类用户批准后，Host 将扩展后的 Profile 写入递增版本号的新 `ExecutionBoundary`，后续步骤和进程立刻生效，而无需销毁整个模型后端。
-
 ---
 
-## 2. 路线 A：`Bash` 命令的沙箱转换与网络阻断
+## 3. 路线 A：`Bash` 命令的跨平台原生封装与无盲区网络阻断
 
-以在 Linux 上运行 `Bash("node update-config.js")` 为例，无论该命令是前台运行还是通过 `shellRuns` 进入后台挂起（`run_in_background: true`），**必须在区分前后台之前完成同一套沙箱转换**：
+当大模型调用 Shell 工具执行 `npm test` 或复杂脚本时，`packages/runtime/src/sandbox/`（`sandbox-manager.ts`、`detect.ts`）会根据当前宿主机平台装配出隔离命令包装体（绝不轻易降级成裸奔启动）：
 
-1. **规则编译**：`sandboxCommand()` 读取会话当前 `ExecutionBoundary`，交由 `SandboxManager` 选取平台后端（`LinuxBubblewrapBackend` 或 `MacOSSeatbeltBackend`）。
-2. **Linux `bubblewrap` 隔离**：将只读系统路径、可读写工作区路径编译为 `bwrap` 的挂载绑定（`--ro-bind` / `--bind`）；当网络受限时启用独立非特权网络命名空间与 `seccomp` socket 过滤器。实测即使沙箱内脚本尝试连接本机 `127.0.0.1` 探测 Host 本地 RPC 端口，内核也会直接返回 `EPERM`。
-3. **PTY 沙箱硬拦截**：若模型同时请求了交互式伪终端（`pty: true`）且当前 Profile 强制要求命令沙箱，系统在启动 PTY 之前直接拒绝执行（因为当前沙箱包装层不放行受限 PTY 的终端控制序列直通），绝不静默降级为无沙箱运行。
-4. **环境变量传递**：`Bash` 会复制宿主必要环境变量（如 `PATH`、`LANG`、`NODE_ENV`）保证编译器与包管理器可用，但仍受限于 120 秒前台默认超时与进程树回收策略。
-
----
-
-## 3. 路线 B：内置文件工具的受限 Worker 与 TOCTOU 防护
-
-所有内置文件工具（`Read`、`Write`、`Edit`、`FormatJson`、`Glob`、`Grep`、`apply_patch`）全部通过 `createBoundaryFilesystemExecutor()` 统一调度。在 `managed` 模式下，文件操作由独立启动的 **`FilesystemWorkerClient`** 通过受限子进程执行（缺失 Worker 时直接返回 `requires_bypass` 拒绝，绝不悄悄回退到主进程 `fs`）。
-
-### 3.1 双重权限收窄：`deriveWorkerProfile()`
-为什么要对已经属于 `workspace-write` 的会话做二次权限收窄？
-设想当前会话允许修改整个项目目录。此时模型调用 `Write("config.json")`。如果直接把“整个项目可写”的大权限授予文件 Worker，一旦参数解析或底层的路径规范化出现意外，这个进程就有能力写坏项目里的其他重要源码。
-
-因此，`FilesystemWorkerClient` 在启动子进程前会做两件事：
-1. **会话大边界核验**：使用完整会话 Profile 校验 `canWritePath("config.json")` 是否合法。
-2. **单次操作权限裁剪**：调用 `deriveWorkerProfile()` 从会话边界派生出一份**极小化 Profile**——仅开放目标文件（以及创建文件所需的直接父目录）的写权限，其余工作区路径仅保留只读或完全隐藏，并彻底禁用网络与多余环境变量（文件 Worker 仅保留临时目录与 Locale 启动变量）。
-
-### 3.2 写入并发漏洞与 T0/T1 物理身份 CAS 锁（TOCTOU 防护）
-文件写入面临两个并发竞态陷阱：
-- **排队等待窗口替换**：协程 A 检查完 `config.json` 合法后，在 `withFileWriteLock()` 排队等锁。此时外部进程把 `config.json` 删掉并建立了一个指向敏感系统文件的软链接！等 A 拿到锁直接按路径写入时，就会写穿边界。
-- **跨进程盲覆盖**：A 在读取文件和写入新内容之间，文件已被其他工具修改，直接覆盖会静默抹掉中间变更。
-
-Maka 通过强制的 **`FilesystemWorkerExpectedIdentity`（T0/T1 CAS 契约）** 彻底堵死了这个窗口：
-- **T0（抢锁与观测）**：在发起任何写操作前，调用方**必须显式传入**在 T0 时刻观测到的目标物理身份：
-  - `{ dev, ino }`：观测到目标已存在，记录其底层设备号与 Inode 号；
-  - `'missing'`：观测到目标不存在（用于新建文件）；
-  - `'unchecked'`：仅允许用于只读操作（运行时代码强制校验：**任何写操作若未提供有效 `expectedIdentity` 直接抛出运行时异常拒绝执行**）。
-- **T1（Worker 沙箱内复核与句柄写入）**：受限 Worker 在沙箱内部打开目标文件后，立刻通过 `fstat` 核对实际的 `(dev, ino)` 是否与 T0 严格一致（若 T0 为 `'missing'` 而此时文件已存在，立刻报错 `path_changed` 失败），确认无误后通过**已打开的固定文件描述符句柄**写入字节，彻底免疫符号链接替换与中间覆写。
-
----
-
-## 4. 跨平台沙箱实现与工程现实
-
-由于三大主流操作系统的内核安全原语差异巨大，Maka 的隔离能力由宿主机平台能精确表达的机制决定（若当前规则超出平台表达能力，统一 **Typed Fail-Closed 拒绝**，绝不静默降级裸跑）：
-
-| 操作系统 | 底层沙箱实现机制 | 关键设计要点与已知平台边界 |
+| 运行平台 | 底层 OS 隔离原语与协同机制 | 关键防突破设计 |
 | :--- | :--- | :--- |
-| **macOS** | `sandbox-exec` (Seatbelt `.sb` 规则) | 将 `PermissionProfile` 编译为 Seatbelt 策略描述；精细保留系统动态链接库与运行库所需只读例外路径。 |
-| **Linux** | `bubblewrap` (`bwrap`) + `seccomp` | 利用挂载命名空间与独立网络命名空间阻断越界；若出现平台不支持的显式 `deny` 规则，前置编译直接报错拒绝启动。 |
-| **Windows** | **原生 Rust Broker + AppContainer SID + Job Object** | 拒绝了不稳定的受限令牌方案，改用每请求派生的**独立 AppContainer SID**（不授予网络 Capability）、`PROC_THREAD_ATTRIBUTE_JOB_LIST` 原子绑定且关闭即杀整棵树的 Job Object，以及禁止句柄继承和递归拒绝重解析点（Reparse Points）。<br/>**当前预览边界**：Windows 文件 Worker 预览版支持编辑已有文件；由于新建文件涉及修改父目录 ACL，当前预览策略会安全拒绝新建操作；受限 `Bash` 与 Worker 内 `Grep` 不可用（自动提示改用 `Glob + Read`）。 |
+| **macOS** | 原生 **Seatbelt (`sandbox-exec` 策略描述)** (`macos-seatbelt.ts`) | 严格白名单挂载可读依赖与可写构建路径，封死未经授权的用户目录读取与直接出网套接字 |
+| **Linux** | **`bubblewrap` (`bwrap`)** 轻量命名空间容器 (`linux-sandbox.ts` / `linux-profile-path.ts`) | 对根文件系统实施只读或精简重映射挂载，利用独立 `netns` 与宿主托管代理通道隔离所有出网流量，防止向内网任意扫描 |
+| **Windows** | 原生 Rust **`runtime-host-windows-task-launcher`** + 低权限边界 | 填补 Node.js 在 Win32 下进程作业控制与环境擦除盲区，确保关联派生出来的子命令全树受控且在取消时整组彻底回收 |
 
-### 进程退出后，磁盘上的修改会怎样？
-必须牢记一个工程常识：**沙箱限制的是“能力边界”，不是“数据库回滚事务”**。如果脚本先成功写改了 `config.json`，随后的校验命令失败了，已经写入磁盘的修改依然存在；若文件 Worker 在执行写入后、回传 JSON 响应前崩溃或超时（默认 `120s`），执行器会抛出 `ToolOutcomeUnknownError`，交由持久化恢复层显式处理未知状态。
+特别值得强调的是网络控制面的做法：**彻底封堵沙箱内的直接出网套接字路径，迫使所有正当外网访问（比如拉取依赖或接口联调）必须流经受宿主权限策略监控的本地代理通道**，从而可以在包级别检验实际目标域名端口并截断恶意 302 跳转泄露。
 
 ---
 
-## 5. 教学伪代码：双层收窄与 T0/T1 身份防置换写入
+## 4. 路线 B：独立 `Filesystem Worker` 与二次收窄（`deriveWorkerProfile`）
 
-```text
-function executeWriteViaRestrictedWorker(absPath, newContent, sessionBoundary):
-    // 1. 强制要求写操作必须提供 T0 观测身份，杜绝静默跳过 CAS
-    expectedIdentity = captureIdentityAtT0(absPath) // 返回 { dev, ino } 或 'missing'
-    assert expectedIdentity != 'unchecked', "Mutations must participate in T0/T1 CAS"
+对于内置的文件读写、补丁应用与全文检索（`Read` / `Write` / `Edit` / `ApplyPatch` / `Grep` / `Glob`），Maka 没有让它们舒舒服服留在高权限 Host 主进程内部，而是专门拆出了运行于独立受控子进程中的 **`packages/runtime/src/filesystem-worker/`**：
 
-    // 2. 在目标写锁保护下执行完整的“读取边界 -> 收窄 -> 启动 Worker -> 写入”
-    return await withFileWriteLock(absPath, async () => {
-        // 3. 会话级边界核验
-        if not sessionBoundary.profile.canWritePath(absPath):
-            throw new BoundaryExpansionRequiredError(absPath, "write")
+1. **同样套上 OS 级沙箱外壳**：这个 Worker 子进程自身在启动时（`launch-spec.ts` / `process-runner.ts`）同样处于与所在 OS 匹配的隔离边界（Seatbelt / bwrap / 受限句柄）保护下，即使存在某款外部解压或正则表达式引擎缺陷被攻破，攻击者看到的也仅仅是已被剥去权限的瘦身子进程环境；
+2. **每笔操作动态二次收窄（Narrowed Worker Profile）**：假如整个会话被配置为允许修改 `./src/` 和 `./tests/` 目录，当这一次模型仅仅调用 `Write("src/utils.ts")` 时，主控在向 Worker 投递 RPC 请求时会将本次授权轮廓**二次动态收窄到仅仅涵盖目标路径这一线必需域**；甚至还针对工具动作性质区分只读与可写映射（`operationAccess`），绝不敞开无关写入目录；
+3. **跨 OS 的规范化对齐铁律**：`filesystem-worker/operations.ts` 中写明了极其敏锐的一句注释——*Canonicalisation must match the sandbox the worker runs in: realpath-based（路径规范化逻辑必须与底层物理沙箱的判定逻辑保持绝对一致，完全基于实路径解析）*，避免上层软件判定“放行”而底层 OS 沙箱依据真实软链位置当场拒绝的口径裂痕（若遇底层拦截则通过 `isLikelySandboxDenial` 精准向上归因为明确的权限拒绝信号）。
 
-        // 4. 权限二次收窄：派生仅限目标文件的极小化 Worker Profile (彻底禁网)
-        narrowProfile = deriveWorkerProfile(sessionBoundary.profile, {
-            operation: "write",
-            targetPath: absPath,
-            usesDirectoryEntry: (expectedIdentity == 'missing')
-        })
+---
 
-        // 5. 由平台沙箱编译启动参数 (fail-closed：平台不支持则立刻报错，绝不裸跑)
-        launchSpec = sandboxManager.transformWorkerLaunch(narrowProfile)
+## 5. `file-stable-write.ts`：如何靠唯一描述符（fd）与 `fstat` 物理消灭 TOCTOU？
 
-        // 6. 通过受控管道向独立子进程发送 16MB 封顶请求 (不传多余宿主环境变量)
-        response = await runFilesystemWorkerProcess(launchSpec, {
-            version: PROTOCOL_VERSION,
-            op: "write",
-            path: absPath,
-            content: newContent,
-            expectedIdentity: expectedIdentity
-        }, timeoutMs: 120_000)
+这是整个文件安全基础设施里最精彩的一段系统工程代码（`packages/runtime/src/file-stable-write.ts`）。常规文件系统库写文件总是这样工作：“先 `stat` + 检查权限是否合法 -> 再调用 `writeFile(path)` 按文件名字符串重新打开并截断覆盖”。这两次系统调用之间永远存在一段极危险的时间竞争缝隙。
 
-        // 7. Worker 内部在打开文件句柄后执行 T1 比对：
-        //    若 inode 变更或缺失文件被抢建，Worker 返回 path_changed；
-        //    若超时/崩溃未回执，必须抛出 ToolOutcomeUnknownError 暴露风险
-        if response.timedOut or response.crashedBeforeAck:
-            throw new ToolOutcomeUnknownError("Filesystem worker terminated before response ack")
+Maka 用以下不可分割的文件句柄物理锁协议彻底移除了这扇机会窗口：
 
-        return response.result
-    })
+```typescript
+// 教学化提炼自 packages/runtime/src/file-stable-write.ts
+async function readModifyWriteThroughHandle(targetPath: string, expectedIdentity: FileIdentity, transform: (text: string) => string) {
+  // 1. 全过程绝不按路径“再开一次”！针对已有目标使用非截断模式 ('r+') 一次性打开获取物理 fd
+  const fd = await openOnceWithoutTruncating(targetPath, /* existing ? 'r+' : 'wx' */);
+
+  // 2. 如果是全新创建文件，强制独占标志 'wx' (O_CREAT | O_EXCL)：
+  //    一旦在审批后、创建前这微秒之间路旁突然被人抢塞进了实体/软链，内核立刻报 EEXIST，
+  //    驱动直接抛出 StableWriteFailure('path_changed') 并撤出，绝不盲目踩爆现有节点!
+
+  // 3. 在正式清空/修改任何字节之前，直接对已打开的描述符本身调 fstat(fd)！
+  const actualStat = await fd.stat();
+  if (actualStat.isDirectory()) {
+    throw new StableWriteFailure('is_directory', 'Target became a directory');
+  }
+  if (!samePhysicalDeviceAndInode(actualStat, expectedIdentity)) {
+    // 哪怕路径半途被调包指向别处，我们在任何字节遭到截断改写之前即已通过物理 (dev, ino) 精准抓包退场，
+    // 磁盘原文件依然一字节未动保持完好无损!
+    throw new StableWriteFailure('path_changed', 'Physical target identity swapped mid-operation');
+  }
+
+  // 4. 所有读取、修改与覆盖写回全部紧紧锁定在这同一个经校验的 fd 上推进!
+  await writeAndFlushOnSameDescriptor(fd, transform);
+}
 ```
 
----
-
-## 6. 对照 Pi：自由进程扩展 vs 原生系统级隔离
-
-- **Pi 的做法**：Pi 的核心定位于开发者在自己信任的终端里高效协同编码，提供 Node、SSH 与外部沙箱后端路由，通过 `resolveProjectTrusted()` 在打开仓库时把关项目级配置与扩展的加载信任，但内置文件工具默认不额外派生 AppContainer / `bwrap` 文件 Worker 子进程。
-- **Maka 的做法**：面对远程客户端协同、多租户访客介入与高自治长任务，Maka 将“不信任的模型参数”彻底挡在 Host 主进程之外，构建了“命令沙箱 + 权限二次收窄的文件 Worker + Windows AppContainer 原生 Broker + T0/T1 文件身份锁”的硬核防御矩阵。
+看看这几层物理细节的细腻程度：
+- **用 `r+` 打开而非 `w`**：如果按常规直接上 `w` 模式，文件刚打开那一毫秒旧内容就已经被内核物理截断清空成 0 字节，即便你后面 `fstat` 查出不对劲也已经酿成了破坏；用非截断 `'r+'` 打开并校验 `(dev, ino)` 完好无损后，才通过同一只已认证句柄写入并裁剪尾长，验证不过关时原文件字节 **100% 完好如初**！
+- **独占创设 `'wx'` 防伏击**：面对本应新建的文件，决不允许静默覆写半路冒出的诡异硬链接或未知替代体，触发 `EEXIST` 即直接宣告 `path_changed` 异常终止；
+- **`compareAndDeleteEntry` 安全删除**：即便在删除文件操作时也坚持对齐实体校验，从物理数据结构层把 TOCTOU 漏洞压缩至物理零窗口。
 
 ---
 
-## 7. 延伸阅读
+## 6. 总结
 
-- 了解在 Windows 等平台下，Maka 如何进一步借助原生 Rust `gitoxide-helper` 数据面守卫整个工作区树版本，阅读 [04.2 Gitoxide 与工作区版本](../04-state/gitoxide-and-workspace-versioning.md)。
-- 了解当命令执行需要交互式终端或强杀整个孙子进程树时如何处理，阅读 [03.3 桌面自动化与 PTY 虚拟终端](computer-use-and-pty.md)。
-- 了解连接认证、访客授权以及临时密钥注入是如何配合沙箱工作的，阅读 [03.5 分层授权与凭据生命期](permissions-and-secrets.md)。
+Maka TypeScript 版的工具沙箱层靠的不是一堆堆砌在文本层面容易绕过的正则黑名单，而是实打实的操作系统原语组合拳：
+1. **两条跑道同样隔离**：`Bash` 与 `Filesystem Worker` 双双运行在 Seatbelt / `bwrap` / 原生 Win32 作业限制壳层内，主协调进程自身干净轻量；
+2. **动态二次收窄**：每次小范围文件工具呼叫都会基于会话策略按需进一步压紧可读写目录边界，不让默认宽松规则顺带溢出给单项高敏动作；
+3. **单一 fd 与 `(dev, ino)` 物理绑定**：借助 `file-stable-write.ts` 的一次性打开、验证前零截断和独占 `'wx'` 创建，从系统调用原理层面根绝经典的检查-使用时间窗置换（TOCTOU）漏洞。
+
+掌握了文件与 Shell 命令的沙箱防线后，如果 Agent 需要离开文件与黑框命令行，去操作屏幕上真实弹出的图形软件与浏览器（**Computer Use**），或者在集成虚拟终端里和交互式 `vim`、`top`、密码输入程序打交道（**PTY Stack**），基础设施层又是如何把混乱的像素流、光标权限与 ANSI 转义乱码收拢为安全可控的契约协议的？下一篇深入原生视控与终端虚拟屏栈——[原生桌面视觉与 PTY 虚拟屏：MakaCuService 帧契约、坐标门控与进程树收尸](./computer-use-and-pty.md)。

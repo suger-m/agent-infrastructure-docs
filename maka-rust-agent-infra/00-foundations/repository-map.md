@@ -1,14 +1,12 @@
 # Cargo Workspace 依赖拓扑与 Schema 代码生成
 
-[返回手册目录](../README.md)
-
 当一个用 Rust 编写的平台同时囊括了嵌入式 V8 引擎（`deno_core`）、SQLite 存储底座、操作系统沙箱（MXC/Seatbelt/`bubblewrap`）、桌面辅助进程、模型网络协议栈以及客户端工作台时，如果不严格规范模块间的编译边界，哪怕只是改动了一个前端展示字段，也可能触发全量重编 V8、拖慢整个研发循环，甚至引发隐蔽的循环依赖。
 
 Maka Rust 版通过**清晰的 Workspace 目录划分、领域内单向 Crate 分层，以及脱离重型依赖的 `maka-schema` 契约代码生成机制**，在庞大的 60+ Crate 工程中维持了极佳的编译隔离度与边界纯粹性。
 
 ---
 
-## 1. 概念先行：部署包（Package）与编译单元（Crate）分离
+## 1. 部署包（Package）与物理编译单元（Crate）为何必须正交分离？
 
 阅读 Maka Rust 源码时，首先要分清两个容易混淆的边界：
 - **插件部署包（`package.ts`）**：是面向运行时和热部署的**逻辑组装单元**，声明自己是 `host`、`ui` 还是 `composition` 包，携带配置 Schema 与服务导入导出契约。
@@ -121,8 +119,8 @@ flowchart LR
 
 ---
 
-## 6. 延伸阅读
+## 6. 总结
 
-- 深入理解第一层 `maka-agent-facts` 与第二层 `maka-agent-state` 如何协作折叠状态，阅读 [00.3 领域事实与状态折叠](domain-model.md)。
-- 了解 `plugins/agent/engine` 如何基于这些分层构建统一的 Reconciler 循环，阅读 [01.1 统一 Reconciler 与义务前沿](../01-runtime/reconciler-and-obligation-frontier.md)。
-- 了解第三方开发者如何利用 `@maka-agent/plugin-sdk` 编写可热重载的插件与 UI 扩展，阅读 [01.4 V8 HostService 与 NSH UI 插件](../01-runtime/host-plugins-and-ui-runtime.md)。
+将热部署包（Package）与物理编译单元（Crate）清晰拆开，并借助 `plugins/agent/` 内部单向四层分层以及不依赖 V8 的 `maka-schema` 唯一契约导出通道，Maka Rust 仓库既能在复杂的多语言组合演化下维持微秒级边界校验，又死守了编译敏捷性与零循环依赖。
+
+看清了仓库地图之后，我们就可以正式聚焦运行在这套边界之内的领域抽象：为什么微内核把每一次作业拆分为跨压缩稳定的 `RunId`、`Fact`、`RunView` 折叠流及带内容寻址的 `RecordedOperationResult`？下一篇展开介绍：[领域模型：`RunId`、`Fact`、`RunView` 与操作语义](domain-model.md)。

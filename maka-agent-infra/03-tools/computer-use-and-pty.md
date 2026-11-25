@@ -1,133 +1,89 @@
-# 原生桌面自动化与 PTY 虚拟终端栈
+# 原生桌面视觉与 PTY 虚拟屏：MakaCuService 帧契约、坐标门控与进程树收尸
 
-[返回手册目录](../README.md)
+## 1. 为什么桌面 UI 自动化与交互式命令不能当作“盲拍截图 + `execSync`”处理？
 
-当 Agent 的工作范围不再局限于读写代码文件，而是需要**“打开桌面应用点击按钮并截图验证”**，或者**“在交互式终端里运行 `vim`、调试器、带动态刷新的测试进度条”**时，普通的文本管道（`stdout`）与单次进程启动模式立刻失效：
+当 Agent 必须离开标准文本代码文件、开始接管真实的桌面应用窗口或者运行需要上下键交互的全屏终端命令（如 `vim`、交互安装向导、进度条 CLI）时，传统直觉做法会立刻跌入三个物理黑洞：
 
-1. **桌面自动化黑盒**：操作系统无障碍树（AX Tree）和键鼠事件直接驱动用户的真实屏幕。如果在模型点击“提交”的一瞬间用户点击了“停止”，直接用 `SIGKILL` 杀掉控制子进程，主进程根本不知道刚才那一下鼠标到底有没有点下去！
-2. **交互式终端 ANSI 乱码**：交互式命令行程序依赖 VT100/ANSI 控制序列移动光标、刷新局部字符甚至切换全屏缓冲区。把带满 `\x1b[32m` 和 `\x1b[2J` 的原始字节流直接喂给大模型，不仅耗费海量 Token，还会让模型完全看不懂屏幕上的真实布局。更危险的是，恶意脚本输出一段 `OSC 52` 序列就可能劫持剪贴板。
-3. **孤儿进程逃逸**：通过 Shell 拉起的服务可能衍生出多层子进程树。超时取消时如果只杀掉顶层 Shell，后台孙子进程会继续占用文件锁和网络端口。
+1. **视觉过时与点击错窗（Stale Frame Race）**：大模型看的是 3 秒前拍下的桌面上“提交按钮”坐标 `(540, 320)`；但就在推理输出那 2 秒内，后台弹出一个覆盖全屏的系统警告框或窗口被切换走。若执行层收到坐标就盲目往当前屏幕戳下去，轻则点空，重则直接误触确认删除或切换别的应用。
+2. **重复动作与“先拒绝后重试”恢复误导**：如果前一次手势因为参数或指针限制在真正分发给 OS 之前就已经被拦截（Retired），恢复层若笼统返回 `duplicate_action`（“这个动作发过了，快重新截屏确认界面是不是变了”），模型就会被错误引导去做无效重截屏甚至误判界面已变更！
+3. **ANSI 制御字符垃圾流与进程树孤儿逃逸**：交互式程序不停刷出的 `\x1b[2K\x1b[1A` ANSI 光标清屏控制符直接吐给模型会污染几万 Token；而命令超时取消时如果仅仅朝最顶层的 `/bin/sh` 发一个 `SIGTERM`，底下派生出的子构建进程或浏览器驱动依然在后台僵死占锁。
 
-本章深入剖析 Maka 在这一层构建的三大核心子系统：**`MakaCuService` 原生桌面服务监管、`PtyScreenCollector` 虚拟屏幕采集栈，以及跨平台 `ProcessTreeTerminator` 进程树清理引擎**。
-
----
-
-## 1. 原生桌面自动化：`MakaCuService` 与确定性取消契约
-
-Maka 将操作系统原生 UI 自动化（读取无障碍树、屏幕截图、鼠标键盘控制）隔离在独立的原生子进程 `maka-cu` 中，由宿主侧的 `MakaCuService` 通过基于行分隔的 **JSON-RPC 2.0 over stdio（`maka.cu/2` 协议）** 进行监管。
-
-```mermaid
-stateDiagram-v2
-    [*] --> idle: 初始惰性态
-    idle --> starting: 收到首个桌面调用 (10s 握手超时)
-    starting --> ready: 握手协商 limits (maxResponseBytes / shutdownGraceMs)
-    ready --> ready: 处理 JSON-RPC 请求 (默认 20s 超时)
-    ready --> backing_off: 子进程意外退出或协议违规 (如连续 3 行非 JSON)
-    backing_off --> starting: 指数退避重启 (最多 3 次)
-    backing_off --> unavailable: 重启次数耗尽或遭遇 fatal 致命错误
-    ready --> disposed: 宿主停机 (发送 SIGTERM 并等待优雅宽限期)
-```
-
-### 1.1 取消的艺术：为什么必须等 `$/cancel` 回答 2 秒，而不能直接 `kill`？
-在设计异步子进程执行器时，最常见的错误是“一旦收到用户取消信号，立刻向子进程发送 `SIGKILL`”。但在桌面自动化场景下，这是绝对禁止的：
-
-- **物理副作用的不可逆性**：一个已经发给 `maka-cu` 的请求可能已经驱动了系统鼠标指针或按下了回车键。如果 Host 在收到取消指令的同一毫秒就强杀子进程并向模型报告“已取消未执行”，就是在向历史账本撒谎！
-- **2 秒优雅取消窗口（`CANCEL_GRACE_MS = 2,000ms`）**：
-  当用户按下停止键时，`MakaCuService` 首先通过 `stdin` 向子进程冲刷一条 `$/cancel` 协议通知，然后等待子进程自己结清当前状态（关闭临时会话、移走 Agent 光标指示器、清理截图目录）并回答“这次动作到底有没有生效”。
-  - **为什么不死等完整的 20 秒请求超时？** 实测表明，若在 $t=120\text{ms}$ 取消却等完默认 $20\text{s}$ 超时，用户点击停止后界面会白白卡死近二十秒。
-  - **为什么又必须实打实地等待 2 秒？** 如果在发完 `$/cancel` 的同一个事件循环 Tick 里就强杀子进程，缓冲在 `stdin` 里的取消指令甚至还没来得及刷入内核管道，子进程根本收不到优雅收尾信号！2 秒窗口既能让健康子进程安全善后并报告真实状态，又能防止僵死进程拖垮用户体验。
-
-### 1.2 图像目录隔离与流式缓冲防护
-- **图像不走标准输出通道**：在 `maka.cu/2` 协议中，任何截图字节流**绝对禁止**通过 `stdout` 返回。子进程将截图写入独占的本地图像目录，只把路径与元数据传回主进程。`stdout` 通道保留给结构化的无障碍树（AX Tree）响应（配备最小 `4 MiB` 缓冲与 `1 MiB` 裕量），防止单张高清大图冲垮 JSON-RPC 解析器。
-- **非 JSON 污染熔断**：若某个受损的子进程在同一个代次内向 `stdout` 连续吐出超过 `3` 行非 JSON 杂音（`MAX_NON_JSON_LINES = 3`），监督器立即判定协议破坏，触发代次解体并记录 `MakaCuReleaseEvent`（若在途调用无法确认，明确标记 `outcomeUnknown: true`）。
-- **帧与会话状态隔离**：`cua-session-state` 与 `cua-frame-state` 将窗口句柄、全局指针许可（`MAKA_ALLOW_GLOBAL_POINTER`）及最新屏幕帧索引严格绑定在当前会话与执行代次上，防止跨会话误点。
+Maka TypeScript 版利用 **`packages/computer-use` (`MakaCuService`)**、**`cua-frame-state.ts` 帧绑定与七态拒绝分类**、**`@xterm/headless` 虚拟屏幕栈（`PtyStack`）**以及 **跨平台 `ProcessTreeTerminator`**，把视觉操作与伪终端变成确定性、有状态保护的可观测协议。
 
 ---
 
-## 2. 交互式终端仿真：`PtyStack` 与 `PtyScreenCollector`
+## 2. `MakaCuService` 与 `maka.cu/2`：独立隔离的视觉执行监控器
 
-当模型执行需要伪终端（PTY）的命令（如启动开发服务器、交互式 CLI 向导、或者全屏诊断工具）时，Maka 不会把杂乱的原始转义字符直接扔给模型，而是通过 `PtyStack` 构建了一套运行在后端的**无头虚拟终端引擎**。
+翻开 `packages/computer-use/src/maka-cu-service.ts`，开篇注释就定下了极为清晰的隔离规则：**绝不能为了代码复用，把 `maka-cu` 监督器跟普通浏览器 `cua-driver` 硬揉成带布尔开关的同一个父类**，因为一旦混合标记出错，就会拿错了窗口拆除序列把桌面进程误杀。
+
+`MakaCuService` 通过标准输入输出（stdio）按行传输 **JSON-RPC 2.0 (`maka.cu/2`)** 协议独立监管单个原生 `maka-cu` 执行子进程：
 
 ```mermaid
 flowchart LR
-    Child["受控 Shell / PTY 进程"] -->|"原始 VT100/ANSI 字节流"| Collector["PtyScreenCollector<br/>(@xterm/headless + Unicode11Addon)"]
-    
-    subgraph SecurityFilter["安全协议边界 (installProtocolBoundary)"]
-        OSC["拦截高危 OSC 序列<br/>(0/1/2 标题, 52 剪贴板, 7/8/9/777)"]
-        Cap["限流防爆 (解析高水位 1MB / 应答上限 1MB)"]
-    end
-    
-    Collector --> SecurityFilter
-    SecurityFilter --> Grid["内存字符网格快照<br/>80x24 活动屏幕 + 500 行 Scrollback<br/>追踪 Alternate Buffer (47/1047/1049)"]
-    Grid --> Redact["redactSecrets() 敏感词脱敏"]
-    Redact --> Output["PtyShellOutput (干净文本网格 + 光标状态)"]
+    Turn["AiSdkTurn 工具层<br/>发起观察截屏或 bound_action"] --> State["cua-frame-state.ts<br/>核对 epoch / frameId / boundAction 指纹"]
+    State -->|"通过前置帧校验"| Svc["MakaCuService<br/>(JSON-RPC 2.0 over stdio: maka.cu/2)"]
+    Svc -->|"独立私有图像目录 + 受控指针门禁<br/>(MAKA_CU_ALLOW_GLOBAL_POINTER)"| Child["原生 maka-cu 子进程<br/>执行精确窗口内操作并返回最新快照"]
+    Turn -->|"用户取消或超时打断"| Cancel["先发 $/cancel 通知等待自有回答<br/>而非直接粗暴 kill; SIGTERM 带声明优雅窗"]
 ```
 
-### 2.1 虚拟终端采集器的四大核心工程设计
-1. **基于标准终端内核的渲染还原**：底层装载无头 `@xterm/headless` 与 `Unicode11Addon`（精确计算中日韩双宽字符与 Emoji 宽度），将任意光标跳行、退格擦除、进度条原地覆写，实时渲染为干净规整的 `80 × 24` 活动屏幕文本 + 最多 `500` 行的历史回溯区（`PTY_SCROLLBACK_ROWS`）。
-2. **拦截恶意终端逃逸（`BLOCKED_OSC`）**：终端世界存在著名的“OSC 转义注入”攻击——例如运行一个看似普通的测试脚本，它在标准输出里打印一段 `OSC 52` 控制码就能静默读写剪贴板，或者利用 `OSC 0/1/2` 篡改终端标题欺骗用户。`PtyScreenCollector` 在协议边界层显式拦截并屏蔽 `OSC [0, 1, 2, 7, 8, 9, 52, 777]`，同时将终端向子进程回传的协议应答严格封顶在 `1 MB` 以内。
-3. **备用缓冲区（Alternate Buffer）追踪**：当进程进入 `vim`、`less`、`htop` 等全屏应用时（触发私有模式 `47 / 1047 / 1049`），屏幕会切入备用缓冲区并在退出时瞬间清屏。采集器专门记录 `lastAlternateRows` 与滚动保留抑制标记，确保即使全屏工具刚刚退出，模型也能看清它在退出前最后一眼展示的信息。
-4. **屏幕快照实时脱敏**：在将字符网格组装成 `PtyShellOutput` 交付给模型或前端展示之前，所有内容必须经过 `redactSecrets()` 扫描替换（标记为 `[redacted]`），防止误打印的密钥进入持久事件账本。
+这一监控骨架蕴含三项重要安全边界：
+1. **声明式取消优于粗暴强杀**：当外层取消执行时，`MakaCuService` 向 `maka-cu` 发送协议级 **`$/cancel`** 指令并等待其自有回执确认物理键鼠手势收束完毕，只有在 `SIGTERM` 声明宽限窗口超时未退时才升级终结，保护宿主机输入焦点和本地图像缓存不被撕碎。
+2. **全球指针安全门闩（`MAKA_CU_ALLOW_GLOBAL_POINTER`）**：系统默认严格限制原生操作坐标只能落回目标绑定窗口标识（`ComputerUseWindowIdentity`）作用域内，仅当策略明确开闸并校验权限通过才放行全局屏幕级指针通道。
+3. **私有隔离图库目录**：所有截取出的高分辨率帧均保存在专属隔离目录并经严格哈希与修订版本号追踪，不直接混合进入任意用户项目路径。
 
 ---
 
-## 3. 跨平台进程树终结器：`ProcessTreeTerminator`
+## 3. 帧身份绑定与七态拒绝分类：`cua-frame-state.ts`
 
-一个 `Bash` 工具调用看似只启动了一个 `/bin/sh` 进程，但实际执行命令（如 `npm test`）可能会启动子进程 `vitest`，`vitest` 又派生出 8 个测试 worker，其中一个 worker 还拉起了本地数据库进程。
+为了彻底根治“看着第 N 张截图点了第 N+1 轮已经换掉的弹窗”，`packages/runtime/src/cua-frame-state.ts` 要求每一个发向桌面的键鼠意图都必须显式捆绑其所依据的那一帧视觉证明（`CuaFrameIdentity` + `CuaBoundAction.fingerprint`）：
 
-如果只调用 Node.js 的 `child.kill('SIGTERM')`，操作系统只会杀掉最顶层的 `/bin/sh`，下面的所有孙子进程会全部变成挂在系统 Init 进程下的**僵尸/孤儿进程**，不仅白白消耗宿主机资源，还会一直锁住工作区里的 SQLite 或代码文件导致后续工具失败！
-
-`ProcessTreeTerminator` 采用分平台递归清理与竞态防护机制：
-
-| 平台策略 | 发现与清理机制 | 关键防误杀保护 |
+| `CuaActionRejectionReason` | 精确触发场景 | 模型与调度器的恢复语义差异 |
 | :--- | :--- | :--- |
-| **Windows** | 直接调用系统原生 `taskkill /PID <pid> /T /F` 强制连根摧毁整棵进程树（强制限定 `2000ms` 超时防工具挂起）。 | 信号前检查 `hasExited()`；执行前通过 `beforeSignal()` 钩子二次确认目标未提前自然退出，规避 PID 复用误杀。 |
-| **POSIX (Linux / macOS)** | 解析 `/bin/ps` 或 `/usr/bin/ps` 快照构建完整 `(pid, ppid, pgid)` 父子拓扑图，由叶向根收集所有后代进程与同进程组成员。 | 先发优雅信号 `SIGTERM`，在 `2000ms` 宽限期（`DEFAULT_PROCESS_TERMINATION_GRACE_MS`）内观察进程退出情况；超时仍存活再发送 `SIGKILL` 兜底清场。 |
+| **`stale_frame` / `no_active_frame`** | 目标窗口自上次截屏后已发生变化或无有效当前帧 | 必须强制重新发起一帧最新观察快照后再决策坐标 |
+| **`stale_epoch`** | 运行跨越了进程重启或宿主窗口会话纪元换代 | 原有视觉句柄全面失权，需从头建立目标绑定 |
+| **`invalid_binding` / `action_not_claimed`** | 提交动作指纹同协议签发绑定不匹配，或未声明持有帧锁 | 当场拦停未授权篡改动作 |
+| **`duplicate_action`** | 上一次一模一样的动作已进入过真实分发队列后被再次重提 | **副作用可能已经发生**！提示模型必须先观测确认最新窗口结果再决定后续 |
+| **`retired_action`** | 相同的动作重提，但**前一次尝试在根本未分发给 OS 之前即遭门禁拦截** | **副作用绝未发生，窗口原封未动**！明确告知模型可直接跳过冗余再观察开销 |
+
+特意把 `retired_action` 从 `duplicate_action` 拆出来的决定，在源注释里记下了极其深刻的实战教训：以前这两者混作一谈导致系统告诉模型“去刷新查看一个根本不可能发生变化的画面”，既浪费一整个多模态截屏回合又让模型陷入逻辑自相矛盾！
 
 ---
 
-## 4. 教学伪代码：优雅取消与虚拟屏采集契约
+## 4. `PtyStack` 与 `PtyScreenCollector`：把 ANSI 控制乱流编译成二维纯净文本屏
 
-```text
-// === 1. MakaCuService 优雅取消与不确定性保留 ===
-async function cancelComputerUseRequest(service, requestId):
-    // 先通过 stdin 刷新协议级取消指令，让子进程有机会归还光标并如实汇报屏幕状态
-    await service.writeStdinJsonRpc({ method: "$/cancel", params: { id: requestId } })
+转向终端命令行世界时，许多现代开发者用 `spawn()` 重定向 `stdout/stderr` 跑普通脚本没问题，一旦模型调起了自带彩色进度条、动态刷新表格甚至全屏界面菜单的交互式 CLI，裸读取出来的全是 `\r\x1b[32m...\x1b[0K` 覆盖流，完全无法让模型看懂现在屏幕最终定格在第几行！
 
-    // 只等待 2 秒优雅回答窗口 (既不卡死 20 秒总超时，也不同一 Tick 强杀丢状态)
-    reply = await waitWithTimeout(request.settledPromise, timeoutMs: 2_000)
+Maka 在 `packages/runtime/src/pty-stack.ts` 与 `pty-screen-collector.ts` 中将真实的终端渲染引擎直接嵌进了后端内核：
 
-    if reply != null:
-        return reply // 采信子进程明确返回的取消前已执行状态
-
-    // 2 秒内仍无响应：强制销毁子进程代次，并显式向外广播 outcomeUnknown = true
-    await service.teardownGeneration(reason: "cancel_grace_expired")
-    throw new ToolOutcomeUnknownError("Computer Use child did not acknowledge $/cancel")
-
-// === 2. PtyScreenCollector 安全输入与快照生成 ===
-function acceptPtyChunkAndSnapshot(collector, rawAnsiChunk):
-    if byteLength(collector.pending) > 1_048_576:
-        // 超过 1MB 解析高水位，触发背压丢弃或标记截断
-        collector.markTruncated()
-
-    // 交由无头 xterm 内核渲染，协议边界自动屏蔽 OSC 52 等高危转义码
-    await collector.terminalWrite(rawAnsiChunk)
-
-    // 读取当前 80x24 活动窗口与 500 行 scrollback，对文本逐行执行密钥脱敏
-    rawScreen = collector.extractActiveAndScrollback(includeAlternate: true)
-    return {
-        screen: redactSecrets(rawScreen.screen),
-        scrollback: redactSecrets(rawScreen.scrollback),
-        truncated: collector.historyTruncated,
-        cursorVisible: collector.cursorVisible,
-        mouseEncoding: collector.mouseEncoding
-    }
+```typescript
+// 核心栈组成（源自 packages/runtime/src/pty-stack.ts）
+interface PtyStack {
+  spawn: typeof NodePty.spawn;           // 分配真实系统级伪终端 (TTY / ConPTY)
+  Terminal: typeof HeadlessTerminal;     // @xterm/headless 无头虚拟屏幕状态机
+  Unicode11Addon: typeof HeadlessUnicode11Addon; // Unicode 11 宽字符/CJK 对齐渲染扩展
+}
 ```
 
+- **懒加载与精准平台诊断**：`loadPtyStack()` 利用单例缓存（`loadPromise`）动态装配原生 `node-pty`、无头终端 `@xterm/headless` 与宽字符扩展 `@xterm/addon-unicode11`；一旦目标宿主机缺失原生依赖，立刻精准抛回 `${process.platform}/${process.arch}` 诊断报错。
+- **实时刷屏归约器（`PtyScreenCollector`）**：真正运行命令时，PTY 吐出的千万条光标回退和色彩控制序列全部先灌入内存中的无头 `@xterm/headless` 屏幕缓冲区渲染定型，再通过 **`SessionRuntimeResourcePtyDataFrame`** 按需向模型和前端导出清晰干净的**最终二维屏幕字符网格与历史滚屏切片**，直接过滤掉 99% 的冗余重绘控制噪音。
+
 ---
 
-## 5. 延伸阅读
+## 5. `ProcessTreeTerminator`：拒绝留下僵尸子孙进程的跨平台终结器
 
-- 了解普通前台/后台 `Bash` 与受限文件 Worker 如何在操作系统层面进行路径与网络隔离，阅读 [03.4 操作系统级双路沙箱](sandbox.md)。
-- 了解系统如何通过 `AdmissionLimiter` 限制后台持久 Shell 进程的数量配额，阅读 [05.1 输入队列与执行准入](../05-coordination/queues-and-admission.md)。
-- 了解连接桌面与浏览器的前端能力代理如何经过授权审批，阅读 [03.2 MCP 连接与客户端能力代理](mcp-and-client-capabilities.md)。
+无论跑的是重度构建 `Shell` 命令、无头测试浏览器，还是后台拉起的独立工具集，最常见的本地环境污染源就是：**命令超时或用户点取消后，主壳进程 `sh.exe` / `zsh` 确实死了，但它刚刚衍生出的孙子 `node` / `webpack` / `cargo` 子进程还在后台死死锁着 3000 端口甚至继续写入测试目录！**
+
+`packages/runtime/src/process-tree-terminator.ts` 统一封装了跨 OS 进程树级联清理原语：
+- **POSIX（macOS / Linux）**：强制以独立进程组（Process Group / `detached`）发起受控任务，取消收尾时先对整个 `-pgid` 进程组投递 `SIGTERM` 给予宽限清理窗口，超时尚未清零则果断升级至 `SIGKILL` 一锅端掉整棵衍生族谱；
+- **Windows**：彻底放弃只杀顶层 PID 的无效做法，利用原生的作业控制通道（协同 `runtime-host-windows-task-launcher` 与 Win32 任务终止句柄）一次性扼杀整条进程家族树并确认句柄归零，确保后续工作区清理和 `settled` 门闩绝不踩空。
+
+---
+
+## 6. 总结
+
+Maka TypeScript 版在跨出纯文件编辑边界、操作屏幕画面与伪终端时，依然维持了极高的系统确定性：
+1. **桌面自动化（`MakaCuService`）**：依托 `maka.cu/2` 独立监督进程、优雅 `$/cancel` 及 **`stale_frame` / `retired_action` 七态精确识别**，消除了视觉误击和误引导恢复；
+2. **伪终端（`PtyStack`）**：用无头 `@xterm/headless` 引擎替代裸字符拼接，输出纯正干净的屏幕投影；
+3. **进程收尸（`ProcessTreeTerminator`）**：确保任何打断取消都伴随整个衍生进程树的完全退场，守住 `settled` 栅栏前提。
+
+本地屏幕和终端都能严格锁住了，但如果插件工具运行在第三方 MCP 服务里（对方随时可能偷偷增删工具列表改变 Schema），或者需要跨网络让前端连接上的桌面用户本地帮我们执行一项受限反向动作（Client Capability）呢？下一篇剖析如何防止第三方工具定义“暗渡陈仓漂移”，以及端侧反向调用如何用 `accepted → admitted` 两步契约界定未知副作用边界：[MCP 加密防漂移与端侧两阶段准入：accepted 到 admitted 的权威切分](./mcp-and-client-capabilities.md)。

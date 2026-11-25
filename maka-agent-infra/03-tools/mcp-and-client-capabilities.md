@@ -1,190 +1,71 @@
-# MCP 连接与客户端能力代理
+# MCP 加密防漂移与端侧两阶段准入：accepted 到 admitted 的权威切分
 
-[返回手册目录](../README.md)
+## 1. 外接协议工具的两大失控陷阱：远端契约漂移与端侧反向代理盲区
 
-当用户在协同会话中发出指令：“去公司内部的 Jira MCP 服务查一下最新工单，再读取我当前打开的浏览器标签页里的生产监控报警面板，整理一份汇总。”
+当微内核的扩展工具不再仅仅来自核心代码库写死的几个原生函数，而是来自以下两类动态边界时，常规的接口包装会瞬间失效：
 
-这一句需求直接触及了 Agent 基础设施中**两类位置完全不同的外部工具**：
-1. **MCP 工具（Model Context Protocol）**：驻留在外部 MCP 服务进程或远端 HTTP 接口中（可挂载在 Runtime Host 侧，也可挂载在用户的 CLI 客户端侧）。
-2. **客户端能力（Client Capabilities）**：运行在用户本地桌面客户端或浏览器插件中（如读取已登录的内网网页、控制桌面视图）。这些数据带有用户的个人登录态（Cookies），服务端或后台进程**根本无法直接访问**。
+1. **第三方 MCP（Model Context Protocol）服务端静默偷换工具定义**：某个远程或本地 MCP 服务在第 1 轮把工具 `update_record` 描述为只读查表并经过管理员审核允许进入可用名单；到了第 3 轮，远端静悄悄触发了一次服务端升级或恶意吐出参数 Schema 完全变形的同名工具——如果宿主只按裸字符串名 `"update_record"` 去路由发起调用，模型手里的调用意图和实际打向远端执行的参数格式当场错位甚至遭注入提权！
+2. **反向端侧能力（Client Capabilities）断连生死盲区**：有时执行环境要求穿过网络反向请求客户端本机（比如让用户的桌面前端配合打开本地某项预览能力或表单扩展）。如果 Host 一发出 RPC 就当成“肯定跑成了”，一旦中间在浏览器关闭或断网瞬间失联，恢复层根本不知道客户端到底“仅仅收到消息还没来得及干活”还是“早已确认越过批准门禁开始改动状态了”！
 
-如果把这两类工具简单包装成普通异步函数，系统很快就会撞上三大安全与一致性漏洞：**MCP 服务重连后工具参数悄悄漂移导致错调、浏览器未获用户同意就提前操作页面、以及两个请求同时抢占同一个客户端能力时如何正确取消。** 本章深度剖析 Maka 如何通过加密绑定令牌（`mcpb1`）与两阶段准入握手协议化解这些难题。
+Maka TypeScript 版分别在 `packages/mcp`（**加密工具绑定指纹 `mcpb1.*`**）与 `packages/runtime-host/src/server/client-capability-invocation-broker.ts`（**端侧代理 `accepted → admitted` 两阶段准入切分**）筑起严密防线。
 
 ---
 
-## 1. 概念先行：双路扩展工具的统一收敛
+## 2. 路线 A：MCP 服务发现、防漂移加密绑定（`mcpb1.`）与安全传输
 
-无论是远端 MCP 服务还是用户眼前的浏览器扩展，在上层大模型循环（`AiSdkTurn`）看来，它们都表现为标准的 `MakaTool` 声明。真正的工程差异在于**发现时机、绑定校验与物理执行落点**：
+观察 `packages/mcp/src/tool-binding.ts` 与 `transport-security.ts` / `tool-output-validation.ts` 的实现细节，Maka 为外部 MCP 工具确立了从“发现目录”到“每次真正调起”的整套鉴权铁链：
 
 ```mermaid
 flowchart LR
-    Model["大模型提出工具意图<br/>(get_ticket / browser_read)"] --> TR["ToolRuntime (统一调度与 T1/T2 持久化内核)"]
-    
-    subgraph PathA["路线 A：MCP 服务连接 (Host 侧 / CLI 侧)"]
-        TR --> BindA["McpToolBinding 校验<br/>(mcpb1.managerId.gen.sha256)"]
-        BindA --> Mgr["McpClientManager (stdio / Streamable HTTP)"]
-        Mgr --> McpServer["外部 MCP Server (工单系统 / 数据库)"]
-    end
-    
-    subgraph PathB["路线 B：客户端能力代理 (hostAdmission: client_capability)"]
-        TR --> Broker["HostClientCapabilityCoordinator<br/>两阶段握手与 Joiner 排队协调"]
-        Broker <-->|"1. call → accepted (上报真实 origin)<br/>2. admitted → 执行并回传结果"| Client["已连接客户端 (浏览器插件 / Desktop)"]
-    end
+    Discover["MCP tool-discovery<br/>读取 tools/list 元数据并规范校验"] --> Fingerprint["生成 definitionFingerprint<br/>(工具名称 / 描述 / 输入 JSON Schema 全量归一化摘要)"]
+    Fingerprint --> Bind["createMcpToolBinding()<br/>生成 96 字符加密绑定凭据<br/>mcpb1.&lt;managerId&gt;.&lt;gen36&gt;.&lt;sha256_digest43&gt;"]
+    Bind --> Catalog["注入当前模型可见工具目录"]
+    Catalog -->|"模型决策发起 calls"| Check{"parseMcpToolBinding() & 实时防漂移校验"}
+    Check -->|"generation36 过期或远端指纹已变"| RejectDrift["当场拒绝执行并报漂移告警<br/>绝不允许拿旧授权去调变更过定义的新工具!"]
+    Check -->|"签名与代次精确对齐"| Invoke["安全调用 MCP Tool & 执行输出 Schema 验证"]
 ```
+
+看看 `tool-binding.ts` 这几行代码所锚定的密码学精细度：
+- **四元组防伪摘要封套**：每次 `createMcpToolBinding` 把 **`[managerId, connectionGeneration, serverId, toolName, definitionFingerprint]`** 序列化后过 SHA-256 生成 43 位 `base64url` 摘要，连同 `36 进制 connectionGeneration` 一并锁进长度上限 **`96` 字符**的紧致格式 **`mcpb1.<managerId>.<gen36>.<digest43>`** 里；
+- **防连接重启换代偷渡**：哪怕远端重启连接后暴露出来的工具名称还叫同一个名字，只要 `connectionGeneration` 推进了一代或者工具参数结构悄悄改动了哪怕一个 `required` 属性，旧模型上下文里揣着的绑定串立刻通过正则和摘要核验原形毕露，彻底阻断“旧授权调新契约”的漂移漏洞；
+- **独立输出边界验证与传输防线**：配合 `tool-output-validation.ts` 对远端吐回的数据严格执行负载检验与截断，以及 `transport-security.ts` 的传输层连接策略守护，使第三方 MCP 既进不来也出不去越权通道。
 
 ---
 
-## 2. 路线 A：MCP 服务发现、加密绑定与防漂移机制
+## 3. 路线 B：客户端反向能力的两阶段准入协议（`accepted → admitted`）
 
-### 2.1 分页发现与连接快照
-当 Host 或 CLI 的 `McpClientManager` 连接上一台 MCP Server（如工单服务）时，会通过标准 `tools/list` 协议进行分页发现（处理可能存在数百个工具的大型服务），并通过 `createToolSnapshot()` 记录当前的连接快照与工具清单。
-
-`buildMcpToolsWithIdentities()` 随后将每个 MCP 工具包装成标准的 `MakaTool`。但与普通扩展不同的是，它并不是只保存字符串名称，而是通过 `createMcpToolBinding()` 为每个暴露给模型的工具生成一条**密码学绑定令牌（`mcpb1`）**：
-
-```text
-mcpb1.<managerId>.<base36(connectionGeneration)>.<sha256_base64url(identityTuple)>
-```
-
-其中摘要部分绑定了五个不可伪造的维度：
-1. `managerId`（22 位标识，区分该工具属于哪个连接管理器实例，如 Host 还是某个特定 CLI）。
-2. `connectionGeneration`（连接代次，每次重连或重启递增）。
-3. `serverId`（目标 MCP 服务器 ID）。
-4. `toolName`（原始工具名称，如 `get_ticket`）。
-5. `definitionFingerprint`（工具声明与参数 Schema 的 SHA-256 指纹）。
-
-### 2.2 为什么调用前必须核对“连接代次 + 定义指纹”？
-设想一个真实生产事故场景：
-- 第 1 步模型看到了工单服务 v1 的 `update_ticket(id, status)` 参数定义并决定调用。
-- 就在模型生成文本的 3 秒钟内，远端 MCP 服务热重启升级到了 v2，连接自动重连（`connectionGeneration` 递增），且 v2 删掉了保护字段或改变了参数语义！
-- 如果运行时直接拿着工具名去发请求，模型可能会在毫不知情的情况下发出结构错位的危险写入。
-
-凭借 `mcpb1` 令牌，`McpClientManager.callTool()` 在发送网络请求前的瞬间执行原子校验：解析令牌中的 `managerId` 与 `connectionGeneration`，再比对当前生效工具的 `definitionFingerprint`。**只要连接发生过代次切换或工具 Schema 发生过一丝漂移，调用立即拒绝并提示模型刷新工具视图，彻底消灭跨代错调。**
-
-### 2.3 CLI 侧 MCP 的反向代理模式
-并非所有 MCP 服务都跑在 Runtime Host 所在机器上。当用户在本地终端启动 `maka` 并配置了依赖本机私有环境的本地 `stdio` MCP 工具时，CLI 的 `RuntimeHostRunMcp.prepare()` 会在 CLI 本地拉起 MCP 连接，然后通过客户端能力协议反向向 Host 发布这组工具：
-- 模型推理仍在 Host 驱动；
-- 获准执行时，Host 将调用指令路由回发起连接的 CLI；
-- 由 CLI 本地的 `McpClientManager` 通过本地管道完成调用并将结构化文本、图片或 JSON 结果安全代理回 Host。
-
----
-
-## 3. 路线 B：客户端能力的两阶段准入握手（`accepted → admitted`）
-
-将远端或后台 Host 的控制权延伸到用户的桌面或浏览器标签页，面临着极高的安全风险：**如果模型在参数中声称“我要读取监控页”，实际在客户端打开的却是一个内网财务系统或邮箱页面，该如何拦截？**
-
-为此，所有标记为 `hostAdmission: 'client_capability'` 的工具都必须经过 **`accepted → admitted` 两阶段准入协议**：
+当工具动作无法在后端服务端独立完成，而必须借助宿主反过来向已建立长连接的客户端（`ClientConnection`）派发一次反向能力执行（如端侧表单提交或受控局部操作）时，`packages/runtime-host/src/server/client-capability-invocation-broker.ts` 实施了一项与工具 `T1/T2` 遥相呼应的两阶段切分契约：
 
 ```mermaid
 sequenceDiagram
-    autonumber
-    participant TR as ToolRuntime
-    participant Coord as ClientCapabilityCoordinator
-    participant Client as 客户端 (浏览器插件 / Desktop)
-    actor User as 用户 (人类审批)
+    participant Broker as Host Capability Broker<br/>(并发上限 8 / 连接)
+    participant Wire as Authenticated RPC Channel
+    participant Client as 连接的客户端插件
 
-    TR->>Coord: 1. prepareExecution() 发起能力准备
-    Coord->>Client: 2. 下发 client.capability.call (携带 invocationId)
-    Client-->>Coord: 3. 回传 accepted + 客户端亲自观测到的真实页面 origin
-    
-    Coord->>Coord: 4. 校验 [sessionId + providerId + observedOrigin] 授权记录
-    alt 首次访问该 origin 或需逐次确认
-        Coord->>User: 5. 弹窗展示真实 origin 并请求人类批准
-        User-->>Coord: 批准本次/本会话授权
-        Coord->>Coord: 持久化该粒度授权记录 (ClientCapabilityGrant)
-    end
-
-    TR->>TR: 6. [T1] commitToolPrepared() 写入不可变账本
-    TR->>Coord: 7. 确认已记账，发送最终放行令 admitted
-    Coord->>Client: 8. 下发 admitted 指令
-    Client->>Client: 9. 物理读取页面 DOM 并回传结果
-    TR->>TR: 10. [T2] commitToolOutcome() 原子提交结果
+    Broker->>Wire: 下发受控 Invoke 请求 (附 offerId & hostPathAccess 权限框)
+    Client-->>Broker: 阶段一回执: accepted (仅证明消息已送达排队，尚未开始干活!)
+    Note over Broker,Client: 若在 accepted 之前或刚发完即断网失联 -> 判定 capability_lost (安全未执行)
+    Broker->>Broker: 经过策略检查与宿主确权，签发权威许可帧 admitted!
+    Broker->>Wire: 下发正式准入通行证 admitted (携带 ClientCapabilityAdmissionEvidence)
+    Client->>Client: 正式在客户端物理侧执行副作用动作
+    Note over Broker,Client: 只要越过 admitted 边界后客户端断开或超时 -> 触发 capability_ambiguous!
+    Client-->>Broker: 分片回传结果 (受限 CHUNK / MAX_RESULT_BYTES)
 ```
 
-### 3.1 为什么“必须由客户端上报 `origin`”且“不见 `admitted` 绝不动手”？
-1. **拒绝模型自报来源**：大模型输入的 URL 参数可能是短链接跳转（如 `t.co/xxx`），也可能是经过 Prompt Injection 诱导的伪造描述。因此 Host **绝不采信模型在参数里写的目标地址**，而是要求客户端在准备阶段先定位目标标签页，在 `accepted` 帧中上报浏览器实际渲染的真实 `origin`（如 `https://finance.corp.internal`）。
-2. **先记账后放行**：如果客户端一收到调用就开始执行，万一此时用户拒绝授权或者 Host 在写 `[T1]` 账本前崩溃，浏览器就已经发生了不可逆动作。将流程拆为 `accepted`（就绪报告）→ 人类授权 → `[T1]` 落盘 → `admitted`（正式放行），确保了**未授权绝不越界、未记账绝不触发物理副作用**。
-
-### 3.2 精细的授权作用域隔离与 Owner/Joiner 并发取消
-Maka 根据能力风险特征切分了不同的授权记忆主键，避免过度弹窗或权限泛滥：
-
-| 能力类别 | 授权持久化作用域 | 安全性设计目的 |
-| :--- | :--- | :--- |
-| **浏览器能力** | `sessionId + providerId + origin` | 批准读取 GitHub 页面后，访问公司内网后台依然必须重新审批。 |
-| **桌面原生 MCP** | `sessionId + serverId + toolName` | 按具体服务和特定工具名隔离，只读工具与写入工具分开授权。 |
-| **桌面自动化 (`computer_use`)** | `sessionId + capability` | 按全局/独立桌面能力粒度管控，防止后台静默夺取键鼠控制权。 |
-
-此外，在多人或并发多标签访问同一能力提供方时，协调器区分了 **Managed Approval Owner（正在主导等待审批的请求）** 与 **Joiner（等待同一授权决策的并发请求）**：当外部触发取消信号时，协调器能够按规范的提供方身份（`clientCapabilityProviderId`）同步干净地取消 Owner 与所有 Joiner，不遗留悬空挂起。
+审视 Broker 在实现层卡死的五条铁边界：
+1. **并发槽位硬隔离与退役容量边界**：每条客户端连接最多同时承载 **`MAX_CONCURRENT_INVOCATIONS_PER_CONNECTION = 8`** 个反向并发调用（超载当场报错 `provider_overloaded`），并在内存中滚动维护最多 **`MAX_RETIRED_INVOCATIONS = 1_024`** 条已退役记录防历史表重放攻击。
+2. **清楚切开“收到了请求（`accepted`）”和“允许动手了（`admitted`）”**：在传统设计里往往把客户端说的一声 `ACK` 就视作“在跑了”。但在 Maka 的协议里，`accepted` 纯粹是传输层排队的收据，**没有宿主后续显式签发 `ClientCapabilityAdmissionEvidence`（`admitted`），端侧绝不能擅自开动具有副作用的真实动作**！
+3. **跨切点故障精确分类**：
+   - 在正式进入 `admitted` 准入期前断开连接，调度器极其明确地报为 **`capability_lost`**——代表副作用 100% 未曾跨出安全门口；
+   - 一旦已经放行跨越 **`admitted`** 边界之后才遭遇连接崩溃或超时，Broker 立刻报错 **`capability_ambiguous`** 并协同 `ToolOutcomeUnknownError`（详见 [04.1](../04-state/durable-execution.md)），绝对禁止自动化任务当成“肯定没发生过”去偷偷再点一次！
+4. **回传荷载分片与上限钳制**：客户端回传的任何输出全数受限于 `CLIENT_CAPABILITY_RESULT_CHUNK_MAX_BYTES` 与 `CLIENT_CAPABILITY_MAX_RESULT_BYTES` 强制封顶，避免低质量第三方客户端用无限字节洪水直接拖垮 Host 进程内存。
 
 ---
 
-## 4. 教学伪代码：MCP 绑定防漂移校验与客户端能力握手
+## 4. 总结
 
-```text
-// === 1. MCP 工具绑定验证 (防重连代次漂移与 Schema 篡改) ===
-function invokeBoundMcpTool(manager, opaqueBinding, args):
-    parsed = parseMcpToolBinding(opaqueBinding)
-    if parsed == null:
-        throw new InvalidBindingError("Malformed mcpb1 binding token")
+无论扩展触手是伸向本地/云端的第三方 MCP Server，还是逆向调用通过网络连进来的桌面客户端插件，Maka TypeScript 版都用极具一致性的机制将“不可信外部边沿”驯服进了单一安全框内：
+- 在 **MCP 侧**，凭借紧致的 `mcpb1.` 四元组 SHA-256 绑定串将连接换代和 Schema 偷偷漂移彻底锁死在执行门口；
+- 在 **Client Capability 侧**，凭借严谨的 **`accepted → admitted` 两阶段切分**、8 并发背压与明确拆分 `capability_lost` / `capability_ambiguous` 错误态，让端侧反向调用在崩溃恢复模型上达到了与核心工具 `T1/T2` 完全同等严谨的确定性水准。
 
-    // 校验连接管理器身份与连接代次是否仍匹配当前激活实例
-    if parsed.managerId != manager.id or parsed.connectionGeneration != manager.currentGeneration:
-        throw new StaleToolBindingError("MCP server reconnected; refresh tool snapshot")
-
-    // 重新计算当前工具定义指纹并比对全量令牌
-    liveTool = manager.findActiveToolByBinding(opaqueBinding)
-    if liveTool == null or createMcpToolBinding(liveTool.identity) != opaqueBinding:
-        throw new SchemaDriftError("MCP tool schema changed since model saw it")
-
-    return await manager.executeRemoteCall(liveTool.serverId, liveTool.toolName, args)
-
-// === 2. 客户端能力两阶段握手与 T1 落盘门控 ===
-async function runClientCapabilityWithAdmission(toolRuntime, call, channel, sessionCtx):
-    invocationId = generateUUID()
-
-    // 阶段 1: 发送调用意图，等待客户端回传 accepted 并附带不可伪造的真实 origin
-    prep = await channel.requestPrepare(invocationId, call.toolName, call.permissionArgs)
-    if prep.status != "accepted":
-        return errorResult("Client capability rejected preparation: " + prep.reason)
-
-    // 阶段 2: 依据真实 origin 核验会话授权 (未授权则挂起等待人类审批)
-    grantKey = {
-        sessionId: sessionCtx.sessionId,
-        providerId: channel.canonicalProviderId,
-        origin: prep.observedOrigin
-    }
-    if not grantStore.hasValidGrant(grantKey):
-        decision = await interactionCoordinator.requestApproval(grantKey, call.permissionArgs, sessionCtx.signal)
-        if not decision.approved:
-            return errorResult("User denied access to origin: " + prep.observedOrigin)
-        grantStore.recordGrant(grantKey, decision.scope)
-
-    // 阶段 3: [T1] 原子锚定派发事实，封堵崩溃窗口
-    await toolRuntime.commitToolPrepared(call.operationId, call.id, call.persistedArgs)
-
-    // 阶段 4: 下发 admitted 正式放行并等待客户端执行回传
-    try:
-        output = await channel.sendAdmittedAndAwaitResult(invocationId, sessionCtx.signal)
-        await toolRuntime.commitToolOutcome(call.operationId, call.id, output)
-        return output
-    catch ChannelDisconnectedError:
-        // 已发出 admitted 但客户端失联：绝不假装未执行，标记为结果未知
-        throw new ToolOutcomeUnknownError("Client disconnected after admitted")
-```
-
----
-
-## 5. 对照 Pi：轻量扩展注册 vs 托管准入协议
-
-| 对比维度 | Maka (`McpClientManager` + `ClientCapabilityCoordinator`) | Pi (`extensions/mcp`) |
-| :--- | :--- | :--- |
-| **MCP 发现与命名** | 生成包含管理端 ID、代次与 Schema 指纹的加密令牌 `mcpb1`，调用瞬间强校验防漂移。 | 解析 `mcp.json` 将工具注册为 `mcp__<server>__<tool>`，通过 `pi.registerTool()` 接入管道。 |
-| **客户端反向能力** | 拥有完整的 `accepted → admitted` 两阶段握手、真实 `origin` 上报与多粒度持久化授权表。 | 单机 CLI 进程直接运行本地扩展逻辑，通过 `beforeToolCall` 钩子同步或内存弹窗拦截。 |
-| **跨端隔离能力** | 支持 CLI 本地挂载私有 stdio MCP 并通过 Host 能力协议安全反向代理给桌面端会话使用。 | 扩展与主进程共享同一个本地环境与进程生命周期。 |
-
----
-
-## 6. 延伸阅读
-
-- 了解 `ToolRuntime` 如何配合两阶段握手完成 T1/T2 持久化与 Code Mode 嵌套执行，阅读 [03.1 工具内核与 Code Mode](tool-runtime.md)。
-- 了解系统如何通过独立子进程安全接管桌面 GUI 与交互式 PTY 终端，阅读 [03.3 桌面自动化与 PTY 虚拟终端](computer-use-and-pty.md)。
-- 了解连接认证与五层权限防线如何保护 Host 与客户端通道，阅读 [03.5 分层授权与凭据生命期](permissions-and-secrets.md)。
+工具沙箱锁好了，MCP 防漂移也建起来了，但最关键的一根红线还没有完全揭开——**贯穿 Host 接入、工作区协同时代、OAuth 刷新、直到子进程拉起全过程的“多层访问控制与高敏密钥信封（Managed Secrets）”究竟是如何做到零明文滞留、零跨进程泄露的？** 下一篇全盘剖析这套五层防御与密库体制：[五层纵深防线与 Managed Secret 信封：零凭据泄漏的作用域动态注入](./permissions-and-secrets.md)。
