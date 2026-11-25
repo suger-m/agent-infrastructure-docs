@@ -41,6 +41,47 @@ flowchart TB
 1. **物理独立工作树空间**：Worker A 在属于自己的隔离临时 Worktree 分支上随心改代码、跑测试、回退重试；Worker B 在另一座互不见面的 Worktree 里全速改写另一半模块。两者的 `node_modules` 临时产物与文件改动在磁盘上物理正交，**永远不会撞坏彼此编译现场**！
 2. **原子补丁回写与冲突明确上浮**：当独立角色运行完结交卷时，它提交给协调平面的不是一段虚无飘渺的口头“我改好了”，而是经过 `gitoxide-helper` 精确核算并带有基线指纹校验的**确定性补丁差异序列（Candidate Diff & Receipt）**。控制面沿着拓扑顺序在集成 Reconciler 内尝试逐批原子合流回主干 Worktree；一旦捕获哪怕行级合并冲突，立刻作为高明确性错误中断回报上层解决，绝不悄无声息覆盖任一方辛勤产出！
 
+```typescript
+// 教学级核心闭环：Graph 拓扑声明、Yield 优雅让渡、隔离 Worktree 提交与 Reconciler 合流
+async function orchestrateSupervisorTurn(supervisorSessionId: string, plan: WorkerPlan[]) {
+  // 1. 在图协调器持久化登记成员（严守 AGENT_GRAPH_MAX_OPERATORS / EDGES 等协议边界）并切出独立 Worktree
+  const assignments = await agentGraphCoordinator.updateAgentGraph(supervisorSessionId, {
+    operators: plan.map((w) => ({
+      role: w.role,
+      workspaceMode: w.needsWrite ? 'isolated_worktree' : 'read_only_baseline',
+      task: w.instruction,
+    })),
+  });
+
+  // 2. 派发完毕立即让渡当前协调流！不再占据活动 Token 预算与连接干等下游
+  await agentGraphCoordinator.yieldAgentGraph(supervisorSessionId, {
+    wakeWhen: { allOperatorsSettled: assignments.map((a) => a.operatorId) },
+  });
+}
+
+// 当全部并发 Worker 运行落定，Reconciler 沿着既定顺序检查每个 Worktree 产物指纹并集成合流：
+async function reconcileWorktreeOutputs(baselineHead: WorkspaceHead, workerReceipts: CandidateDiffReceipt[]) {
+  let currentHead = baselineHead;
+  for (const receipt of workerReceipts) {
+    const mergeOutcome = await gitoxideHelper.applyCandidateWithConflictCheck(currentHead, receipt);
+    if (mergeOutcome.kind === 'conflict') {
+      // 显式拦截冲突暴露给 Supervisor 决策，绝不静默丢弃他人更改
+      return await wakeSupervisorWithConflictReport(mergeOutcome.conflictedPaths);
+    }
+    currentHead = await workspaceVersionAuthority.commitSuccessor(mergeOutcome.candidateOutcome);
+  }
+  return await agentGraphSupervisorWake(currentHead); // 投递高信噪比结算检查点重唤主决策者
+}
+```
+
+### 3.1 多智能体协同架构对比：共享目录进程内脚本 vs Graph + Worktree
+
+| 工程维度 | 传统共享目录同步子代理调用 | Maka `Agent Graph` + `Worktree` 协同面 |
+| :--- | :--- | :--- |
+| **并发写文件安全性** | 共用同一目录极易互相覆盖源码与污染构建缓存 | 每个可写成员强分配隔离 Git Worktree + `gitoxide` 基线合流校验 |
+| **等待期间资源占用** | 父代理一直占锁或循环轮询消耗大量时间/配额 | **`yield_agent_graph`** 即刻退出活跃推流，由下游完结事件反向精确重唤 |
+| **宿主崩溃后可续性** | 内存中 `Promise.all` 一断电即全盘脱节成孤儿 | 图节点、Epoch 与各自工作进度持久落盘，Host 六阶段冷启动自动复苏重联 |
+
 ---
 
 ## 4. Swarm 模式与 WorkHub 三表面统一投影

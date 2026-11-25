@@ -46,6 +46,38 @@ flowchart LR
 2. **串行写入序与无状态锁 I/O（`ArenaAppend` + `with_local_io`）**：所有内容由单一生产者通过 `begin_append()` 持有 `serial` 序列化写入权；最关键的是文档明确规定的边界：**真正执行磁盘或缓冲区写入的回调是在 `with_local_io` 资源工作线程中运行的，期间不持有任何业务状态锁**！同时，每次追加以 `budget.allocate(32 * 1024)` 按 32 KiB 粒度申请临时搬运块，并在循环每步检查 `CancellationToken`，哪怕用户在 100 MiB 材料装填到一半时点击取消，也能在几十微秒内安全终止。
 3. **互不阻塞的控制面固定读取（`read_control_owned::<N>`）**：在一条长写入序列正在往 Arena 末尾追加大段工具输出的同时，调度层往往还需要频繁回查前段已经写入的定长控制头或配方偏移表。`read_control_owned` 依靠文件/随机读定位点直接读取 `N` 字节只读快照，**既不发布或篡改任何范围，也不用阻塞整条流式组装流水线**。
 
+```rust
+// 教学级提炼自 plugins/agent/engine/src/history/capture_arena.rs 的零内存爆炸流式追加骨架
+async fn stream_source_into_arena(arena: &CaptureArena, source: SourceBytes, budget: Arc<dyn SourceBudget>, cancel: &CancellationToken) -> io::Result<Range<u64>> {
+    // 1. 申请唯一的连续写入序列化权 (不长时间占用业务核心态锁)
+    let append = arena.begin_append().await;
+    let start = append.with_writer(|builder| Ok(builder.position())).await?;
+    let mut cursor = source.open(budget.clone());
+    // 2. 以受预算限制的 32 KiB 固定小搬运窗按块泵送（底层可能是 RAM 租约，也可能是受管临时文件）
+    let mut buf = budget.allocate(32 * 1024).await?;
+
+    loop {
+        if cancel.is_cancelled() {
+            return Err(preparation_cancelled("capture arena append cancelled"));
+        }
+        let n = cursor.read_chunk(&mut buf).await?;
+        if n == 0 { break; }
+        // 真正写入发生在专属 local_io 工作线程，期间绝不持有任何会话级读写锁
+        append.with_writer(move |builder| builder.write_all(&buf[..n])).await?;
+    }
+    let end = append.with_writer(|builder| Ok(builder.position())).await?;
+    Ok(start..end) // 返回写入区间偏移，配合 160 字节定长 Record 元数据登记进索引头
+}
+```
+
+### 3.2 长上下文组装方案对照：全量内存拼接 vs `CaptureArena`
+
+| 工程维度 | 常规大 `Vec<Message>` 内存拼装 | Maka `CaptureArena` + 160B `Record` |
+| :--- | :--- | :--- |
+| **峰值堆内存占压** | 原文 + JSON 树 + `String` 多份全量堆复制，易引发并发 OOM | 受全局 `BudgetBasis` 硬顶控制，按需静默转入受管临时文件背书 |
+| **取消与背压响应度** | 大序列化开始后常阻塞至全部组装完才能响应取消 | 每 **32 KiB** 检查 `CancellationToken` 且写入期间零业务状态锁持有 |
+| **只读头校验成本** | 需要翻阅重对象或二次加锁 | `read_control_owned::<N>` 无干扰定位读取固定控制字节 |
+
 ---
 
 ## 4. 160 字节索引指针阵列与源摘要测量

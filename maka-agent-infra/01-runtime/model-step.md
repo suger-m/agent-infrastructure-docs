@@ -72,11 +72,76 @@ flowchart TD
 
 ---
 
-## 5. `flushStep()` 与单事务计量绑定
+## 5. `flushStep()` 结算、双循环骨架与结构方案对比
 
 当外层确认单步圆满落定准备向前跨步时，`AiSdkTurn` 会同时封账两份互补资产：
-1. **向模型和用户提交语义步**：调用 `flushStep()` 落地完整有序的助手回复部分（Text / Thinking / Provider Tool Calls），并同步计入 Token 用量（`TokenUsageEvent`）与计价依据；
+1. **向模型和用户提交语义步**：调用 `flushStep()` 通过 `pushAndWaitUntilConsumed` 落地完整有序的助手回复部分（Text / Thinking / Provider Tool Calls），同步计入 Token 用量（`TokenUsageEvent`）；
 2. **绑定单值计量体（`ModelCallCommit`）**：将在当前 `Attempt` 记录到的延迟（TTFT / TPS）、请求形貌体积（`ContextBudgetDiagnostic`）与重试轨迹通过单值封装原子写入伴生 `AgentRunStore`（详析见 [06.2](../06-operations/observability.md)）。哪怕第 3 步之后机器突然断电，前面第 1、2 步花出去的每一点 Token 与每一毫秒流逝都已经在盘面上丝毫不差。
+
+### 5.1 核心双循环状态机骨架（Step / Attempt + Watchdog + AckWait）
+
+```typescript
+// 教学级提炼自 packages/runtime/src/ai-sdk-turn.ts 的核心步进与围栏骨架
+async function runAiSdkTurnLoop(ctx: TurnRunContext): Promise<TurnOutcome> {
+  let stepCount = 0;
+
+  while (true) {
+    // 1. 步前整备：排空 Steering 租约、重投影持久规范事实（绝不直读半程 partial 碎片）
+    const steeringLeases = await ctx.pullSteering?.();
+    const messages = await projectCanonicalMessages(ctx.store, ctx.sessionId, steeringLeases);
+    if (steeringLeases?.length) ctx.ackSteering?.(steeringLeases.map((l) => l.leaseId));
+
+    // 2. 内层物理 Attempt 试错循环：断流重试丢弃碎片重来，绝不污染外层规范历史
+    let stepResult: ModelStepOutcome | undefined;
+    while (true) {
+      const watchdog = new StreamWatchdog(ctx.watchdogConfig); // 首包延迟 + 流间帧停滞双阶段守护
+      try {
+        stepResult = await consumeProviderStream(messages, {
+          onDelta: (delta) => {
+            watchdog.feed(delta.phase); // 每次有效词元刷新看门狗
+            ctx.emitPartialDelta(delta); // 仅投送 transient 显示层 (partial = true)
+          },
+          signal: watchdog.abortSignal,
+        });
+        break; // 物理传输圆满完结，跳出 Attempt 循环
+      } catch (err) {
+        const decision = providerRetryDecision(classifyFailure(err), extractHeaders(err));
+        if (!decision.reason || !ctx.hasRetryBudgetRemaining()) throw err;
+        await sleepClamped(decision.retryAfterMs); // 遵守退避（钳位 <= MAX_TIMER_DELAY_MS）后干净重开
+      }
+    }
+
+    // 3. 语义结算（flushStep）：原子入库并同步提交 ModelCallCommit，推送完整步事件并等队列消化确认
+    stepCount += 1;
+    await ctx.commitStepUsageAndDiagnostics(stepCount, stepResult);
+    await ctx.queue.pushAndWaitUntilConsumed(buildCommittedStepEvent(stepResult));
+
+    // 4. 分支判定：存在本地工具调用 -> 受 AdmissionLimiter 限流结算后死等完全落库
+    if (stepResult.localToolCalls.length > 0) {
+      await settleToolsWithinLimiter(ctx.admissionLimiter, stepResult.localToolCalls, (call) =>
+        ctx.toolRuntime.settleToolCall(call),
+      );
+      await ctx.queue.waitUntilConsumedThroughCurrent(); // 关键栅栏：死等所有 T2 结果入库再投影下一步
+      continue;
+    }
+
+    // 5. 退场拦截（FinishCheck）：再排一轮末端到达的 Steering 或 Finish Hooks 避免丢失末班车
+    const trailingSteering = await ctx.pullSteering?.();
+    const shouldContinue = (trailingSteering?.length ?? 0) > 0 || (await ctx.beforeTurnFinish());
+    if (shouldContinue) continue;
+
+    return await ctx.emitTerminalCompleteAndDrain();
+  }
+}
+```
+
+### 5.2 循环架构对比：单层简单 Loop vs Step/Attempt 双层隔离
+
+| 维度 | 传统单层 `for/while` SDK 循环 | Maka `AiSdkTurn` Step/Attempt 双循环 |
+| :--- | :--- | :--- |
+| **中流断线重连干净度** | 已输出到 UI 或局部数组的半截文字难以剥离，重试容易产生“双头句”或重复调用工具 | `Attempt` 失败即销毁本次残片；仅 `flushStep()` 胜出后才入账 `RuntimeEvent` |
+| **假死检测灵敏度** | 固定整段超时（要不掐死长推理，要不傻等死流半分钟） | 首包超时宽容思考预热，流开启后按 chunk 喂狗实现秒级死流抓捕 |
+| **工具回流与下一轮一致性** | 工具 Promise 结束即直接进入下一步，高并发下异步落库未完可能导致下一帧丢响应 | `waitUntilConsumedThroughCurrent()` 死等所有 `T2` 结果彻底进账后才重算输入 |
 
 ---
 

@@ -39,6 +39,38 @@ flowchart TD
 1. **后台无感预备（`proactive_summary`）**：当用户还在阅读本轮回复或刚刚开始思考下一个问题时，后台通过 `WorkKey::PrepareProactiveSummary` 挂起一个完全独立的辅助模型请求（`ModelPurpose::Compaction` / 独立 `Attempt`）。注意我们在 `reconcile::next()` 中读到过一条精巧规则：**除非本次 Run 正在彻底收尾完成（`finish_requested` 或 `complete_at_budget`），否则后台仍在跑的主动预摘要绝不阻塞当前主回答流程的推进**；只有等到它生成成功、准备作为新历史基线切换时，再通过 `AdoptCandidate` 完成零中断移交。
 2. **防压缩死循环与自定义压缩 Prompt**：用户还可以在会话配置 `StoredSessionConfiguration` 中定制 `compaction_prompt`，并且 Reconciler 会严格辨识当前 Attempt 的用途——`Trigger::ContextCompact` 本身处于摘要生成轮次中时，`final_reply()` 会明确禁止其误判为普通最终对话输出。
 
+```rust
+// 教学级提炼自 compaction.rs 与 fold.rs 的主动/被动压缩决策不变量
+fn evaluate_compaction_strategy(view: &RunView, declared_window: u64, last_attempt: Option<&Attempt>) -> CompactionDecision {
+    // 1. 被动溢出判断：仅当某次尝试因 ContextOverflow 中断且既无落地语义也无挂起工具意图时，允许洁净剔除并立即同步压缩
+    if let Some(att) = last_attempt {
+        let compactable_overflow = att.interrupted.is_some()
+            && !att.semantic
+            && !att.has_tools
+            && matches!(att.recovery, Some(AttemptRecovery::ContextOverflow { .. }));
+        if compactable_overflow {
+            return CompactionDecision::ImmediateSyncCompaction { drop_attempt: att.id };
+        }
+    }
+
+    // 2. 85% 警戒线前瞻抢跑触发（不阻塞主回答步骤，后台先制备摘要，待闲置缝隙平滑 AdoptCandidate）
+    let high_watermark_threshold = (declared_window as f64 * 0.85) as u64;
+    if view.tokens >= high_watermark_threshold && !view.proactive_summary_active() {
+        return CompactionDecision::SpawnProactiveBackgroundSummary;
+    }
+
+    CompactionDecision::None
+}
+```
+
+### 2.2 压缩范式对照：事后被动截断 vs 85% 主动预热与洁净剔除
+
+| 策略维度 | 被动撞墙后再总结（Reactive Compaction） | Maka 85% 主动预热 + 溢出洁净恢复 |
+| :--- | :--- | :--- |
+| **用户体感卡顿** | 用户发新消息后突然撞墙，干等数十秒等待做总结才重发 | 在背景空闲窗提前完成摘要，到点只需无缝切换 `AdoptCandidate` |
+| **残缺尝试污染物风险** | 溢出的半截输出极易被下一次重放误判保留 | `compactable_overflow()` 精准校验 `!semantic && !has_tools` 后彻底剔除 |
+| **多端原生利用效率** | 一概走通用大模型文字总结重算一遍 | 针对 Codex 类模型优先直连 Native Compaction，不兼容则回落标准摘要 |
+
 ---
 
 ## 3. 原生压缩通道协同：Codex Native Compaction vs 通用文本回退

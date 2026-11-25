@@ -72,6 +72,39 @@ flowchart TD
 
 保留“最初拟发出动作时的 `FactId`”是整套对账设计的灵魂所在：**观察接口 `store.observe` 查的不是一个模糊的业务关键词，而是那笔唯一单调的原始意图凭证**。因此无论中间经历多少次超时、丢包或队列阻塞，对账系统都不会张冠李戴，把前朝旧账误当成今朝新果。
 
+```rust
+// 教学级提炼自 plugins/agent/engine/src/driver.rs 的悬空发布双通道对账状态机
+async fn reconcile_publication(
+    store: &impl PublicationStore,
+    pending: &mut Option<PendingPublication>,
+    candidate: &ExternalPublication,
+) -> Result<DriverOutcome, DriverExit> {
+    if let Some(p) = pending.as_ref() {
+        // 已有悬空发布凭据：严禁重复发布，死循原始 fact_id 回溯确权！
+        match store.observe(p.fact_id, p.claim, p.head).await? {
+            ObserveState::Applied(receipt) => { *pending = None; return Ok(DriverOutcome::Settled(receipt)); }
+            ObserveState::ClaimSuperseded => return Err(DriverExit::Retired),
+            ObserveState::NotApplied => {} // 证实先前从未真正落盘，下方才允许重新发起
+        }
+    }
+
+    let intent = store.reserve_publication_fact(candidate).await?;
+    *pending = Some(PendingPublication { id: candidate.id, fact_id: intent.fact_id, claim: intent.claim, head: intent.head });
+    match store.publication(intent).await {
+        Ok(receipt) => { *pending = None; Ok(DriverOutcome::Settled(receipt)) }
+        Err(StoreErr::RevisionConflict) | Err(StoreErr::Timeout) => Ok(DriverOutcome::KeepPendingAndObserve),
+        Err(StoreErr::ClaimSuperseded) => Err(DriverExit::Retired),
+    }
+}
+```
+
+### 4.1 并发写权设计对照：分布式互斥锁 vs `DriverClaim` + `PendingPublication`
+
+| 对比维度 | 常规分布式/文件抢锁循环 | Maka `DriverClaim` + `PendingPublication` |
+| :--- | :--- | :--- |
+| **宿主切换时的双写防线** | 依赖锁租期过期或手工清理锁文件，易发生僵尸回写 | 底层写入每次核验单一租约凭证，旧例遇到 `ClaimSuperseded` 瞬间自行退出为 `Retired` |
+| **提交后超时不知生死的残局** | 放弃报失败或重发一遍，导致外部制品被发表两次 | 绑定原始 `fact_id` 进入 `store.observe(fact_id)` 确定性追账 |
+
 ---
 
 ## 5. 执行准入（Admission）：把政策锁死在消息入队的那一刻

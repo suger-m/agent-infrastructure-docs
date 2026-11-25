@@ -38,6 +38,42 @@ flowchart TB
 3. **隔离拒绝与合并提交共存（`isolated_rejection()`）**：一个共享提交批次里装着来自 A、B、C 三个互不干扰会话的写入请求。只要某个请求报出属于可控业务约束违例的 `isolated_rejection`，单写者通道就能将其精准剥离拒绝而不波及同批另外两笔合法事务，兼顾“高并发吞吐合批”与“错误隔离”。
 4. **物理提交后才放行令牌与广播（`committed()` + `Notification`）**：文件头写得一清二楚——**`no effect token or notification escapes before commit`（绝不允许任何效应令牌或通知在物理提交完成前逃逸！）**。所有的密封操作确认凭证只能在 `committed()` 回调内产生，而告诉订阅面板和会话路由刷新缓冲区的 **`Notification`**（包含 `METADATA`、`MATERIAL_RELEASED`、`sessions`、`metadata_scopes`、`with_activation`）同样只会在 SQLite 彻底落盘成功后由分发器安全发出。
 
+```rust
+// 教学级提炼自 platform/event-log/src/writeback.rs 的单写者事务组提交协议
+fn run_writer_batch<S: writeback::Statement>(conn: &mut SqliteConnection, batch: Vec<S>) {
+    let retained_owners: Vec<_> = batch.iter().flat_map(|s| s.retain()).collect(); // 钉牢准备资产生命周期
+    let tx = conn.transaction().expect("single FIFO writer opens transaction");
+    let mut prepared_values = Vec::new();
+    let mut deferred_notifications = Vec::new();
+
+    for stmt in batch {
+        match stmt.execute(&tx) {
+            Ok(prep) => {
+                prepared_values.push((S::committed, prep.value));
+                deferred_notifications.push(prep.notification);
+            }
+            // 若命中 isolated_rejection (例如乐观版本冲突)，精准剔除坏语句而保留同批他人事务!
+            Err(err) if S::isolated_rejection(&err) => notify_isolated_failure(err),
+            Err(fatal) => { tx.rollback(); return notify_batch_abort(fatal); }
+        }
+    }
+
+    // 唯有物理 COMMIT 彻底成功后，才允许生成密封令牌并向订阅总线放送缓存失效通知!
+    tx.commit().expect("commit shared batch");
+    drop(retained_owners);
+    for (mk_output, val) in prepared_values { deliver_output(mk_output(val)); }
+    for note in deferred_notifications { publish_after_commit(note); }
+}
+```
+
+### 2.1 存储与提交模型对照：多连接散写 vs 单写者 FIFO 组提交
+
+| 架构维度 | 传统连接池直连 WAL 散落写入 | Maka `RootStore` + `writeback::Statement` FIFO |
+| :--- | :--- | :--- |
+| **幻觉通知风险** | 内存回调常在 SQL 未真正 COMMIT 前就抢先发出 UI 广播 | 强制延迟至 `tx.commit()` 之后于 `committed()` 内生成密封回执并外发 `Notification` |
+| **写阻塞连坐问题** | 大负载序列化与重 IO 霸占写连接拖垮其余轻量会话落盘 | 通过 `PREPARE_OFF_THREAD` 把重运算前置剥离，`execute()` 只执行微秒级同步 SQL |
+| **批内孤立错误容忍** | 一笔版本冲突连带同批事务整批 Rollback 陪葬 | 利用 `isolated_rejection()` 精确剥离失效操作而不连坐其余正常事务 |
+
 ### 2.2 脆弱生命周期反制：`SessionStore` 的 `Weak<EventLog>` 与 `Pins`
 
 请注意 `root_store.rs` 中 `SessionStore` 的结构体成员：`log: Weak<EventLog>` 和 `work: Option<Arc<execution::Pins>>`。

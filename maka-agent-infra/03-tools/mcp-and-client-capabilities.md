@@ -30,6 +30,35 @@ flowchart LR
 - **防连接重启换代偷渡**：哪怕远端重启连接后暴露出来的工具名称还叫同一个名字，只要 `connectionGeneration` 推进了一代或者工具参数结构悄悄改动了哪怕一个 `required` 属性，旧模型上下文里揣着的绑定串立刻通过正则和摘要核验原形毕露，彻底阻断“旧授权调新契约”的漂移漏洞；
 - **独立输出边界验证与传输防线**：配合 `tool-output-validation.ts` 对远端吐回的数据严格执行负载检验与截断，以及 `transport-security.ts` 的传输层连接策略守护，使第三方 MCP 既进不来也出不去越权通道。
 
+```typescript
+// 教学级提炼自 packages/mcp/src/tool-binding.ts 的抗漂移绑定签名与运行时核验
+function verifyAndDispatchMcpTool(bindingStr: string, currentLiveTool: DiscoveredMcpTool): void {
+  // 1. 格式与最大字符防线校验：^mcpb1\.<22B-id>\.<gen36>\.<43B-sha256>$ (<= 96 chars)
+  const parsed = parseMcpToolBinding(bindingStr);
+  if (!parsed) throw new Error('Invalid or oversized MCP tool binding');
+
+  // 2. 重建当下实时通道的期望指纹串并严格相等比对，阻断连接换代或远端 Schema 悄悄变形
+  const expectedBinding = createMcpToolBinding({
+    managerId: parsed.managerId,
+    connectionGeneration: currentLiveTool.generation,
+    serverId: currentLiveTool.serverId,
+    toolName: currentLiveTool.name,
+    definitionFingerprint: currentLiveTool.definitionFingerprint,
+  });
+  if (bindingStr !== expectedBinding) {
+    throw new Error('MCP tool definition or generation drifted since binding was minted');
+  }
+}
+```
+
+### 2.1 外部扩展安全机制对比：裸工具名称路由 vs 双通道抗漂移治理
+
+| 比较维度 | 常规框架裸名路由 (`callTool("update")`) | Maka MCP + Client Broker 治理 |
+| :--- | :--- | :--- |
+| **MCP 工具契约变动防御** | 远端悄悄新增高危参数或重连变更定义时依然照调不误 | **`mcpb1.` 四元组 SHA-256 指纹** + 代次比对，定义一变当场拒签 |
+| **端侧反向调用断线判定** | 只要发了 RPC 就笼统报错“超时”，不知端侧到底动手没 | **`accepted → admitted`** 切分 `capability_lost`（零副作用）与 `capability_ambiguous`（锁死重试） |
+| **单连接资源滥用防护** | 任由客户端无限开槽并发回调或返回几十 MB 垃圾 | 硬卡 `MAX_CONCURRENT = 8` 并发槽及 `CHUNK / MAX_RESULT_BYTES` 封顶 |
+
 ---
 
 ## 3. 路线 B：客户端反向能力的两阶段准入协议（`accepted → admitted`）

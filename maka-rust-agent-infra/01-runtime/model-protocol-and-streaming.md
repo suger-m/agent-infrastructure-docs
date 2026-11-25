@@ -95,6 +95,40 @@ flowchart TD
   - `Pending { observer: ModelCleanupObserver, cause }`：清理尚未完成，但看门狗观察器依然活着！上层 Reconciler 可以放心地把它转为 `WaitReason::Model`，优雅挂载等待其自然收敛，而不必误报崩溃。
   - `Unobservable { stage, cause, original, material }`：清理协程意外崩溃或链路失明，无法证实物理资源是否已彻底归还。此时系统保留原始模型结局（`original`）与受损阶段标签（`stage`），避免把底层清理异常和主模型原本的成功/失败结果混为一谈。
 
+```rust
+// 教学级提炼自 plugins/agent/model/src/network.rs & cleanup.rs 的双路取消与流清理契约
+async fn execute_call_with_cleanup(call: &network::Call, req: http::Request, req_cancel: CancellationToken) -> Result<http::Response, Error> {
+    let stop = call.cancellation.child_token();
+    let pending = call.transport.request_http(req, stop.clone(), call.source.as_ref());
+    tokio::pin!(pending);
+
+    // 运行期任意一端（Run 级取消 或 单请求看门狗取消）拉闸，优先切片切断
+    let response = tokio::select! {
+        biased;
+        _ = call.cancellation.cancelled() => { stop.cancel(); pending.as_mut().await? }
+        _ = req_cancel.cancelled() => { stop.cancel(); pending.as_mut().await? }
+        resp = &mut pending => resp?,
+    };
+
+    if stop.is_cancelled() {
+        // 必须等待底层 HTTP Body 物理排空与清理关闭确认，失败或超期则暴露为 StreamCleanupError
+        response.body.cancel();
+        response.body.close().await.map_err(|_| Error::CleanupUnconfirmed)?;
+        return Err(Error::Cancelled);
+    }
+    call.events.progress(); // 推进活跃心跳防误杀
+    Ok(response)
+}
+```
+
+### 6.1 模型传输网关设计对照：直连 SDK vs 宿主代理 + 增量/清理栅栏
+
+| 工程维度 | 传统内嵌第三方 HTTP SDK 直连 | Maka `maka-model` 网关与清理观测 |
+| :--- | :--- | :--- |
+| **凭据安全与出网控制** | 各适配器自行从环境/配置读秘钥直连外网 | 秘钥滞留 `ProviderConfig` 不可进日志；所有 Socket 出网全收 `Call` + `maka_network::Policy` |
+| **增量状态防分叉** | 盲信 WebSocket 会话续传或根本不用状态化增量 | **无 Custom Override + 5 分钟冷却 + 严格前缀匹配** 三关齐检 |
+| **取消流时的连接泄漏治理** | `abort()` 后直接丢弃 Future，底层句柄泄漏无感知 | 按 `Adapter / Source / Worker` 分级定位清理状态并交由 `ModelCleanupObserver` 闭环确认 |
+
 ---
 
 ## 7. 总结

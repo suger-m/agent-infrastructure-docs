@@ -76,6 +76,13 @@ Maka 的每帧持续订阅推送（`OrderedSubscriptionFrame`）均强制绑定�
 
 注意这一系列预览降载仅作用于“传给界面看的通知帧”；真实完整的巨量原始输入和返回载荷，一律通过结构化卸载与 `maka://` URI 在存储层保持 100% 原始可检索性。
 
+### 4.1 协议方案对照：同步流直连 vs 解耦游标推流
+
+| 设计方案 | 断连/切网恢复 | 多端同屏能力 | 慢渲染背压处理 |
+| :--- | :--- | :--- | :--- |
+| **传统做法（`POST /chat` 同连接吐流）** | 连接断即任务进度失明，客户端不知道后台是否仍在跑 | 第二窗口只能盲等数据库事后静态轮询 | 前端卡顿时直接倒灌拖死模型读取循环 |
+| **Maka 方案（`open → ready` + 双通道推流）** | 基于 `(hostEpoch, sequence)` 与 `assistantBacklog` 无缝追平 | 桌面/TUI/Eval 同享单一 `SessionContinuity` 源 | 分帧截断封顶 + 单泵 `#pump` 队列合并 |
+
 ---
 
 ## 5. 双级抽水泵模型：把异步执行流与存储事件彻底对齐
@@ -83,6 +90,33 @@ Maka 的每帧持续订阅推送（`OrderedSubscriptionFrame`）均强制绑定�
 从 `RuntimeKernel` 下钻到底层 `AiSdkTurn` 时，后台任务驱动并非毫无章法的散乱 `EventEmitter` 广播：
 1. **单回合隔离异步队列（`AsyncEventQueue`）**：`AiSdkTurn` 内部将发向界面投影层的所有瞬时事件先推入局部队列，再由 `drainTurn()` 作为唯一消费者循序泵入 `SessionContinuity`；
 2. **规范事实先落盘，投影后外发**：所有具有不可逆业务意义的状态转移（如回合启动、模型步进计费、工具 T1/T2 结算与回合终态），先原子进入 `SqliteRuntimeStore` 确立规范事实位置，再顺手推动关联投影通知放行，彻底杜绝“前台收到报错通知，翻回数据库发现根本没有记录”的灵异错位。
+
+```typescript
+// 教学级协议骨架：客户端“先建订阅水合、后发指令执行”与终态围栏闭环
+async function dispatchWithGaplessStreaming(client: HostRpcClient, sessionId: string, prompt: string) {
+  // 1. 先建订阅拿基线，此时 Host 侧处于 activated = false（只排队缓冲不抢发流）
+  const { subscriptionId, snapshot, highWaterSequence } = await client.openSubscription(sessionId);
+  mountProjectionBaseline(snapshot, highWaterSequence);
+
+  // 2. 构造本地幂等 turnId 并开启事件槽后，再正式通知服务端开闸推流
+  const turnId = randomUUID();
+  registerTurnBuffer(turnId);
+  await client.readySubscription(subscriptionId);
+
+  // 3. 发起转异步运行的 turn.start（仅等 RootTurnAdmission 落盘准入即返回，不阻塞推理完成）
+  const { runId } = await client.startTurn({ sessionId, turnId, content: prompt });
+
+  // 4. 单调消费双坐标流；遇到断网只需带最后 (hostEpoch, sequence) 重开 open → ready 对齐即可
+  for await (const frame of client.streamFrames(subscriptionId)) {
+    if (frame.hostEpoch !== currentEpoch) {
+      return reconnectAndHydrateSnapshot(sessionId); // 宿主重启过纪元，回退快照重建基线
+    }
+    if (frame.sequence <= lastAppliedSeq) continue; // 幂等防重放
+    applyOrderedFrame(frame); // 仅当 terminalPublicationFence 释放的终态投影到达才算真正结清 runId
+  }
+  return runId;
+}
+```
 
 ---
 

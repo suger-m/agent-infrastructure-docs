@@ -34,24 +34,48 @@ Maka TypeScript 版在 `packages/runtime-host/src/server/session-admission-gate.
 ```mermaid
 sequenceDiagram
     participant Gate as Host Queue / Steering Pool
-    participant Lease as DeliveryAckQueue (SteeringLease)
+    participant Lease as Steering Queue (SteeringLease)
     participant Turn as AiSdkTurn Step Loop
     participant Store as SqliteRuntimeStore
 
-    Note over Gate,Turn: 绝不直接 pop() 删除！采用“先租借、落盘再确认、失败即回滚”两阶段协议
-    Turn->>Lease: 1. acquireNextSteeringLease() 排空步前可用纠正
-    Lease-->>Turn: 签发排他租约 (leaseId + 内容载荷，消息在库内标记为 leased 锁租中)
+    Note over Gate,Turn: 绝不直接 pop() 删除！采用“pull 租借、落盘再 ack、失败即 nack 归位”两阶段协议
+    Turn->>Lease: 1. pullSteering() 排空步前可用纠正
+    Lease-->>Turn: 签发排他租约 (SteeringLease.leaseId + 内容载荷，消息标定为租借锁定态)
     Turn->>Turn: 将纠偏内容装入 ModelRequest 投影发起本步推理
     alt 本步正常推进并将消息正式刻入 RuntimeEvent 规范流
-        Turn->>Store: 落盘纳入纠正后的本步规范事实
-        Turn->>Lease: 2a. ackLease(leaseId) -> 彻底核销清除队列项
+        Turn->>Store: 落盘纳入纠正后的本步规范事实 (连带 per-event DeliveryAckQueue 顺序确认)
+        Turn->>Lease: 2a. ackSteering([leaseId]) -> 彻底核销清除队列项
     else 在模型流还未落地消费前突然发生撤销、中断或步重置
-        Turn->>Lease: 2b. nackLease(leaseId) (或进程重启后租约超时失效)
+        Turn->>Lease: 2b. nackSteering([leaseId]) (或进程重启后租约超时失效)
         Lease->>Gate: 立刻归还至活跃排队头部，下一轮安全重连零丢失精准再投!
     end
 ```
 
-只要看一眼这套 **Rent → Commit → Ack / Nack** 机制就明白它的含金量：**从消息敲进队列直到确实刻进不可变 `RuntimeEvent` 脊柱之前的任何一微秒崩溃或取消，那条 `leaseId` 没有拿到最终的 `ack()` 回执，它永远稳稳留在持久化排队的队头位置，一个字都不可能悄无声息蒸发！**
+只要看一眼这套 **Pull (Lease) → Commit → Ack / Nack** 机制（并与事件分发用的单消费者逐帧确认背压管道 `DeliveryAckQueue<T>` 相配合）就明白它的含金量：**从消息敲进队列直到确实刻进不可变 `RuntimeEvent` 脊柱之前的任何一微秒崩溃或取消，那条 `leaseId` 没有拿到最终的 `ackSteering` 回执，它永远稳稳留在持久化排队的队头位置，一个字都不可能悄无声息蒸发！**
+
+```typescript
+// 教学级契约提炼：短临界区跨会话排序加锁 + StopFence + SteeringLease 交付循环
+async function admitAndDispatchTurn(gate: SessionAdmissionGate, sessionIds: string[], turnInput: TurnInput) {
+  // 1. 涉及多会话联动时强制按 sessionId 字典序加锁，结构性消灭 AB/BA 哲学家死锁
+  const orderedIds = [...new Set(sessionIds)].sort();
+  return await gate.runWithOrderedLocks(orderedIds, async () => {
+    if (stopFence.isFencedAfter(turnInput.targetSessionId, turnInput.clientEpoch)) {
+      throw new Error('Rejected by StopFence: session was stopped prior to dispatch');
+    }
+    // 2. 极短持锁仅负责校验与持久入库 RootTurnAdmission，立刻释放闸门转交后台执行
+    await store.appendRootTurnAdmission(turnInput);
+    return scheduleBackgroundDrainTurn(turnInput);
+  });
+}
+```
+
+### 3.1 排队控制方案对照：全轮大锁 / 裸数组 vs 闸门 + 租约
+
+| 机制维度 | 传统大锁或内存 `array.shift()` | Maka 短锁闸门 + `SteeringLease` + `StopFence` |
+| :--- | :--- | :--- |
+| **并发吞吐阻塞** | 持锁等待完整推理，用户插话或点取消直接死卡 | 闸门仅覆盖微秒级准入入库，长耗时阶段全程零持有全局锁 |
+| **取消/重连防丢失** | `shift()` 出队后遇取消或崩盘即永远丢失纠正消息 | 未拿到 `ackSteering` 绝不删除，中断立刻 `nackSteering` 自动回位 |
+| **停机瞬时缝隙防护** | 按下 Stop 一毫秒前挤进的异步 Follow-up 偷偷起跑 | `StopFence` 按代次/水位铁幕一键拦停边界缝隙内的偷跑跟进请求 |
 
 ---
 

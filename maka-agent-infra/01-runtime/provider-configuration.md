@@ -47,6 +47,42 @@ flowchart TD
 2. **强制重刷去重判断（`resolvingForceRefresh`）**：区分“常规顺带发现过期”和“刚刚被远端网关当场打回 `401` 需要强制重刷”两种强度，确保不会错误复用一轮普通检查去掩盖刚发生的强制吊销报错。
 3. **落盘失联候选保存（`uncertainCommit?: CredentialCommitCandidate`）**：如果在“从 OAuth 供应商拿到新的一对一次性 Refresh + Access Token”到“写完本地加密库持久化文件”之间磁盘或存储协程掉线失联，系统绝不允许把新拿到的短命一次性令牌随便丢弃重刷（那样会导致账号当场锁定失效！），而是精准挂起暂存并收束明确错误码（`credential_unavailable` / `credential_superseded` / `refresh_failed` / `persistence_failed`）保障后续安全收口。
 
+```typescript
+// 教学级提炼自 OAuthExecutionAuthority 的单飞刷新与不确定提交保护
+async function acquireFreshAccessToken(state: CredentialState, forceRefresh: boolean): Promise<OAuthSubscriptionTokens> {
+  if (state.uncertainCommit) {
+    // 上一次拿到新一次性 Refresh Token 后写库断联：禁止盲目再发起一次 OAuth 刷新摧毁账号！
+    throw new OAuthExecutionCredentialError('persistence_failed', 'Pending uncertain OAuth commit must be reconciled first');
+  }
+
+  // Single-Flight 并发合并：若已有同强度在途刷新，直接共享同一个 resolving Promise
+  if (state.resolving && (state.resolvingForceRefresh || !forceRefresh)) {
+    return await state.resolving;
+  }
+
+  state.resolvingForceRefresh = forceRefresh;
+  state.resolving = (async () => {
+    const tokens = await refreshTokensOverScopedProxy(state.providerType, state.raw);
+    try {
+      const nextRev = await policyWriter.commitRotatedOAuthTokens({
+        credentialId: state.credentialId,
+        expectedRevision: state.revision, // 乐观 CAS 防旧代次覆盖
+        tokens,
+      });
+      state.revision = nextRev;
+    } catch (err) {
+      state.uncertainCommit = { credentialId: state.credentialId, revision: state.revision };
+      throw err;
+    } finally {
+      state.resolving = undefined;
+    }
+    return tokens;
+  })();
+
+  return await state.resolving;
+}
+```
+
 ---
 
 ## 4. 配置热修订：乐观锁 `expectedRevision` 与三态寿命周期
@@ -79,6 +115,12 @@ flowchart TD
 为什么这三道门禁（**`hasRequestCustomization` 旁路** + **精确前缀字面等价校验** + **5 分钟故障冷却窗**）缺一不可？
 - 因为一旦本地经过历史裁剪、安全压缩（`Compaction`）或者插件 Hook 动态改动了 System Prompt 中的某个标点，此时如果客户端误以为服务端连接的还是原来的旧状态并只发送工具结果 Delta，远端服务端延续出来的历史与本地内存就会发生隐形认知分叉——这是绝对不可审计的灾难；
 - 而一旦遇到网关防火墙或服务端限流拒绝增量状态连接，通过立即打上 **5 分钟冷却时间戳** 并无痛滑落至标准 HTTPS SSE 重试，既保住了当轮用户体验零中断，又避免接下来每一次工具步都在同一条不通的 WebSocket 上撞墙白费延迟。
+
+| 传输决策维度 | 普通无状态 HTTP 全量模式 | Maka Responses WebSocket 增量模式 |
+| :--- | :--- | :--- |
+| **每步发送载荷** | 每轮重传全量 System + N 轮完整历史 | 仅发送上一轮服务器已认领前缀之后的 Suffix Delta |
+| **安全性与分叉防护** | 每次全量无状态，绝不存在前缀对齐偏移 | 三重强制门槛（无 Custom Request / Exact Prefix Match / 5 分钟异常冷却熔断）确保严格零偏移 |
+| **网络切换与降级** | 原生无长状态切换成本 | 遇拒收立即原地退回标准 HTTP SSE 重连且冷却 5 分钟避免反复重试踩雷 |
 
 ---
 

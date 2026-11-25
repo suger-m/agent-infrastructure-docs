@@ -32,6 +32,49 @@ flowchart TD
 - **封存终态即闭合证据**：当且仅当一条工具调用连同其对应的真实恢复封存印记（满足 `failed`、`endInvocation`、`failureClass: 'outcome_unknown'` 且经 `recovered` 验明）**成对同时落入被覆盖的摘要跨度之中**，规划器才会承认该未完成 Span 已经获得法律意义上的终结封箱，放行检查点边界向前滚动；
 - **停步返回洁净状态**：如果全段滚进完与上次已覆盖水位分毫不差（`already_compacted`），手动压缩通路会精准识别并返回明确不变信号（`unchanged`），绝不在原地空打一串毫无新增价值的重复 Checkpoint 污染账本。
 
+```typescript
+// 教学级提炼自 packages/runtime/src/history-compaction.ts 的安全切点与 #6254 封存判断
+function selectSafeCompactionPrefix(events: readonly RuntimeEvent[], opts: SafePrefixOptions): SafePrefixBoundary {
+  // 1. 若历史中混入半截流式帧 (partial) 或显式锚点 (isPinned)，切点必须撤退到其严格前方，防止摘要哈希失真
+  const firstPartial = events.findIndex((e) => e.partial === true);
+  const firstPinned = opts.isPinned ? events.findIndex((e) => opts.isPinned!(e)) : -1;
+  const maxCut = Math.min(
+    events.length - Math.max(0, opts.reserveTailEvents ?? 0),
+    opts.maxCoveredCount ?? events.length,
+    firstPartial === -1 ? events.length : firstPartial,
+    firstPinned === -1 ? events.length : firstPinned,
+  );
+
+  // 2. 建立所有工具调用对的跨度映射；针对无 responseIndex 的孤儿 call 检查 Host outcome_unknown 封存
+  const seals = hostSealedUnknownCalls(events);
+  const spans = buildToolPairSpans(events).map((span) => {
+    if (span.callIndex !== undefined && span.responseIndex === undefined) {
+      const seal = seals.get(span.callId);
+      // 唯有校验合法的同 invocation 恢复封存印记，才允许覆盖界线推进到 sealIndex 之后
+      if (seal && seal.invocationId === span.invocationId) {
+        span.sealedThroughIndex = seal.sealIndex;
+      }
+    }
+    return span;
+  });
+
+  // 3. 从最前沿向后试探，找到第一个不横劈任何“未闭合或半覆盖封存 Span”的合法切点
+  for (let cut = maxCut; cut >= 1; cut -= 1) {
+    if (!straddlesAnySpan(spans, cut)) return { ok: true, coveredCount: cut };
+  }
+  return { ok: false, reason: 'no_safe_completed_span' };
+}
+```
+
+### 2.1 压缩方案对照：固定切片截断 vs 安全前缀与双哈希检查点
+
+| 比较维度 | 传统切片压缩（留最后 K 条其余总结） | Maka 安全前缀 + 双防伪检查点 |
+| :--- | :--- | :--- |
+| **工具呼出/返回边界** | 极易从 `call` 与 `result` 中间一刀劈断触发网关 400 | 依靠 `toolPairSpans` + `straddlesToolPair` 逐帧回退确保绝不劈断 |
+| **孤儿封存调用处理** | 要么漏掉引发格式异常，要么永久死停锁死检查点 | 核对真实 `outcome_unknown` 恢复封存成对跨过（`#6254`），既合规又不断档 |
+| **输入拟合与防自噬膨胀** | 靠粗糙字符比估算窗口且对摘要器无输出封顶 | 输出死锁 `8,000` Token 上限，输入是否爆窗以远端 `input_too_large` 为唯一权威 |
+| **多模态与 PDF 退避** | 出错悄悄丢掉 PDF 或删全部截图蒙混重发 | 有 `ModelProjectionTransitionLedger` 记账 Omit，无结构化拒绝诊断绝不盲删 PDF |
+
 ---
 
 ## 3. 双防伪哈希校验、上限封顶与双轨摘要引擎
